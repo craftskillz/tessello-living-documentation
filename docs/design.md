@@ -1,6 +1,6 @@
 # Codebase design
 
-How the Module's code is cut into modules (in the deep-module sense), where the seams are, and how each one is tested. Vocabulary of the domain: [CONTEXT.md](../CONTEXT.md). Behavior: [docs/spec/](spec/README.md). Status: **confirmed 2026-11-22**. Order: prototypes (4) → Host `folders.*`/`files.*` by TDD in `../tessello` (SDK + Test Host first) → first slice (connect, tree, read, edit with autosave and version check, Agent edits).
+How the Module's code is cut into modules (in the deep-module sense), where the seams are, and how each one is tested. Vocabulary of the domain: [CONTEXT.md](../CONTEXT.md). Behavior: [docs/spec/](spec/README.md). Status: **confirmed 2026-11-22**. Order: prototypes (4, kept on the `prototypes` branch) → Host `folders.*`/`files.*` by TDD in `../tessello` (SDK + Test Host first) → first slice (connect, tree, read, edit with autosave and version check, Agent edits).
 
 ## Layout
 
