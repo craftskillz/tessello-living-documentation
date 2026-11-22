@@ -1,0 +1,19 @@
+{
+  "convention": 1,
+  "id": "@craftskillz/living-documentation",
+  "name": "Living Documentation",
+  "version": "0.0.1",
+  "description": "Raw Markdown documentation next to your code, readable by your agents: read, edit and organize it in Tessello.",
+  "icon": "icon.svg",
+  "view": {
+    "entry": "view/index.html"
+  },
+  "guide": "guide/guide.md",
+  "widget": {
+    "entry": "widget/index.html",
+    "size": "M"
+  },
+  "permissions": {
+    "folders": true
+  }
+}

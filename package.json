@@ -1,0 +1,29 @@
+{
+  "name": "@craftskillz/living-documentation",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Raw Markdown documentation next to your code, readable by your agents: read, edit and organize it in Tessello.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "test": "node --test \"test/*.test.ts\"",
+    "test:browser": "npm run build && node --test --test-concurrency=1 \"e2e/*.test.ts\"",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@tessello/sdk": "file:../tessello/packages/sdk"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "esbuild": "^0.28.2",
+    "esbuild-svelte": "^0.9.5",
+    "playwright": "^1.65.0",
+    "svelte": "^5.57.2",
+    "tessello": "file:../tessello/packages/cli",
+    "typescript": "~5.9.3"
+  }
+}
