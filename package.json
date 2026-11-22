@@ -15,7 +15,8 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@tessello/sdk": "file:../tessello/packages/sdk"
+    "@tessello/sdk": "file:../tessello/packages/sdk",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
