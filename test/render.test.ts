@@ -114,3 +114,31 @@ describe("no address", () => {
     assert.doesNotMatch(html, /<img[^>]*data-image[^>]*src=/);
   });
 });
+
+describe("the frontmatter shown as a YAML block", () => {
+  const withFrontmatter = (text: string) => renderDocument(parseDocument(text, "liv-doc-main.md"), "liv-doc-main.md", {}, { frontmatter: true });
+
+  test("it opens the page as a highlighted YAML code block, then the body as usual", () => {
+    // "---\norder:\n  - a.md\n---" is 23 characters, so the block is 0-23 and "# Hi" is 24-28.
+    const html = withFrontmatter("---\norder:\n  - a.md\n---\n# Hi\n");
+    assert.match(html, /^<pre data-src="0-23"><code class="hljs language-yaml">/);
+    assert.match(html, /order/);
+    assert.match(html, /a\.md/);
+    assert.doesNotMatch(html, /---/);
+    assert.match(html, /<\/code><\/pre>\n<h1 id="hi" data-src="24-28">Hi<\/h1>$/);
+  });
+
+  test("an invalid frontmatter is shown as text all the same", () => {
+    // "---\ntags: [unclosed\n---" is 23 characters.
+    const html = withFrontmatter("---\ntags: [unclosed\n---\nText\n");
+    assert.match(html, /^<pre data-src="0-23"><code class="hljs language-yaml">/);
+    assert.match(html, /unclosed/);
+    assert.match(html, /<p data-src="24-28">Text<\/p>$/);
+  });
+
+  test("without the option, or without a frontmatter block, the output is the body alone", () => {
+    const text = "---\norder: []\n---\n# Hi\n";
+    assert.equal(render(text), '<h1 id="hi" data-src="18-22">Hi</h1>');
+    assert.equal(withFrontmatter("# Hi\n"), '<h1 id="hi" data-src="0-4">Hi</h1>');
+  });
+});

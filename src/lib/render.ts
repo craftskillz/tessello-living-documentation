@@ -58,10 +58,23 @@ function pipeline(labels: RenderLabels, clobberPrefix: string) {
 
 /**
  * The HTML of `model`'s body, for the Document at `path`. Every block has `data-src="<from>-<to>"`, UTF-16 offsets
- * into the Document's full text. Internal links have no `href`; only external links do.
+ * into the Document's full text. Internal links have no `href`; only external links do. With `frontmatter`, the
+ * frontmatter block comes first as a highlighted YAML code block (the Folder manifest, opened read-only).
  */
-export function renderDocument(model: DocumentModel, path: string, labels: Partial<RenderLabels> = {}): string {
-  const tree = renderTree(model.body, path, model.bodyStart, { ...ENGLISH, ...labels }, "ld-");
+export function renderDocument(
+  model: DocumentModel,
+  path: string,
+  labels: Partial<RenderLabels> = {},
+  options: { frontmatter?: boolean } = {},
+): string {
+  const all = { ...ENGLISH, ...labels };
+  const tree = renderTree(model.body, path, model.bodyStart, all, "ld-");
+  if (options.frontmatter && model.frontmatterText !== null && model.frontmatterEnd !== null) {
+    const fence = "`".repeat(Math.max(3, ...(model.frontmatterText.match(/`+/g) ?? []).map((run) => run.length + 1)));
+    const block = renderTree(`${fence}yaml\n${model.frontmatterText}\n${fence}`, path, 0, all, "ld-frontmatter-");
+    for (const node of block.children) if (node.type === "element") node.properties.dataSrc = `0-${model.frontmatterEnd}`;
+    tree.children = [...block.children, { type: "text", value: "\n" }, ...tree.children];
+  }
   return unified().use(rehypeStringify, { allowDangerousHtml: true }).stringify(tree);
 }
 

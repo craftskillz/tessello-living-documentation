@@ -52,7 +52,7 @@ export interface Opened {
 /** Opens the View on a Test Host of its own, with the Module's Permissions. */
 export async function openView(options: { storage?: TestHostOptions["storage"]; locale?: string; host?: TestHost } = {}): Promise<Opened> {
   const host = options.host ?? createTestHost({ module, permissions: manifest.permissions, storage: options.storage, locale: options.locale });
-  const page = await (await browser.newContext()).newPage();
+  const page = await (await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] })).newPage();
   await slowDownCpu(page);
   const surface = await host.attach(page, { surface: "view" });
   await page.goto(`${server.url}/${manifest.view.entry}`);

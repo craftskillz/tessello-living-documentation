@@ -52,4 +52,25 @@ describe("the frontmatter", () => {
     assert.equal(document.title, "Deploy");
     assert.equal(document.body, "# Body\n");
   });
+
+  test("the YAML between the fences is kept as text, with where the block ends, closing fence included", () => {
+    // "---\ntitle: T\ntags: [a]\n---" is 26 characters, then a newline.
+    const document = parseDocument("---\ntitle: T\ntags: [a]\n---\n# Body\n", "t.md");
+    assert.equal(document.frontmatterText, "title: T\ntags: [a]");
+    assert.equal(document.frontmatterEnd, 26);
+  });
+
+  test("an invalid frontmatter keeps its text too, and no frontmatter gives null", () => {
+    assert.equal(parseDocument("---\ntags: [unclosed\n---\n", "t.md").frontmatterText, "tags: [unclosed");
+    const none = parseDocument("# Body\n", "t.md");
+    assert.equal(none.frontmatterText, null);
+    assert.equal(none.frontmatterEnd, null);
+  });
+
+  test("with CRLF line endings the block ends before the closing line's break", () => {
+    // "---\r\na: 1\r\n---" is 14 characters.
+    const document = parseDocument("---\r\na: 1\r\n---\r\nText", "t.md");
+    assert.equal(document.frontmatterText, "a: 1");
+    assert.equal(document.frontmatterEnd, 14);
+  });
 });

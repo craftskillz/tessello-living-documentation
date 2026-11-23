@@ -22,3 +22,16 @@ button.primary {
   border-color: var(--accent);
   color: #fff;
 }
+
+/* White background, for screen captures: the reading area is pure white and the Document in its light colors, whatever
+   the Host's theme (the Document's dark rules are switched off by this class too, see document.css). */
+.ld-white-background main {
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --ink: #111827;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  color-scheme: light;
+  background: #ffffff;
+  color: #111827;
+}

@@ -15,6 +15,10 @@ export interface DocumentModel {
   tags: string[];
   type: string | null;
   frontmatter: Frontmatter;
+  /** The YAML between the `---` lines, as written; null without a frontmatter block. */
+  frontmatterText: string | null;
+  /** The offset where the block ends, closing `---` included and its line break not: null without a frontmatter block. */
+  frontmatterEnd: number | null;
   /** The text after the frontmatter. */
   body: string;
   /** The UTF-16 offset of `body` in the Document's text: 0 without frontmatter. */
@@ -36,6 +40,8 @@ export function parseDocument(text: string, path: string): DocumentModel {
     tags: tagsOf(fields.tags),
     type: string(fields.type),
     frontmatter,
+    frontmatterText: match ? match[1]! : null,
+    frontmatterEnd: match ? match[0].length - match[2]!.length : null,
     body,
     bodyStart,
   };

@@ -134,3 +134,60 @@ describe("removing a Project", () => {
     assert.equal(host.folders.read(disk, "a.md"), "a");
   });
 });
+
+describe("display preferences", () => {
+  test("are the defaults on a first visit", async () => {
+    const projects = await projectsOf(hostOf());
+
+    assert.deepEqual(await projects.preferences(), { lines: false, whiteBackground: false, toc: { open: false, width: 224 } });
+  });
+
+  test("a change is kept for the next visit", async () => {
+    const host = hostOf();
+    const changed = await (await projectsOf(host)).setPreferences({ lines: true, whiteBackground: true, toc: { open: true, width: 300 } });
+
+    assert.deepEqual(changed, { lines: true, whiteBackground: true, toc: { open: true, width: 300 } });
+    assert.deepEqual(await (await projectsOf(host)).preferences(), changed);
+  });
+
+  test("changing one keeps the others", async () => {
+    const projects = await projectsOf(hostOf());
+    await projects.setPreferences({ lines: true, toc: { open: true, width: 300 } });
+
+    assert.deepEqual(await projects.setPreferences({ whiteBackground: true }), { lines: true, whiteBackground: true, toc: { open: true, width: 300 } });
+    assert.deepEqual(await projects.setPreferences({ toc: { open: false } }), { lines: true, whiteBackground: true, toc: { open: false, width: 300 } });
+    assert.deepEqual(await projects.setPreferences({ toc: { width: 180 } }), { lines: true, whiteBackground: true, toc: { open: false, width: 180 } });
+  });
+
+  test("a TOC width is kept between 160 and 400 pixels, whole", async () => {
+    const projects = await projectsOf(hostOf());
+
+    assert.equal((await projects.setPreferences({ toc: { width: 100 } })).toc.width, 160);
+    assert.equal((await projects.setPreferences({ toc: { width: 900 } })).toc.width, 400);
+    assert.equal((await projects.setPreferences({ toc: { width: 250.6 } })).toc.width, 251);
+    assert.equal((await projects.setPreferences({ toc: { width: Number.NaN } })).toc.width, 251);
+  });
+
+  test("a malformed kept value gives the defaults, field by field", async () => {
+    const defaults = { lines: false, whiteBackground: false, toc: { open: false, width: 224 } };
+
+    assert.deepEqual(await (await projectsOf(hostOf({ storage: { display: "nope" } }))).preferences(), defaults);
+    assert.deepEqual(await (await projectsOf(hostOf({ storage: { display: [1] } }))).preferences(), defaults);
+    assert.deepEqual(
+      await (await projectsOf(hostOf({ storage: { display: { lines: true, whiteBackground: "yes", toc: { open: 1, width: 999 } } } }))).preferences(),
+      { lines: true, whiteBackground: false, toc: { open: false, width: 400 } },
+    );
+  });
+
+  test("are not touched by connecting or removing a Project", async () => {
+    const host = hostOf();
+    host.folders.choose(host.folders.create("docs", { "a.md": "a" }));
+    const projects = await projectsOf(host);
+    const kept = await projects.setPreferences({ lines: true, toc: { open: true, width: 300 } });
+
+    const project = (await projects.connect())!;
+    assert.deepEqual(await projects.preferences(), kept);
+    await projects.remove(project);
+    assert.deepEqual(await (await projectsOf(host)).preferences(), kept);
+  });
+});

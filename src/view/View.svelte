@@ -6,10 +6,14 @@
   import { decorateCollapsible } from "./collapsible.ts";
   import { loadImages } from "../lib/images.ts";
   import { t } from "../lib/i18n.ts";
-  import { Conflict, NotFound, type DocumentText, type Project, type TreeEntry } from "../lib/project.ts";
-  import { createProjects, type ListedProject } from "../lib/projects.ts";
+  import { Conflict, FOLDER_MANIFEST, NotFound, type DocumentText, type Project, type TreeEntry } from "../lib/project.ts";
+  import { createProjects, TOC_WIDTH, type DisplayPreferences, type ListedProject } from "../lib/projects.ts";
   import { renderDocument } from "../lib/render.ts";
+  import ArticleTools from "./ArticleTools.svelte";
+  import { applyLineLabels } from "./lines.ts";
   import Editor from "./Editor.svelte";
+  import Header from "./Header.svelte";
+  import Toc, { type Heading } from "./Toc.svelte";
   import Tree from "./Tree.svelte";
 
   let { host }: { host: ConnectedModule } = $props();
@@ -30,6 +34,12 @@
   /** The Documents left through links, oldest first; the Tree clears it. */
   let trail = $state.raw<{ path: string; title: string }[]>([]);
   let article = $state<HTMLElement>();
+  /** The failure toast is red; a confirmation (`tone` "success") is not, and goes away by itself. */
+  let tone = $state<"failure" | "success">("failure");
+  let confirmation: ReturnType<typeof setTimeout> | undefined;
+  /** The User's display preferences (Lines, White background, table of contents), kept in the Module's storage. */
+  let display = $state<DisplayPreferences>({ lines: false, whiteBackground: false, toc: { open: false, width: TOC_WIDTH.default } });
+  let headings = $state.raw<Heading[]>([]);
 
   let editing = $state(false);
   let draft = $state("");
@@ -42,23 +52,61 @@
   let stopParams: (() => void) | undefined;
 
   const model = $derived(current && path ? parseDocument(current.text, path) : null);
+  /** A Folder manifest is read, never edited or deleted (docs/spec/documents-reading-and-editing.md, rule 14). */
+  const readOnly = $derived(path !== null && path.split("/").pop() === FOLDER_MANIFEST);
   const html = $derived(model ? renderDocument(model, path, {
         footnotes: t("footnotes"),
         footnoteBack: t("footnoteBack"),
         compareSource: t("compareSource"),
         compareRender: t("compareRender"),
-      }) : "");
+      }, { frontmatter: readOnly }) : "");
   const hasHeading = $derived(model ? /^ {0,3}# /m.test(model.body) : false);
 
   /** Shows `message`, the raw reason, if any, only as a detail (docs/spec/cross-cutting.md, Failures). */
   function report(message: string, reason?: unknown) {
+    clearTimeout(confirmation);
+    tone = "failure";
     error = message;
     detail = reason === undefined ? null : t("detail", { reason: reason instanceof Error ? reason.message : String(reason) });
   }
 
   function dismiss() {
+    clearTimeout(confirmation);
     error = null;
     detail = null;
+  }
+
+  /** A short confirmation in the toast, gone after a moment. */
+  function notify(message: string) {
+    clearTimeout(confirmation);
+    tone = "success";
+    error = message;
+    detail = null;
+    confirmation = setTimeout(dismiss, 2000);
+  }
+
+  async function copyPath() {
+    try {
+      await navigator.clipboard.writeText(path!);
+      notify(t("pathCopied"));
+    } catch (reason) {
+      report(t("pathCopyFailed"), reason);
+    }
+  }
+
+  async function setDisplay(changes: Parameters<typeof projects.setPreferences>[0]) {
+    try {
+      display = await projects.setPreferences(changes);
+    } catch (reason) {
+      fail(reason);
+    }
+  }
+
+  /** Scrolls to a heading of the table of contents, opening the folded sections around it first. */
+  function goToHeading(id: string) {
+    const target = article?.querySelector(`#${CSS.escape(id)}`);
+    for (let each = target?.closest("details"); each; each = each.parentElement?.closest("details")) each.open = true;
+    target?.scrollIntoView();
   }
 
   const fail = (reason: unknown) => report(t("failed"), reason);
@@ -72,6 +120,7 @@
   }
 
   async function start() {
+    display = await projects.preferences();
     const list = await projects.list();
     const wanted = route(host.context.params);
     const activeId = (await projects.active())?.id;
@@ -170,6 +219,28 @@
     html;
     if (!article) return;
     return decorateCollapsible(article, { more: t("showMore"), less: t("showLess") });
+  });
+
+  // Lines: each block of the article names the lines it comes from, after each render and each change of the setting.
+  $effect(() => {
+    html;
+    if (!article || !display.lines || !current) return;
+    return applyLineLabels(article, current.text);
+  });
+
+  // The table of contents lists the headings of each render.
+  $effect(() => {
+    html;
+    if (!article) return;
+    headings = [...article.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")]
+      .map((each) => ({ id: each.id, text: (each.textContent ?? "").trim(), level: Number(each.tagName.slice(1)) }))
+      .filter((each) => each.id && each.text);
+  });
+
+  // White background lives on the root, where the dark theme of the Document is switched off.
+  $effect(() => {
+    document.documentElement.classList.toggle("ld-white-background", display.whiteBackground);
+    return () => document.documentElement.classList.remove("ld-white-background");
   });
 
   async function connectFolder() {
@@ -287,6 +358,7 @@
   onDestroy(() => {
     clearInterval(checking);
     clearTimeout(autosave);
+    clearTimeout(confirmation);
     stopParams?.();
     document.removeEventListener("visibilitychange", onVisibility);
   });
@@ -319,14 +391,20 @@
     </nav>
     <main>
       {#if current && model}
-        <div class="toolbar">
-          {#if editing}
-            <span class="muted">{saving ? t("saving") : t("saved")}</span>
-            <button class="primary" onclick={done}>{t("done")}</button>
-          {:else}
-            <button onclick={startEditing}>{t("edit")}</button>
-          {/if}
-        </div>
+        <Header
+          {editing}
+          {saving}
+          {readOnly}
+          lines={display.lines}
+          whiteBackground={display.whiteBackground}
+          tocOpen={display.toc.open}
+          oncopypath={() => void copyPath()}
+          onlines={() => void setDisplay({ lines: !display.lines })}
+          onwhite={() => void setDisplay({ whiteBackground: !display.whiteBackground })}
+          ontoc={() => void setDisplay({ toc: { open: !display.toc.open } })}
+          onedit={startEditing}
+          ondone={done}
+        />
         {#if conflict}
           <div class="banner" role="alert">
             <p>{conflict.theirs ? t("changedOutside") : t("deletedOutside")}</p>
@@ -353,11 +431,22 @@
               {/each}
             </div>
           {/if}
-          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-          <article class="document" bind:this={article} onclick={activate} onkeydown={activateKey}>
-            {#if !hasHeading}<h1>{model.title}</h1>{/if}
-            {@html html}
-          </article>
+          <div class="reading">
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+            <article class="document" class:ld-show-source-lines={display.lines} bind:this={article} onclick={activate} onkeydown={activateKey}>
+              {#if !hasHeading}<h1>{model.title}</h1>{/if}
+              {@html html}
+            </article>
+            {#if display.toc.open && headings.length > 0}
+              <Toc
+                {headings}
+                width={display.toc.width}
+                onselect={goToHeading}
+                onresized={(width) => void setDisplay({ toc: { width } })}
+              />
+            {/if}
+          </div>
+          <ArticleTools {article} {notify} fail={report} />
         {/if}
       {/if}
     </main>
@@ -365,7 +454,7 @@
 {/if}
 
 {#if error}
-  <div class="toast" role="status">
+  <div class="toast" class:success={tone === "success"} role="status">
     <p>{error}{#if detail}<br /><small>{detail}</small>{/if}</p>
     <button class="close" aria-label={t("close")} onclick={dismiss}>×</button>
   </div>
@@ -401,11 +490,14 @@
     padding: 1rem 2rem;
     overflow: auto;
   }
-  .toolbar {
+  .reading {
     display: flex;
-    gap: 0.5rem;
-    justify-content: flex-end;
-    align-items: center;
+    align-items: flex-start;
+    gap: 1.5rem;
+  }
+  .reading article {
+    flex: 1;
+    min-width: 0;
   }
   .trail {
     display: flex;
@@ -448,6 +540,9 @@
     border-radius: 8px;
     box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
     animation: toast-in 160ms ease-out;
+  }
+  .toast.success {
+    border-left-color: #2e7d32;
   }
   .toast p {
     margin: 0;

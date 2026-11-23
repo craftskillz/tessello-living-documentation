@@ -16,6 +16,17 @@ export interface ListedProject extends ProjectInfo {
   state: "available" | "unavailable";
 }
 
+export interface DisplayPreferences {
+  /** Source line numbers next to each block. */
+  lines: boolean;
+  /** A pure white page, for screen captures. */
+  whiteBackground: boolean;
+  /** The table of contents: open or closed, and its width in pixels (160–400). */
+  toc: { open: boolean; width: number };
+}
+
+export const TOC_WIDTH = { min: 160, max: 400, default: 224 };
+
 export interface Projects {
   /** Asks the User for a folder (call it from their click) and adds it as the Active Project; null if they cancel. */
   connect(): Promise<ProjectInfo | null>;
@@ -31,9 +42,15 @@ export interface Projects {
   reconnect(project: ProjectInfo): Promise<boolean>;
   /** Forgets the Project and gives its folder back; its files stay on disk. */
   remove(project: ProjectInfo): Promise<void>;
+  /** The User's display preferences; defaults when none were kept or the kept value is malformed. */
+  preferences(): Promise<DisplayPreferences>;
+  /** Changes some preferences, keeps the others; resolves with all of them. A TOC width is clamped to 160–400 and rounded. */
+  setPreferences(changes: { lines?: boolean; whiteBackground?: boolean; toc?: { open?: boolean; width?: number } }): Promise<DisplayPreferences>;
 }
 
 const KEY = "projects";
+// Apart from the Projects, so that writing one never races with writing the other.
+const DISPLAY_KEY = "display";
 
 interface Stored {
   projects: ProjectInfo[];
@@ -57,6 +74,23 @@ function readStored(value: Json): Stored {
   return { projects, active: typeof raw.active === "string" ? raw.active : null, lastOpened };
 }
 
+function readPreferences(value: Json): DisplayPreferences {
+  const object = (each: Json | undefined) => (typeof each === "object" && each !== null && !Array.isArray(each) ? each : {});
+  const raw = object(value);
+  const toc = object(raw.toc);
+  return {
+    lines: typeof raw.lines === "boolean" ? raw.lines : false,
+    whiteBackground: typeof raw.whiteBackground === "boolean" ? raw.whiteBackground : false,
+    toc: {
+      open: typeof toc.open === "boolean" ? toc.open : false,
+      width: typeof toc.width === "number" && Number.isFinite(toc.width) ? clampTocWidth(toc.width) : TOC_WIDTH.default,
+    },
+  };
+}
+
+/** A table of contents width kept within 160–400 px, whole. */
+export const clampTocWidth = (width: number) => Math.min(TOC_WIDTH.max, Math.max(TOC_WIDTH.min, Math.round(width)));
+
 const folderOf = (project: ProjectInfo): Folder => ({ id: project.id, name: project.name });
 
 /** The first Document of a Tree, depth first. */
@@ -73,7 +107,25 @@ export function createProjects(module: ConnectedModule): Projects {
   const read = async () => readStored(await module.storage.get(KEY));
   const write = (stored: Stored) => module.storage.set(KEY, { ...stored, projects: stored.projects.map((project) => ({ ...project })) });
 
+  const readDisplay = async () => readPreferences(await module.storage.get(DISPLAY_KEY));
+
   return {
+    async preferences() {
+      return readDisplay();
+    },
+    async setPreferences(changes) {
+      const kept = await readDisplay();
+      const next: DisplayPreferences = {
+        lines: changes.lines ?? kept.lines,
+        whiteBackground: changes.whiteBackground ?? kept.whiteBackground,
+        toc: {
+          open: changes.toc?.open ?? kept.toc.open,
+          width: changes.toc?.width !== undefined && Number.isFinite(changes.toc.width) ? clampTocWidth(changes.toc.width) : kept.toc.width,
+        },
+      };
+      await module.storage.set(DISPLAY_KEY, { lines: next.lines, whiteBackground: next.whiteBackground, toc: { ...next.toc } });
+      return next;
+    },
     async connect() {
       const folder = await module.folders.request();
       if (!folder) return null;
