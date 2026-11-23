@@ -25,7 +25,7 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
   - `renderDocument(..., { frontmatter: true })` shows a Document's frontmatter first as a highlighted YAML block; the model gains `frontmatterText` and `frontmatterEnd`.
   - The View: `Header.svelte` (Copy path, Lines, White background, Table of contents, Edit, Delete), `Toc.svelte` (headings as buttons, opens closed `<details>`, resizable), `ArticleTools.svelte` (right-click menu with Copy image / Copy table, Shift/Cmd + click enlargement in a `<dialog>`), `copy.ts` (ports of the original's copyTable and copyImage). The toast gains a success tone for confirmations, gone after 2 s.
   - Tests: 131 unit, 48 browser (18 new in `e2e/header.test.ts`, each checking that the page address never changes); `tessello validate` passes (the 2 known highlight.js warnings).
-- **Trial in the local Host** (2026-11-23): validated by the User. The sticky header and the "Saving…" indicator (d9fe29a) came from this trial.
+- **Trial in the local Host** (2026-11-23): validated by the User, including Copy path, Copy image and Copy table in the Host's sandboxed frame. The sticky header and the "Saving…" indicator (d9fe29a) came from this trial.
 - **Differs from the original:**
   - White background is remembered (the original forgot it on reload), and keeps the Document in its light colors in a dark Host.
   - Delete is shown disabled with a "later version" title until the delete ticket.
@@ -36,7 +36,6 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
   - The header stays on top while the Document scrolls, while reading and while editing; the table of contents and scrolled-to headings sit below it. While editing, "Saving…" shows only during a save; "Saved" is gone (asked by the User after the first build).
 - **Left over:**
   - The Folder manifest opens only through the View's params (`doc`), since the Tree hides it; showing it with the hidden entries is ticket 10.
-  - Clipboard writes are tested on the Test Host's top-level page; they still need checking in the Host's `about:srcdoc` frame (the prototype covered image copy only).
   - A manifest without a `#` heading shows its file name as the title above the YAML block.
   - A View opened through params while it is still starting can be overridden by the start Document (existing race in `View.svelte`).
   - Review smells, left for a later refactor: `Header` takes one prop and one callback per preference (could take the preferences and one toggle); the toast state could leave `View.svelte`; `copy.ts` is covered by browser tests only.
