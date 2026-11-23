@@ -31,6 +31,12 @@ const en = {
   fileUnavailable: "Opening other files (“{path}”) is not available yet. Open it from your file manager.",
   imageNotFound: "Image not found: {path}. Fix the link or add the image to the folder.",
   trail: "Back to",
+  footnotes: "Footnotes",
+  footnoteBack: "Back to reference",
+  compareSource: "Markdown",
+  compareRender: "Result",
+  showMore: "▾ Show more",
+  showLess: "▴ Show less",
 };
 
 type Messages = typeof en;
@@ -66,6 +72,12 @@ const fr: Messages = {
   fileUnavailable: "L'ouverture des autres fichiers (« {path} ») n'est pas encore disponible. Ouvrez-le depuis votre gestionnaire de fichiers.",
   imageNotFound: "Image introuvable : {path}. Corrigez le lien ou ajoutez l'image au dossier.",
   trail: "Retour vers",
+  footnotes: "Notes de bas de page",
+  footnoteBack: "Retour à l’appel de note",
+  compareSource: "Markdown",
+  compareRender: "Rendu",
+  showMore: "▾ Afficher plus",
+  showLess: "▴ Réduire",
 };
 
 export type MessageKey = keyof Messages;

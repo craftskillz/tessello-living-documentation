@@ -1,0 +1,160 @@
+// The catalogue of block directives (ADR 0005): HTML comments written on the lines before the block they apply to,
+// as the original defined them. A comment is `<!-- name: value -->` or a bare `<!-- name -->`. Pure: this module only
+// reads comment text and says what it means; render.ts applies it to the Document.
+
+export interface Directive {
+  name: string;
+  value: string | null;
+}
+
+/** The directive written in the text of a comment (what sits between `<!--` and `-->`), or null if it is not one. */
+export function parseDirective(comment: string): Directive | null {
+  const match = /^\s*(\/?[a-z][a-z0-9-]*)\s*(?::\s*([\s\S]*?))?\s*$/i.exec(comment);
+  if (!match) return null;
+  const name = match[1]!.toLowerCase();
+  return { name, value: match[2] === undefined ? null : match[2] };
+}
+
+const oneOf = (allowed: readonly string[], value: string | null): string | null =>
+  value !== null && allowed.includes(value) ? value : null;
+
+// ---- tables ----
+
+export interface TableAttrs {
+  style: string | null;
+  border: string | null;
+  color: string | null;
+}
+
+const TABLE_STYLES = ["compact", "striped", "full"];
+const TABLE_BORDERS = ["bordered", "borderless"];
+const TABLE_COLORS = ["info", "success", "warning", "danger", "note"];
+
+/** `table-style`, `table-border` and `table-color`; invalid values are ignored, the last valid one wins. */
+export function tableAttrs(directives: Directive[]): TableAttrs {
+  const attrs: TableAttrs = { style: null, border: null, color: null };
+  for (const { name, value } of directives) {
+    const word = value === null ? null : value.trim();
+    if (name === "table-style") {
+      attrs.style = oneOf(TABLE_STYLES, word) ?? attrs.style;
+      attrs.border = oneOf(TABLE_BORDERS, word) ?? attrs.border; // legacy: table-style: bordered
+    }
+    if (name === "table-border") attrs.border = oneOf(TABLE_BORDERS, word) ?? attrs.border;
+    if (name === "table-color") attrs.color = oneOf(TABLE_COLORS, word) ?? attrs.color;
+  }
+  return attrs;
+}
+
+// ---- images and code blocks: a width and an alignment ----
+
+const WIDTHS = ["full", "3/4", "2/3", "1/2", "1/3", "1/4"];
+const ALIGNS = ["left", "center", "right"];
+const WIDTH_SUFFIX: Record<string, string> = { full: "full", "3/4": "three-quarters", "2/3": "two-thirds", "1/2": "half", "1/3": "third", "1/4": "quarter" };
+
+export interface SizeAttrs {
+  width: string | null;
+  align: string | null;
+  /** The suffix of the width's class (`half` for `1/2`). */
+  widthClass: string | null;
+}
+
+/** `<kind>-width` and `<kind>-align` (`image` or `code`); invalid values are ignored, the last valid one wins. */
+export function sizeAttrs(kind: "image" | "code", directives: Directive[]): SizeAttrs {
+  let width: string | null = null;
+  let align: string | null = null;
+  for (const { name, value } of directives) {
+    const word = value === null ? null : value.trim();
+    if (name === `${kind}-width`) width = oneOf(WIDTHS, word) ?? width;
+    if (name === `${kind}-align`) align = oneOf(ALIGNS, word) ?? align;
+  }
+  return { width, align, widthClass: width && WIDTH_SUFFIX[width]! };
+}
+
+// ---- blockquotes: callouts ----
+
+export interface QuoteAttrs {
+  type: string | null;
+  title: string | null;
+  icon: boolean;
+}
+
+const CALLOUT_ALIASES: Record<string, string> = { note: "info", tip: "success", caution: "warning", danger: "error" };
+const CALLOUT_TYPES = ["info", "success", "warning", "error", ...Object.keys(CALLOUT_ALIASES)];
+
+/** The canonical callout type (`tip` is `success`), or null when the value is not a known type. */
+const calloutType = (value: string | null): string | null => {
+  const word = oneOf(CALLOUT_TYPES, value === null ? null : value.trim());
+  return word && (CALLOUT_ALIASES[word] ?? word);
+};
+
+/** `quote-type`, `quote-title` and the bare `quote-icon`. A blockquote is a callout when any of them is set. */
+export function quoteAttrs(directives: Directive[]): QuoteAttrs {
+  const attrs: QuoteAttrs = { type: null, title: null, icon: false };
+  for (const { name, value } of directives) {
+    if (name === "quote-type") attrs.type = calloutType(value);
+    if (name === "quote-title" && value !== null && value !== "") attrs.title = value;
+    if (name === "quote-icon") attrs.icon = true;
+  }
+  return attrs;
+}
+
+const ICONS: Record<string, string> = {
+  info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>',
+  success:
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
+  warning:
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>',
+  error:
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg>',
+};
+
+/** The SVG of a callout type; the info icon for no type. */
+export const calloutIcon = (type: string | null): string => ICONS[type ?? ""] ?? ICONS.info!;
+
+// ---- column layouts ----
+
+export interface ColumnOptions {
+  ratio: string | null;
+  verticalAlign: string | null;
+  textAlign: string | null;
+  gap: string | null;
+}
+
+export type ColumnComment = { kind: "open"; options: ColumnOptions } | { kind: "column" } | { kind: "close" };
+
+const VERTICAL_ALIGNS = ["top", "center", "bottom", "stretch"];
+const TEXT_ALIGNS = ["left", "center", "right", "justify"];
+const GAPS = ["sm", "md", "lg"];
+
+/** What a comment means to a column layout: `layout-columns: 2/1 | gap: lg`, `col`, `/layout-columns`. */
+export function parseColumnComment(comment: string): ColumnComment | null {
+  if (/^\s*col\s*$/i.test(comment)) return { kind: "column" };
+  if (/^\s*\/layout-columns\s*$/i.test(comment)) return { kind: "close" };
+  if (!/^\s*layout-columns\b/i.test(comment)) return null;
+  const options: ColumnOptions = { ratio: null, verticalAlign: null, textAlign: null, gap: null };
+  for (const part of comment.trim().replace(/^layout-columns\s*:?\s*/i, "").split("|")) {
+    const text = part.trim();
+    const pair = /^([\w-]+)\s*:\s*(.+)$/.exec(text);
+    if (pair) {
+      const key = pair[1]!.toLowerCase();
+      const value = pair[2]!.trim().toLowerCase();
+      if (key === "vertical-align") options.verticalAlign = oneOf(VERTICAL_ALIGNS, value) ?? options.verticalAlign;
+      else if (key === "text-align") options.textAlign = oneOf(TEXT_ALIGNS, value) ?? options.textAlign;
+      else if (key === "gap") options.gap = oneOf(GAPS, value) ?? options.gap;
+      else if (key === "ratio") options.ratio = value.replace(/\s+/g, "");
+    } else if (/^\d+(\s*\/\s*\d+)*$/.test(text)) options.ratio = text.replace(/\s+/g, "");
+  }
+  return { kind: "open", options };
+}
+
+/** The `grid-template-columns` of a layout: the ratio when it fits the column count, equal columns otherwise. */
+export function gridTemplate(ratio: string | null, columnCount: number): string {
+  const equal = `repeat(${columnCount}, minmax(0, 1fr))`;
+  if (!ratio) return equal;
+  if (ratio.includes("/")) {
+    const fractions = ratio.split("/").map((each) => parseInt(each, 10));
+    return fractions.length === columnCount && fractions.every((each) => each > 0) ? fractions.map((each) => `${each}fr`).join(" ") : equal;
+  }
+  const count = parseInt(ratio, 10);
+  return count > 0 ? `repeat(${count}, minmax(0, 1fr))` : equal;
+}

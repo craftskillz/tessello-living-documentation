@@ -27,7 +27,7 @@ describe("source ranges", () => {
   test("tables, quotes, code blocks and rules too", () => {
     const html = render("> q\n\n```\ncode\n```\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |\n");
     assert.match(html, /<blockquote data-src="0-3">/);
-    assert.match(html, /<pre data-src="5-17"><code>code\n<\/code><\/pre>/);
+    assert.match(html, /<pre data-src="5-17"><code[^>]*>(<span[^>]*>)?code(<\/span>)?\n<\/code><\/pre>/);
     assert.match(html, /<hr data-src="19-22">/);
     assert.match(html, /<table data-src="24-/);
   });
@@ -61,8 +61,8 @@ describe("links", () => {
 
   test("footnote references are anchor links", () => {
     const html = render("Text[^1]\n\n[^1]: Note\n");
-    assert.match(html, /<a role="link" tabindex="0" data-anchor="user-content-fn-1" id="user-content-fnref-1"[^>]*>1<\/a>/);
-    assert.match(html, /<a role="link" tabindex="0" data-anchor="user-content-fnref-1"[^>]*>/);
+    assert.match(html, /<a role="link" tabindex="0" data-anchor="ld-fn-1" id="ld-fnref-1"[^>]*>1<\/a>/);
+    assert.match(html, /<a role="link" tabindex="0" data-anchor="ld-fnref-1"[^>]*>/);
     assert.doesNotMatch(html, /href/);
   });
 

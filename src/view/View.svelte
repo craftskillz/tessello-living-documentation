@@ -3,6 +3,7 @@
   import type { ConnectedModule } from "@tessello/sdk";
   import { onDestroy, onMount, tick } from "svelte";
   import { parseDocument } from "../lib/document.ts";
+  import { decorateCollapsible } from "./collapsible.ts";
   import { loadImages } from "../lib/images.ts";
   import { t } from "../lib/i18n.ts";
   import { Conflict, NotFound, type DocumentText, type Project, type TreeEntry } from "../lib/project.ts";
@@ -41,7 +42,12 @@
   let stopParams: (() => void) | undefined;
 
   const model = $derived(current && path ? parseDocument(current.text, path) : null);
-  const html = $derived(model ? renderDocument(model, path) : "");
+  const html = $derived(model ? renderDocument(model, path, {
+        footnotes: t("footnotes"),
+        footnoteBack: t("footnoteBack"),
+        compareSource: t("compareSource"),
+        compareRender: t("compareRender"),
+      }) : "");
   const hasHeading = $derived(model ? /^ {0,3}# /m.test(model.body) : false);
 
   /** Shows `message`, the raw reason, if any, only as a detail (docs/spec/cross-cutting.md, Failures). */
@@ -157,6 +163,13 @@
     html;
     if (!article || !project) return;
     return loadImages(article, (imagePath) => project!.readImage(imagePath), (imagePath) => t("imageNotFound", { path: imagePath }));
+  });
+
+  // Long code blocks fold after each render; the next render (or leaving) undoes this one.
+  $effect(() => {
+    html;
+    if (!article) return;
+    return decorateCollapsible(article, { more: t("showMore"), less: t("showLess") });
   });
 
   async function connectFolder() {
