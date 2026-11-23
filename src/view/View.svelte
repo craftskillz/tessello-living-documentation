@@ -50,6 +50,11 @@
     detail = reason === undefined ? null : t("detail", { reason: reason instanceof Error ? reason.message : String(reason) });
   }
 
+  function dismiss() {
+    error = null;
+    detail = null;
+  }
+
   const fail = (reason: unknown) => report(t("failed"), reason);
 
   /**
@@ -300,7 +305,6 @@
       {/if}
     </nav>
     <main>
-      {#if error}<p class="error" role="status">{error}{#if detail}<br /><small>{detail}</small>{/if}</p>{/if}
       {#if current && model}
         <div class="toolbar">
           {#if editing}
@@ -344,6 +348,13 @@
         {/if}
       {/if}
     </main>
+  </div>
+{/if}
+
+{#if error}
+  <div class="toast" role="status">
+    <p>{error}{#if detail}<br /><small>{detail}</small>{/if}</p>
+    <button class="close" aria-label={t("close")} onclick={dismiss}>×</button>
   </div>
 {/if}
 
@@ -406,7 +417,39 @@
     border: 1px solid var(--line);
     padding: 0.5rem;
   }
-  .error {
-    color: #c62828;
+  /* Failures float at the bottom of the screen, wherever the reader has scrolled (Sonner-like). */
+  .toast {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 10;
+    max-width: min(28rem, calc(100vw - 2rem));
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem 0.75rem 0.75rem 1rem;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-left: 4px solid #c62828;
+    border-radius: 8px;
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+    animation: toast-in 160ms ease-out;
+  }
+  .toast p {
+    margin: 0;
+  }
+  .toast .close {
+    border: none;
+    background: none;
+    padding: 0 0.25rem;
+    font-size: 1.2em;
+    line-height: 1;
+  }
+  @keyframes toast-in {
+    from {
+      transform: translateY(0.5rem);
+      opacity: 0;
+    }
   }
 </style>

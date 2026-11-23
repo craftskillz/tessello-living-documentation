@@ -82,6 +82,20 @@ describe("links between Documents", () => {
     assert.equal(page.url(), address);
   });
 
+  test("a failure followed from far down the Document shows in view, until closed", async () => {
+    const { page } = await withProject({ "a.md": `# Alpha\n${filler}\n\n[lost](nowhere.md)\n` });
+    const link = page.getByRole("link", { name: "lost" });
+    await link.scrollIntoViewIfNeeded();
+    await link.click();
+    const message = page.getByRole("status").filter({ hasText: "“nowhere.md” does not exist" });
+    await message.waitFor();
+    const box = (await message.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    assert.ok(box.y >= 0 && box.y + box.height <= viewport.height, "the message is inside the viewport");
+    await message.getByRole("button", { name: "Close" }).click();
+    await message.waitFor({ state: "detached" });
+  });
+
   test("a same-Document anchor scrolls to its heading", async () => {
     const { page } = await withProject({ "a.md": `# Alpha\n\n[down](#the-end)\n${filler}\n\n## The end\n` });
     const address = page.url();
