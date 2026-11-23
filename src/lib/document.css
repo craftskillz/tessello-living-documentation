@@ -789,3 +789,88 @@
 .ld-show-source-lines > [data-line-label]::before { content: attr(data-line-label); position: absolute; top: 0; left: calc(-1 * var(--ld-line-gutter)); width: calc(var(--ld-line-gutter) - 0.75rem); text-align: right; font: 400 0.75rem/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0; color: #6b7280; white-space: nowrap; }
 .ld-show-source-lines > pre[data-line-label] { padding-top: 1.5rem; }
 .ld-show-source-lines > pre[data-line-label]::before { left: 0.5rem; width: auto; text-align: left; }
+
+/* ── Tag markers, Mermaid diagrams and Kanban boards ── */
+
+.document .ld-tag-marker {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 0.8em;
+  line-height: 1.4;
+  padding: 0 0.45em;
+  margin: 0 0.15em;
+  vertical-align: 0.1em;
+  border-radius: 999px;
+  background: #fde047;
+  color: #713f12;
+  cursor: help;
+}
+:root[data-mode="dark"]:not(.ld-white-background) .document .ld-tag-marker {
+  background: #facc15;
+  color: #422006;
+}
+
+.document .ld-mermaid { margin: 1em 0; text-align: center; overflow-x: auto; }
+.document .ld-mermaid > svg { max-width: 100%; height: auto; }
+.document .ld-mermaid[class*="ld-code-width-"] { max-width: 100%; }
+.document .ld-mermaid.ld-code-width-full { width: 100%; }
+.document .ld-mermaid.ld-code-width-three-quarters { width: 75%; }
+.document .ld-mermaid.ld-code-width-two-thirds { width: 66.6667%; }
+.document .ld-mermaid.ld-code-width-half { width: 50%; }
+.document .ld-mermaid.ld-code-width-third { width: 33.3333%; }
+.document .ld-mermaid.ld-code-width-quarter { width: 25%; }
+.document .ld-mermaid.ld-code-align-left { margin-left: 0; margin-right: auto; }
+.document .ld-mermaid.ld-code-align-center { margin-left: auto; margin-right: auto; }
+.document .ld-mermaid.ld-code-align-right { margin-left: auto; margin-right: 0; }
+
+.document .ld-mermaid-error {
+  text-align: left;
+  border: 1px solid #ef4444;
+  border-left-width: 4px;
+  background: #fef2f2;
+  color: #7f1d1d;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  white-space: pre-wrap;
+}
+.document .ld-mermaid-error + pre { text-align: left; }
+:root[data-mode="dark"]:not(.ld-white-background) .document .ld-mermaid-error {
+  background: rgb(127 29 29 / 0.3);
+  color: #fecaca;
+}
+
+.document .ld-kanban {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(10rem, 1fr);
+  gap: 0.75rem;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+.document .ld-kanban-column {
+  --kanban-bg: #f8fafc;
+  --kanban-border: #cbd5e1;
+  --kanban-title: #334155;
+  min-height: 120px;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--kanban-border);
+  border-radius: 10px;
+  background: var(--kanban-bg);
+}
+.document .ld-kanban-column-title { font-weight: 600; font-size: 0.9em; color: var(--kanban-title); }
+.document .ld-kanban-sky { --kanban-bg: #f0f9ff; --kanban-border: #bae6fd; --kanban-title: #075985; }
+.document .ld-kanban-amber { --kanban-bg: #fffbeb; --kanban-border: #fde68a; --kanban-title: #92400e; }
+.document .ld-kanban-emerald { --kanban-bg: #ecfdf5; --kanban-border: #a7f3d0; --kanban-title: #065f46; }
+.document .ld-kanban-rose { --kanban-bg: #fff1f2; --kanban-border: #fecdd3; --kanban-title: #9f1239; }
+.document .ld-kanban-violet { --kanban-bg: #f5f3ff; --kanban-border: #ddd6fe; --kanban-title: #5b21b6; }
+.document .ld-kanban-slate { --kanban-bg: #f8fafc; --kanban-border: #cbd5e1; --kanban-title: #334155; }
+:root[data-mode="dark"]:not(.ld-white-background) .document .ld-kanban-column {
+  --kanban-bg: rgb(30 41 59 / 0.5);
+  --kanban-border: rgb(100 116 139 / 0.5);
+  --kanban-title: #e2e8f0;
+}
+:root[data-mode="dark"]:not(.ld-white-background) .document .ld-kanban-sky { --kanban-bg: rgb(12 74 110 / 0.4); --kanban-border: rgb(3 105 161 / 0.6); }
+:root[data-mode="dark"]:not(.ld-white-background) .document .ld-kanban-amber { --kanban-bg: rgb(120 53 15 / 0.35); --kanban-border: rgb(180 83 9 / 0.6); }
+:root[data-mode="dark"]:not(.ld-white-background) .document .ld-kanban-emerald { --kanban-bg: rgb(6 78 59 / 0.4); --kanban-border: rgb(4 120 87 / 0.6); }
+:root[data-mode="dark"]:not(.ld-white-background) .document .ld-kanban-rose { --kanban-bg: rgb(136 19 55 / 0.35); --kanban-border: rgb(190 18 60 / 0.6); }
+:root[data-mode="dark"]:not(.ld-white-background) .document .ld-kanban-violet { --kanban-bg: rgb(76 29 149 / 0.35); --kanban-border: rgb(109 40 217 / 0.6); }

@@ -2,7 +2,7 @@
 // Document is left out. Blocks carry their source range, headings their id, and links and images never carry an
 // address the View could navigate to: the View is an about:srcdoc page (see links.ts). The original's directives
 // (ADR 0005, catalogue in directives.ts), column layouts, `:::compare`, footnotes and code highlighting are rendered
-// here; Mermaid and Tag markers come later.
+// here, with Mermaid placeholders, the Kanban preview and Tag markers.
 
 import type { Html, Image, Nodes, Parents, Root as MdastRoot } from "mdast";
 import type { Element, ElementContent, Root } from "hast";
@@ -14,6 +14,8 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import type { DocumentModel } from "./document.ts";
 import { calloutIcon, gridTemplate, parseColumnComment, type Directive, parseDirective, quoteAttrs, type QuoteAttrs, sizeAttrs, tableAttrs } from "./directives.ts";
+import { parseKanbanBlock } from "./kanban.ts";
+import { isMarkerName, pillLabel, TAG_SOURCE } from "./tagMarkers.ts";
 import { headingId, resolveImage, resolveLink } from "./links.ts";
 
 const BLOCKS = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "li", "pre", "table", "hr"]);
@@ -35,6 +37,11 @@ type Pass = {
   /** Compare placeholders by their offset in the masked text; the matching rendered nodes by the same index. */
   compares: Map<number, number>;
   rendered: Element[];
+  /** Whether a Kanban block counts here: not inside a `:::compare`, so the Document shows at most one board. */
+  kanban: boolean;
+  /** The text this pass parses (offsets of its nodes are in it), and the whole Document's, for closing tags. */
+  text: string;
+  documentText: string;
 };
 
 /** The unified pipeline, up to the hast tree. `clobberPrefix` starts the ids of footnotes. */
@@ -68,7 +75,8 @@ export function renderDocument(
   options: { frontmatter?: boolean } = {},
 ): string {
   const all = { ...ENGLISH, ...labels };
-  const tree = renderTree(model.body, path, model.bodyStart, all, "ld-");
+  const documentText = `${model.frontmatterText ?? ""}\n${model.body}`;
+  const tree = renderTree(model.body, path, model.bodyStart, all, "ld-", documentText, true);
   if (options.frontmatter && model.frontmatterText !== null && model.frontmatterEnd !== null) {
     const fence = "`".repeat(Math.max(3, ...(model.frontmatterText.match(/`+/g) ?? []).map((run) => run.length + 1)));
     const block = renderTree(`${fence}yaml\n${model.frontmatterText}\n${fence}`, path, 0, all, "ld-frontmatter-");
@@ -79,16 +87,17 @@ export function renderDocument(
 }
 
 /** `text` starts at offset `bodyStart` of the Document. Each `:::compare` region is rendered apart, then swapped in. */
-function renderTree(text: string, path: string, bodyStart: number, labels: RenderLabels, clobberPrefix: string): Root {
+/** `topLevel`: the pass of the Document itself, not of a `:::compare` or the frontmatter (only it shows a Kanban block). */
+function renderTree(text: string, path: string, bodyStart: number, labels: RenderLabels, clobberPrefix: string, documentText = text, topLevel = false): Root {
   const regions = compareRegions(text);
   const rendered = regions.map((region, index) => {
     const source = region.inner.endsWith("\n") ? region.inner.slice(0, -1) : region.inner;
-    const inner = renderTree(source, path, bodyStart + region.innerFrom, labels, `${clobberPrefix}compare-${index}-`);
+    const inner = renderTree(source, path, bodyStart + region.innerFrom, labels, `${clobberPrefix}compare-${index}-`, documentText);
     return compareElement(source, inner, labels);
   });
   const masked = regions.reduceRight((rest, region) => rest.slice(0, region.from) + placeholder(rest.slice(region.from, region.to)) + rest.slice(region.to), text);
   const compares = new Map(regions.map((region, index) => [region.from, index]));
-  const pass: Pass = { path, bodyStart, compares, rendered };
+  const pass: Pass = { path, bodyStart, compares, rendered, kanban: topLevel, text, documentText };
   return pipeline(labels, clobberPrefix).processSync({ value: masked, data: pass }).result as Root;
 }
 
@@ -175,13 +184,16 @@ function annotate(element: Element, { path, bodyStart, rendered }: Pass): Elemen
       code.properties = rest;
       Object.assign(element.properties, ldPre);
     }
+    if (code && /^language-mermaid$/i.test(String((code.properties.className as string[] | undefined)?.find((each) => /^language-/.test(each)) ?? ""))) {
+      mermaidOf(element, code);
+    }
   }
   if (element.tagName === "blockquote" && element.properties.ldCallout) {
     const quote = element.properties.ldCallout as unknown as QuoteAttrs;
     delete element.properties.ldCallout;
     decorateCallout(element, quote);
   }
-  if (BLOCKS.has(element.tagName) && start !== undefined && end !== undefined) {
+  if ((BLOCKS.has(element.tagName) || isMermaid(element) || element.properties.dataKanban !== undefined) && start !== undefined && end !== undefined) {
     element.properties.dataSrc = `${bodyStart + start}-${bodyStart + end}`;
   }
   if (element.tagName === "table") return [{ type: "element", tagName: "div", properties: { className: ["overflow-x-auto"] }, children: [element] }];
@@ -191,6 +203,16 @@ function annotate(element: Element, { path, bodyStart, rendered }: Pass): Elemen
   if (element.tagName === "a") return linkOf(element, path);
   if (element.tagName === "img") return imageOf(element, path);
   return null;
+}
+
+const isMermaid = (element: Element): boolean => element.tagName === "div" && element.properties.dataMermaid !== undefined;
+
+/** A mermaid code block as a placeholder holding the diagram source; the View draws it. The code layout stays on it. */
+function mermaidOf(pre: Element, code: Element): void {
+  const { className = [], ...layout } = pre.properties;
+  pre.tagName = "div";
+  pre.properties = { className: ["ld-mermaid", ...(className as string[])], dataMermaid: "", ...layout };
+  pre.children = [{ type: "text", value: textOf(code).replace(/\n$/, "") }];
 }
 
 /** The link without an `href` unless it is external; an unresolvable one becomes its children in a span. */
@@ -240,8 +262,9 @@ function imageOf(element: Element, path: string): ElementContent[] | null {
   }
 }
 
+/** The text of a node, the Tag marker pills left out (a heading's id does not depend on them). */
 const textOf = (node: ElementContent): string =>
-  node.type === "text" ? node.value : node.type === "element" ? node.children.map(textOf).join("") : "";
+  node.type === "text" ? node.value : node.type === "element" && node.tagName !== "mark" ? node.children.map(textOf).join("") : "";
 
 // ---- directives: the comments before a block, read on the Markdown tree and left on it as properties ----
 
@@ -250,8 +273,143 @@ function remarkDirectives() {
   return (tree: MdastRoot, file: { data: object }) => {
     const { compares } = file.data as Pass;
     columns(tree);
+    if ((file.data as Pass).kanban) kanbanPreview(tree);
+    tagMarkers(tree, file.data as Pass);
     directives(tree, compares);
   };
+}
+
+/** Replaces the first Kanban block of the tree (an `html` flow node) by a read-only preview of its columns. */
+function kanbanPreview(root: MdastRoot): void {
+  const find = (parent: Parents): boolean => {
+    for (const [index, node] of (parent.children as Nodes[]).entries()) {
+      const board = node.type === "html" ? parseKanbanBlock((node as Html).value) : null;
+      if (board) {
+        const column = (label: string, color: string) => ({
+          type: "ldKanbanColumn",
+          children: [{ type: "ldKanbanTitle", children: [{ type: "text", value: label }], data: { hName: "div", hProperties: { className: ["ld-kanban-column-title"] } } }],
+          data: { hName: "div", hProperties: { className: ["ld-kanban-column", `ld-kanban-${color}`] } },
+        });
+        parent.children[index] = {
+          type: "ldKanban",
+          children: board.columns.map((each) => column(each.label, each.color)),
+          position: node.position,
+          data: { hName: "div", hProperties: { className: ["ld-kanban"], dataKanban: "" } },
+        } as never;
+        return true;
+      }
+      if ("children" in node && find(node as Parents)) return true;
+    }
+    return false;
+  };
+  find(root);
+}
+
+// ---- Tag markers: lone tags of unknown names, found on the Markdown tree so code and comments never hold one ----
+
+const loneTag = (): RegExp => new RegExp(TAG_SOURCE, "g");
+const RAW_OPENING = /^<(pre|code|script|style|textarea)\b[^>]*>$/i;
+
+type Tag = { text: string; name: string; free: string | undefined };
+
+/** The pill of a tag whose range in the Document is `from` to `to` (offsets of the pass's text). */
+function pill({ name, free }: Tag, from: number, to: number, bodyStart: number): Nodes {
+  const title = free === undefined || free === "" ? `<${name}>` : `<${name} ${free.trim()}>`;
+  return {
+    type: "ldMarker",
+    children: [{ type: "text", value: pillLabel(name) }],
+    data: { hName: "mark", hProperties: { className: ["ld-tag-marker"], title, dataTag: name, dataSrc: `${bodyStart + from}-${bodyStart + to}` } },
+  } as never;
+}
+
+const tagOf = (match: RegExpExecArray): Tag => ({ text: match[0], name: match[1]!, free: match[2] });
+
+/** Turns lone marker tags of inline `html`, `text` and block `html` nodes into pills; skips code, comments and Kanban. */
+function tagMarkers(root: MdastRoot, { text, documentText, bodyStart }: Pass): void {
+  const isMarker = (tag: Tag) => isMarkerName(tag.name, documentText);
+  const walk = (parent: Parents, flow: boolean): void => {
+    const out: Nodes[] = [];
+    /** The raw region (`<code>`, `<pre>`…) written inline and still open: what it holds is never a marker. */
+    let raw: string | null = null;
+    for (const node of parent.children as Nodes[]) {
+      const from = node.position?.start.offset;
+      const to = node.position?.end.offset;
+      if (!flow && node.type === "html") {
+        const opening = RAW_OPENING.exec(node.value);
+        if (raw === null && opening) raw = opening[1]!.toLowerCase();
+        else if (raw !== null && new RegExp(`^</${raw}\\s*>$`, "i").test(node.value)) raw = null;
+      }
+      if (from === undefined || to === undefined || raw !== null) {
+        out.push(node);
+        continue;
+      }
+      if (node.type === "html" && !flow) {
+        const match = new RegExp(`^${TAG_SOURCE}$`).exec(node.value);
+        const tag = match && tagOf(match);
+        out.push(tag && isMarker(tag) ? pill(tag, from, to, bodyStart) : node);
+      } else if (node.type === "html") {
+        out.push(parseKanbanBlock(node.value) ? node : htmlBlock(node, from, to));
+      } else if (node.type === "text") {
+        out.push(...splitText(node.value, text.slice(from, to), from));
+      } else {
+        if ("children" in node) walk(node as Parents, node.type === "root" || node.type === "blockquote" || node.type === "listItem" || (node.type as string).startsWith("ld"));
+        out.push(node);
+      }
+    }
+    parent.children = out as never;
+  };
+
+  /** The paragraph of pills and text an HTML block holds, or the block itself when it holds no marker. */
+  function htmlBlock(node: Html, from: number, to: number): Nodes {
+    const source = text.slice(from, to);
+    const kept = node.value.replace(/<!--[\s\S]*?-->|<(pre|code|script|style|textarea)\b[\s\S]*?<\/\1\s*>/gi, "");
+    const children: Nodes[] = [];
+    let cursor = 0;
+    let found = 0;
+    let plain = "";
+    const flush = () => {
+      if (plain !== "") children.push({ type: "text", value: plain.replace(/\n\s*\n/g, "\n") });
+      plain = "";
+    };
+    for (const match of kept.matchAll(loneTag())) {
+      plain += kept.slice(cursor, match.index).replace(/<[^>]*>/g, "");
+      cursor = match.index + match[0].length;
+      const tag = tagOf(match);
+      if (!isMarker(tag)) continue;
+      const at = source.indexOf(tag.text, found);
+      flush();
+      children.push(at < 0 ? pill(tag, from, to, bodyStart) : pill(tag, from + at, from + at + tag.text.length, bodyStart));
+      found = Math.max(at, 0) + tag.text.length;
+    }
+    if (children.length === 0) return node;
+    plain += kept.slice(cursor).replace(/<[^>]*>/g, "");
+    flush();
+    return { type: "paragraph", children, position: node.position } as never;
+  }
+
+  /** `value` is the text of a node written as `source` from offset `from`: pills for the marker tags really written there. */
+  function splitText(value: string, source: string, from: number): Nodes[] {
+    const written = [...source.matchAll(loneTag())];
+    let next = 0;
+    const out: Nodes[] = [];
+    let cursor = 0;
+    for (const match of value.matchAll(loneTag())) {
+      const at = written.findIndex((each, index) => index >= next && each[0] === match[0]);
+      if (at < 0) continue;
+      next = at + 1;
+      const start = written[at]!.index;
+      const tag = tagOf(match);
+      if (!isMarker(tag) || /(^|[^\\])(\\\\)*\\$/.test(source.slice(0, start))) continue;
+      if (match.index > cursor) out.push({ type: "text", value: value.slice(cursor, match.index) });
+      out.push(pill(tag, from + start, from + start + tag.text.length, bodyStart));
+      cursor = match.index + match[0].length;
+    }
+    if (cursor === 0) return [{ type: "text", value }];
+    if (cursor < value.length) out.push({ type: "text", value: value.slice(cursor) });
+    return out;
+  }
+
+  walk(root, true);
 }
 
 /** Wraps the blocks between `layout-columns` and `/layout-columns` (top level only) in a grid of column divs. */
@@ -335,7 +493,7 @@ function decorate(node: Nodes, found: Directive[]): void {
       hProperties: { className: ["ld-callout", ...(quote.type ? [`ld-callout-${quote.type}`] : [])], ldCallout: quote } as never,
     };
   }
-  if (node.type === "code" && node.lang?.trim().toLowerCase() !== "mermaid") {
+  if (node.type === "code") {
     const { width, align, widthClass } = sizeAttrs("code", found);
     if (!width && !align) return;
     // remark-rehype puts a code node's properties on the `code` element; `annotate` moves them to the `pre`.

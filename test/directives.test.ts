@@ -101,7 +101,7 @@ describe("code directives", () => {
 
   test("mermaid directives are consumed and not output", () => {
     const html = render("<!-- mermaid-width: 1/2 -->\n```mermaid\ngraph TD\n```\n");
-    assert.match(html, /^<pre data-src="\d+-\d+"><code class="language-mermaid">/);
+    assert.match(html, /^<div class="ld-mermaid" data-mermaid="" data-src="\d+-\d+">/);
     assert.doesNotMatch(html, /ld-code|<!--/);
   });
 });
@@ -298,8 +298,8 @@ describe("code highlighting", () => {
     assert.match(render("```\nfunction f() { return 1; }\n```\n"), /<code class="hljs language-[\w-]+">.*<span class="hljs-keyword">return<\/span>/);
   });
 
-  test("mermaid is left alone for the diagram pass", () => {
-    assert.equal(render("```mermaid\ngraph TD\n  A --> B\n```\n"), '<pre data-src="0-33"><code class="language-mermaid">graph TD\n  A --> B\n</code></pre>');
+  test("mermaid is not highlighted: it is a placeholder for the diagram pass", () => {
+    assert.equal(render("```mermaid\ngraph TD\n  A --> B\n```\n"), '<div class="ld-mermaid" data-mermaid="" data-src="0-33">graph TD\n  A --> B</div>');
   });
 });
 

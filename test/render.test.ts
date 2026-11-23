@@ -142,3 +142,135 @@ describe("the frontmatter shown as a YAML block", () => {
     assert.equal(withFrontmatter("# Hi\n"), '<h1 id="hi" data-src="0-4">Hi</h1>');
   });
 });
+
+describe("Mermaid diagrams", () => {
+  test("a mermaid block is a placeholder holding the source, for the View to draw", () => {
+    // "```mermaid\ngraph TD\n  A-->B & C\n```" is 36 characters.
+    assert.equal(
+      render("```mermaid\ngraph TD\n  A-->B & C\n```\n"),
+      '<div class="ld-mermaid" data-mermaid="" data-src="0-35">graph TD\n  A-->B &#x26; C</div>',
+    );
+  });
+
+  test("the language is read trimmed and in any case", () => {
+    assert.match(render("```Mermaid\nA-->B\n```\n"), /^<div class="ld-mermaid" data-mermaid="" data-src="0-20">/);
+  });
+
+  test("the code directives apply to the placeholder as to a code block", () => {
+    assert.equal(
+      render("<!-- code-width: 1/2 -->\n<!-- code-align: right -->\n```mermaid\nA\n```\n"),
+      '<div class="ld-mermaid ld-code-width-half ld-code-align-right" data-mermaid="" data-code-block-width="1/2" data-code-block-align="right" data-src="52-68">A</div>',
+    );
+  });
+
+  test("in a compare block, a quote or a list too; inline code is untouched", () => {
+    assert.match(render(":::compare\n```mermaid\nA\n```\n:::\n"), /<div class="ld-compare-render"[^>]*>\n?<div class="ld-mermaid" data-mermaid="" data-src="11-27">A<\/div>/);
+    assert.match(render("> ```mermaid\n> A\n> ```\n"), /<blockquote data-src="0-22">\n<div class="ld-mermaid" data-mermaid="" data-src="2-22">A<\/div>/);
+    assert.match(render("- ```mermaid\n  A\n  ```\n"), /<li data-src="0-22">\n?<div class="ld-mermaid"/);
+    assert.equal(render("`mermaid`"), '<p data-src="0-9"><code>mermaid</code></p>');
+  });
+});
+
+describe("Kanban preview", () => {
+  const block = (columns: string, colors = "") => `<div data-ld-kanban data-columns="${columns}" data-colors="${colors}"></div>`;
+
+  test("a Kanban block is a row of titled, colored columns", () => {
+    const html = render(`Intro\n\n${block("To do|Q&amp;A", "sky|amber")}\n`);
+    // "Intro" is 0-5; the block starts at 7 and is 79 characters long.
+    assert.equal(
+      html,
+      '<p data-src="0-5">Intro</p>\n<div class="ld-kanban" data-kanban="" data-src="7-86">' +
+        '<div class="ld-kanban-column ld-kanban-sky"><div class="ld-kanban-column-title">To do</div></div>' +
+        '<div class="ld-kanban-column ld-kanban-amber"><div class="ld-kanban-column-title">Q&#x26;A</div></div></div>',
+    );
+  });
+
+  test("it counts in a quote or a list, not in code", () => {
+    assert.match(render(`> ${block("A")}\n`), /<blockquote[^>]*>\n<div class="ld-kanban"/);
+    assert.match(render(`- ${block("A")}\n`), /<li[^>]*>\n?<div class="ld-kanban"/);
+    assert.equal(render("```html\n" + block("A") + "\n```\n").includes("class=\"ld-kanban\""), false);
+    assert.equal(render("    " + block("A") + "\n").includes("class=\"ld-kanban\""), false);
+    assert.equal(render("`" + block("A") + "`").includes("class=\"ld-kanban\""), false);
+  });
+
+  test("a Kanban div inside a paragraph is not a board", () => {
+    assert.equal(render(`Text ${block("A")} more\n`).includes("class=\"ld-kanban\""), false);
+  });
+
+  test("only the first block of the Document is shown", () => {
+    const html = render(`${block("First")}\n\n${block("Second")}\n`);
+    assert.match(html, /First/);
+    assert.doesNotMatch(html, /Second/);
+  });
+});
+
+describe("Tag markers", () => {
+  const pill = (tag: string, title: string, src: string, label = tag) =>
+    `<mark class="ld-tag-marker" title="${title}" data-tag="${tag}" data-src="${src}">${label}</mark>`;
+
+  test("a lone unknown tag is a pill, titled with the whole tag", () => {
+    // "Hello " is 6 characters, "<add-footnote>" 14 more.
+    assert.equal(render("Hello <add-footnote>world.\n"), `<p data-src="0-26">Hello ${pill("add-footnote", "<add-footnote>", "6-20")}world.</p>`);
+  });
+
+  test("free text stays in the title; the name keeps its case", () => {
+    assert.equal(render("<rewrite-section in three parts>, <Add-Footnote>\n"), `<p data-src="0-48">${pill("rewrite-section", "<rewrite-section in three parts>", "0-32")}, ${pill("Add-Footnote", "<Add-Footnote>", "34-48")}</p>`);
+  });
+
+  test("a tag inside raw inline code, pre, script, style or textarea is no pill", () => {
+    for (const raw of ["code", "pre", "script", "style", "textarea"]) {
+      assert.doesNotMatch(render(`Use <${raw}><todo></${raw}> here, and <Code><later é></Code>.\n`), /ld-tag-marker/, raw);
+    }
+    assert.match(render("<code>x</code> then <todo>\n"), /data-tag="todo"/);
+  });
+
+  test("free text with accents, which is text to the parser, is a pill too", () => {
+    // "A <generate-image : la scène>" : the tag is 2-29.
+    assert.equal(render("A <generate-image : la scène>\n"), `<p data-src="0-29">A ${pill("generate-image", "<generate-image : la scène>", "2-29", "generate-image")}</p>`);
+  });
+
+  test("a long name is cut in the pill and whole in the title", () => {
+    const name = "abcdefghij-klmnopqrstuvwxy";
+    assert.equal(render(`<${name}>\n`), `<p data-src="0-28">${pill(name, `<${name}>`, "0-28", "abcdefghij-klmnopqr…")}</p>`);
+  });
+
+  test("an HTML element is not a marker", () => {
+    for (const tag of ["p", "span", "br", "details"]) assert.equal(render(`a <${tag}> b\n`).includes("ld-tag-marker"), false, tag);
+  });
+
+  test("a tag closed anywhere in the Document, even in code, is not a marker", () => {
+    assert.equal(render("a <foo> b\n\n```\n</foo>\n```\n").includes("ld-tag-marker"), false);
+  });
+
+  test("code, fenced code and comments never hold markers", () => {
+    assert.equal(render("`<add-footnote>`\n\n```\n<add-footnote>\n```\n\n<!-- <add-footnote> -->\n").includes("ld-tag-marker"), false);
+  });
+
+  test("an escaped or entity-written tag is plain text", () => {
+    assert.equal(render("\\<add-footnote>\n").includes("ld-tag-marker"), false);
+    assert.equal(render("&lt;add-footnote&gt;\n").includes("ld-tag-marker"), false);
+  });
+
+  test("a marker works in a table cell, a heading, a list, a quote and a compare block, after an entity too", () => {
+    assert.match(render("| a |\n|---|\n| <todo> |\n"), /<td><mark class="ld-tag-marker".*?data-src="14-20">todo<\/mark>/);
+    assert.match(render("# Title <todo>\n"), /<h1 id="title" data-src="0-14">Title <mark.*?data-src="8-14">todo<\/mark><\/h1>/);
+    assert.match(render("- <todo>\n"), /<li data-src="0-8"><mark.*?data-src="2-8">/);
+    assert.match(render("> a\n> <todo>\n"), /<mark.*?data-src="6-12">todo<\/mark>/);
+    assert.match(render(":::compare\n<todo>\n:::\n"), /ld-compare-render[^>]*>\s*<p data-src="11-17"><mark.*?data-src="11-17">todo/);
+    assert.match(render("Tom &amp; Jerry <todo>\n"), /<mark.*?data-src="16-22">todo/);
+  });
+
+  test("a line holding a tag is an HTML block: it becomes a paragraph of pills and the text between", () => {
+    assert.equal(render("<add-footnote>\n"), `<p data-src="0-14">${pill("add-footnote", "<add-footnote>", "0-14")}</p>`);
+    assert.equal(render("<add-footnote>\nHello world\n"), `<p data-src="0-26">${pill("add-footnote", "<add-footnote>", "0-14")}\nHello world</p>`);
+  });
+
+  test("an HTML block without a marker stays out, and so do its other tags and comments", () => {
+    assert.equal(render("<div>\nhi\n</div>\n"), "");
+    assert.equal(render("<todo>\n<!-- c -->\n<b>x</b>\n"), `<p data-src="0-26">${pill("todo", "<todo>", "0-6")}\nx</p>`);
+  });
+
+  test("the heading's id ignores the pill", () => {
+    assert.match(render("# Plan <todo>\n"), /<h1 id="plan" /);
+  });
+});

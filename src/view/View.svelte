@@ -4,6 +4,7 @@
   import { onDestroy, onMount, tick } from "svelte";
   import { parseDocument } from "../lib/document.ts";
   import { decorateCollapsible } from "./collapsible.ts";
+  import { drawDiagrams } from "./mermaid.ts";
   import { loadImages } from "../lib/images.ts";
   import { t } from "../lib/i18n.ts";
   import { Conflict, FOLDER_MANIFEST, NotFound, type DocumentText, type Project, type TreeEntry } from "../lib/project.ts";
@@ -221,6 +222,21 @@
     html;
     if (!article) return;
     return decorateCollapsible(article, { more: t("showMore"), less: t("showLess") });
+  });
+
+  // Diagrams are drawn after each render; they follow the theme of the Document (dark, unless the white background is on).
+  let hostDark = $state(document.documentElement.dataset.mode === "dark");
+  const dark = $derived(hostDark && !display.whiteBackground);
+  $effect(() => {
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => (hostDark = root.dataset.mode === "dark"));
+    observer.observe(root, { attributes: true, attributeFilter: ["data-mode"] });
+    return () => observer.disconnect();
+  });
+  $effect(() => {
+    html;
+    if (!article) return;
+    return drawDiagrams(article, { dark, failed: (reason) => t("diagramFailed", { reason }) });
   });
 
   // Lines: each block of the article names the lines it comes from, after each render and each change of the setting.
