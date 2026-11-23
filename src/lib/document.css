@@ -1,0 +1,267 @@
+/*
+ * A Document as read in the View, in the look of the original (Tailwind Typography's `prose`, gray, with its table
+ * tweaks). Light and dark follow the Host theme: `applyTheme` sets `data-mode` on the root and the Host colors as
+ * variables; the colors here are the prose palette, mixed with the Host's where they meet the page.
+ */
+
+.document {
+  --doc-body: #374151;
+  --doc-headings: #111827;
+  --doc-links: var(--accent, #2563eb);
+  --doc-bold: #111827;
+  --doc-counters: #6b7280;
+  --doc-bullets: #d1d5db;
+  --doc-hr: #e5e7eb;
+  --doc-quotes: #111827;
+  --doc-quote-borders: #e5e7eb;
+  --doc-captions: #6b7280;
+  --doc-code: #111827;
+  --doc-pre-code: #e5e7eb;
+  --doc-pre-bg: #1f2937;
+  --doc-th-borders: #d1d5db;
+  --doc-td-borders: #e5e7eb;
+  --doc-missing: #b45309;
+
+  color: var(--doc-body);
+  font-size: 1rem;
+  line-height: 1.75;
+  max-width: none;
+  overflow-wrap: break-word;
+}
+
+:root[data-mode="dark"] .document {
+  --doc-body: #d1d5db;
+  --doc-headings: #fff;
+  --doc-bold: #fff;
+  --doc-counters: #9ca3af;
+  --doc-bullets: #4b5563;
+  --doc-hr: #374151;
+  --doc-quotes: #f3f4f6;
+  --doc-quote-borders: #374151;
+  --doc-captions: #9ca3af;
+  --doc-code: #fff;
+  --doc-pre-code: #d1d5db;
+  --doc-pre-bg: rgb(0 0 0 / 50%);
+  --doc-th-borders: #4b5563;
+  --doc-td-borders: #374151;
+  --doc-missing: #fbbf24;
+}
+
+.document > :first-child {
+  margin-top: 0;
+}
+
+.document :is(p, ul, ol, pre, blockquote, table, figure) {
+  margin-top: 1.25em;
+  margin-bottom: 1.25em;
+}
+
+.document :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--doc-headings);
+  scroll-margin-top: 1rem;
+}
+
+.document h1 {
+  font-size: 2.25em;
+  font-weight: 800;
+  line-height: 1.1111;
+  margin: 0 0 0.8888em;
+}
+
+.document h2 {
+  font-size: 1.5em;
+  font-weight: 700;
+  line-height: 1.3333;
+  margin: 2em 0 1em;
+}
+
+.document h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  line-height: 1.6;
+  margin: 1.6em 0 0.6em;
+}
+
+.document :is(h4, h5, h6) {
+  font-weight: 600;
+  line-height: 1.5;
+  margin: 1.5em 0 0.5em;
+}
+
+.document :is(h2, h3, h4) + * {
+  margin-top: 0;
+}
+
+.document :is(strong, b) {
+  color: var(--doc-bold);
+  font-weight: 600;
+}
+
+.document a {
+  color: var(--doc-links);
+  text-decoration: underline;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.document a:focus-visible {
+  outline: 2px solid var(--doc-links);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.document .link-unresolved {
+  text-decoration: underline dotted;
+}
+
+.document :is(ul, ol) {
+  padding-left: 1.625em;
+}
+
+.document ul {
+  list-style-type: disc;
+}
+
+.document ol {
+  list-style-type: decimal;
+}
+
+.document li {
+  margin: 0.5em 0;
+  padding-left: 0.375em;
+}
+
+.document ol > li::marker {
+  color: var(--doc-counters);
+}
+
+.document ul > li::marker {
+  color: var(--doc-bullets);
+}
+
+.document li > :is(ul, ol) {
+  margin: 0.75em 0;
+}
+
+.document li > p {
+  margin: 0.75em 0;
+}
+
+.document li:has(> input[type="checkbox"]) {
+  list-style: none;
+}
+
+.document li > input[type="checkbox"] {
+  margin: 0 0.5em 0 -1.4em;
+}
+
+.document hr {
+  border: 0;
+  border-top: 1px solid var(--doc-hr);
+  margin: 3em 0;
+}
+
+.document blockquote {
+  font-weight: 500;
+  font-style: italic;
+  color: var(--doc-quotes);
+  border-left: 0.25rem solid var(--doc-quote-borders);
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 1em;
+  quotes: "\201C" "\201D" "\2018" "\2019";
+}
+
+.document code {
+  color: var(--doc-code);
+  font-weight: 600;
+  font-size: 0.875em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.document :not(pre) > code::before,
+.document :not(pre) > code::after {
+  content: "`";
+}
+
+.document pre {
+  position: relative;
+  color: var(--doc-pre-code);
+  background: var(--doc-pre-bg);
+  overflow-x: auto;
+  font-size: 0.875em;
+  line-height: 1.7142857;
+  margin: 1.7142857em 0;
+  border-radius: 0.375rem;
+  padding: 0.8571429em 1.1428571em;
+}
+
+.document pre code {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  font-weight: 400;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* The default table of the original: generous padding with horizontal separators only. */
+.document table {
+  width: 100%;
+  table-layout: auto;
+  text-align: left;
+  font-size: 0.875em;
+  line-height: 1.7142857;
+  border-collapse: collapse;
+  border: none;
+}
+
+.document thead th {
+  color: var(--doc-headings);
+  font-weight: 600;
+  vertical-align: bottom;
+}
+
+.document :is(th, td) {
+  padding: 0.6rem 1rem;
+  border: none;
+  border-bottom: 1px solid var(--doc-td-borders);
+  vertical-align: top;
+}
+
+.document thead th {
+  border-bottom-color: var(--doc-th-borders);
+}
+
+.document img {
+  max-width: 100%;
+  height: auto;
+  margin: 2em 0;
+}
+
+.document p > img:only-child {
+  display: block;
+}
+
+/* An Image that is not in the Project: its alt text, and a mark. */
+.document .image-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.2em 0.6em;
+  border: 1px dashed var(--doc-missing);
+  border-radius: 0.375rem;
+  color: var(--doc-missing);
+  font-style: italic;
+}
+
+.document .image-missing::before {
+  content: "\26A0";
+  font-style: normal;
+}
+
+.document del {
+  opacity: 0.75;
+}

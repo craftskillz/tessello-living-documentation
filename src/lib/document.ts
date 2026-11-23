@@ -17,6 +17,8 @@ export interface DocumentModel {
   frontmatter: Frontmatter;
   /** The text after the frontmatter. */
   body: string;
+  /** The UTF-16 offset of `body` in the Document's text: 0 without frontmatter. */
+  bodyStart: number;
 }
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n?---[ \t]*(\r?\n|$)/;
@@ -24,7 +26,8 @@ const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n?---[ \t]*(\r?\n|$)/;
 export function parseDocument(text: string, path: string): DocumentModel {
   const match = FRONTMATTER.exec(text);
   const frontmatter: Frontmatter = match ? frontmatterOf(match[1]!) : { valid: true, fields: {} };
-  const body = match ? text.slice(match[0].length) : text;
+  const bodyStart = match ? match[0].length : 0;
+  const body = text.slice(bodyStart);
   const fields: Record<string, unknown> = frontmatter.fields;
   const string = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value.trim() : null);
   return {
@@ -34,6 +37,7 @@ export function parseDocument(text: string, path: string): DocumentModel {
     type: string(fields.type),
     frontmatter,
     body,
+    bodyStart,
   };
 }
 

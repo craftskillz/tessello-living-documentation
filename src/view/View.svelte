@@ -1,12 +1,13 @@
 <script lang="ts">
   // The Active Project: its Tree, the open Document (read or edited), agent edits and conflicts (docs/spec/cross-cutting.md).
   import type { ConnectedModule } from "@tessello/sdk";
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { parseDocument } from "../lib/document.ts";
+  import { loadImages } from "../lib/images.ts";
   import { t } from "../lib/i18n.ts";
-  import { Conflict, type DocumentText, type Project, type TreeEntry } from "../lib/project.ts";
+  import { Conflict, NotFound, type DocumentText, type Project, type TreeEntry } from "../lib/project.ts";
   import { createProjects, type ListedProject } from "../lib/projects.ts";
-  import { renderMarkdown } from "../lib/render.ts";
+  import { renderDocument } from "../lib/render.ts";
   import Editor from "./Editor.svelte";
   import Tree from "./Tree.svelte";
 
@@ -23,6 +24,11 @@
   let path = $state<string | null>(null);
   let current = $state.raw<DocumentText | null>(null);
   let error = $state<string | null>(null);
+  /** The raw text of the failure behind `error`, shown only as a detail. */
+  let detail = $state<string | null>(null);
+  /** The Documents left through links, oldest first; the Tree clears it. */
+  let trail = $state.raw<{ path: string; title: string }[]>([]);
+  let article = $state<HTMLElement>();
 
   let editing = $state(false);
   let draft = $state("");
@@ -35,10 +41,16 @@
   let stopParams: (() => void) | undefined;
 
   const model = $derived(current && path ? parseDocument(current.text, path) : null);
-  const html = $derived(model ? renderMarkdown(model.body) : "");
+  const html = $derived(model ? renderDocument(model, path) : "");
   const hasHeading = $derived(model ? /^ {0,3}# /m.test(model.body) : false);
 
-  const fail = (reason: unknown) => (error = t("failed", { reason: reason instanceof Error ? reason.message : String(reason) }));
+  /** Shows `message`, the raw reason, if any, only as a detail (docs/spec/cross-cutting.md, Failures). */
+  function report(message: string, reason?: unknown) {
+    error = message;
+    detail = reason === undefined ? null : t("detail", { reason: reason instanceof Error ? reason.message : String(reason) });
+  }
+
+  const fail = (reason: unknown) => report(t("failed"), reason);
 
   /**
    * The Document the View is opened on, from the Host's params (`project`, `doc`), as from the Widget. The View is an
@@ -69,18 +81,78 @@
     checking = setInterval(() => void checkOutside(), CHECK_MS);
   }
 
-  async function show(target: string) {
+  async function show(target: string, loaded?: DocumentText) {
     stopEditing();
     path = target;
     error = null;
+    detail = null;
     try {
-      current = await project!.read(target);
+      current = loaded ?? (await project!.read(target));
       await projects.opened(active!, target);
     } catch (reason) {
       current = null;
-      fail(reason);
+      if (reason instanceof NotFound) report(t("notFound"));
+      else fail(reason);
     }
   }
+
+  /** Opens a Document from the Tree (or the Host): a new reading, without a back trail. */
+  function openFresh(target: string) {
+    trail = [];
+    void show(target);
+  }
+
+  /** Follows a link to a Document: it is read first, so a missing one leaves the open Document in place. */
+  async function follow(target: string, anchor: string | null) {
+    // A link to the open Document only moves within it.
+    if (target === path) return scrollTo(anchor);
+    let loaded: DocumentText;
+    try {
+      loaded = await project!.read(target);
+    } catch (reason) {
+      if (reason instanceof NotFound) report(t("linkMissing", { path: target }));
+      else report(t("linkFailed", { path: target }), reason);
+      return;
+    }
+    if (current && path && model) trail = [...trail, { path, title: model.title }];
+    await show(target, loaded);
+    await tick();
+    scrollTo(anchor);
+  }
+
+  async function back(index: number) {
+    const entry = trail[index]!;
+    trail = trail.slice(0, index);
+    await show(entry.path);
+  }
+
+  /** Scrolls to the element of the article with this id, or to the top. */
+  function scrollTo(anchor: string | null) {
+    const target = anchor ? article?.querySelector(`#${CSS.escape(anchor)}`) : null;
+    if (target) target.scrollIntoView();
+    else article?.closest("main")?.scrollTo(0, 0);
+  }
+
+  /** Links of the article carry data attributes, never an address: the View is an about:srcdoc page. */
+  function activate(event: Event) {
+    const link = (event.target as Element).closest<HTMLElement>("[data-doc], [data-file], [data-anchor]");
+    if (!link) return;
+    const { doc, file, anchor } = link.dataset;
+    if (doc) void follow(doc, anchor ?? null);
+    else if (file) report(t("fileUnavailable", { path: file }));
+    else scrollTo(anchor!);
+  }
+
+  function activateKey(event: KeyboardEvent) {
+    if (event.key === "Enter" && (event.target as Element).matches("[role=link]")) activate(event);
+  }
+
+  // Images are read after each render; a newer render (or leaving) releases the object URLs of this one.
+  $effect(() => {
+    html;
+    if (!article || !project) return;
+    return loadImages(article, (imagePath) => project!.readImage(imagePath), (imagePath) => t("imageNotFound", { path: imagePath }));
+  });
 
   async function connectFolder() {
     try {
@@ -181,7 +253,7 @@
   /** The View, already loaded, opened again on a Document, as from the Widget. */
   function onParams(params: Record<string, string>) {
     const wanted = route(params);
-    if (wanted?.path && project && active?.id === wanted.project && wanted.path !== path) void show(wanted.path);
+    if (wanted?.path && project && active?.id === wanted.project && wanted.path !== path) openFresh(wanted.path);
   }
 
   function onVisibility() {
@@ -224,11 +296,11 @@
       {#if tree.length === 0}
         <p class="muted">{t("emptyProject")}</p>
       {:else}
-        <Tree entries={tree} current={path} open={(target) => void show(target)} />
+        <Tree entries={tree} current={path} open={openFresh} />
       {/if}
     </nav>
     <main>
-      {#if error}<p class="error" role="status">{error}</p>{/if}
+      {#if error}<p class="error" role="status">{error}{#if detail}<br /><small>{detail}</small>{/if}</p>{/if}
       {#if current && model}
         <div class="toolbar">
           {#if editing}
@@ -257,7 +329,15 @@
         {#if editing}
           <Editor text={draft} label={t("markdown")} onchange={typed} />
         {:else}
-          <article>
+          {#if trail.length > 0}
+            <div class="trail" role="group" aria-label={t("trail")}>
+              {#each trail as entry, index (index)}
+                <button onclick={() => void back(index)}>← {entry.title}</button>
+              {/each}
+            </div>
+          {/if}
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+          <article class="document" bind:this={article} onclick={activate} onkeydown={activateKey}>
             {#if !hasHeading}<h1>{model.title}</h1>{/if}
             {@html html}
           </article>
@@ -302,6 +382,12 @@
     gap: 0.5rem;
     justify-content: flex-end;
     align-items: center;
+  }
+  .trail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.5rem 0;
   }
   .banner {
     border: 1px solid #d9a400;

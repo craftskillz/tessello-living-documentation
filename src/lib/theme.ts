@@ -6,6 +6,7 @@ export function applyTheme(theme: Theme): void {
   const root = document.documentElement;
   const { colors } = theme;
   root.style.colorScheme = theme.mode;
+  root.dataset.mode = theme.mode;
   for (const [name, value] of Object.entries({
     "--bg": colors.background,
     "--panel": colors.surface,

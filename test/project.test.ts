@@ -4,10 +4,10 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { connect } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
-import { Conflict, openProject, type TreeEntry } from "../src/lib/project.ts";
+import { Conflict, NotFound, openProject, type TreeEntry } from "../src/lib/project.ts";
 
 /** A Project opened on a folder holding `files`, with the Test Host to change its disk as an agent would. */
-async function projectOf(files: Record<string, string> = {}) {
+async function projectOf(files: Record<string, string | Uint8Array> = {}) {
   const host = createTestHost({ module: { id: "@craftskillz/living-documentation", version: "0.0.1" }, permissions: { folders: true } });
   const disk = host.folders.create("docs", files);
   host.folders.choose(disk);
@@ -103,6 +103,33 @@ describe("reading and saving a Document", () => {
 
     assert.ok(refused instanceof Conflict);
     assert.equal(refused.theirs, null);
+  });
+});
+
+describe("reading a missing file or an image", () => {
+  test("reading a Document that does not exist rejects with NotFound carrying its path", async () => {
+    const { project } = await projectOf({ "a.md": "a" });
+
+    const refused = await project.read("gone.md").catch((error: unknown) => error);
+
+    assert.ok(refused instanceof NotFound);
+    assert.equal(refused.path, "gone.md");
+  });
+
+  test("an image is read as its exact bytes, even when they are not valid UTF-8", async () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00, 0xc3, 0x28]);
+    const { project } = await projectOf({ "images/a.png": png });
+
+    assert.deepEqual(await project.readImage("images/a.png"), png);
+  });
+
+  test("reading an image that does not exist rejects with NotFound carrying its path", async () => {
+    const { project } = await projectOf();
+
+    const refused = await project.readImage("images/gone.png").catch((error: unknown) => error);
+
+    assert.ok(refused instanceof NotFound);
+    assert.equal(refused.path, "images/gone.png");
   });
 });
 

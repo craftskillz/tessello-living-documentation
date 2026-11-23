@@ -22,8 +22,14 @@ const en = {
   takeTheirs: "Take theirs",
   mine: "Mine",
   theirs: "On disk",
-  failed: "Something went wrong: {reason}",
+  failed: "Something went wrong. Try again; if it keeps failing, reconnect the folder.",
+  detail: "Details: {reason}",
   notFound: "This document no longer exists.",
+  linkMissing: "The linked document “{path}” does not exist. Fix the link in this document.",
+  linkFailed: "The linked document “{path}” could not be opened. Try again; if it keeps failing, reconnect the folder.",
+  fileUnavailable: "Opening other files (“{path}”) is not available yet. Open it from your file manager.",
+  imageNotFound: "Image not found: {path}. Fix the link or add the image to the folder.",
+  trail: "Back to",
 };
 
 type Messages = typeof en;
@@ -50,8 +56,14 @@ const fr: Messages = {
   takeTheirs: "Prendre le leur",
   mine: "Le mien",
   theirs: "Sur le disque",
-  failed: "Une erreur est survenue : {reason}",
+  failed: "Une erreur est survenue. Réessayez ; si elle persiste, reconnectez le dossier.",
+  detail: "Détails : {reason}",
   notFound: "Ce document n'existe plus.",
+  linkMissing: "Le document lié « {path} » n'existe pas. Corrigez le lien dans ce document.",
+  linkFailed: "Le document lié « {path} » n'a pas pu être ouvert. Réessayez ; si cela persiste, reconnectez le dossier.",
+  fileUnavailable: "L'ouverture des autres fichiers (« {path} ») n'est pas encore disponible. Ouvrez-le depuis votre gestionnaire de fichiers.",
+  imageNotFound: "Image introuvable : {path}. Corrigez le lien ou ajoutez l'image au dossier.",
+  trail: "Retour vers",
 };
 
 export type MessageKey = keyof Messages;

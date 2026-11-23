@@ -25,6 +25,13 @@ describe("the frontmatter", () => {
     assert.equal(parseDocument("# No frontmatter\n", "t.md").body, "# No frontmatter\n");
   });
 
+  test("bodyStart is where the body begins in the full text, 0 without frontmatter", () => {
+    const text = "---\ntitle: T\n---\n# T\n";
+    assert.equal(parseDocument(text, "t.md").bodyStart, 17);
+    assert.equal(text.slice(17), "# T\n");
+    assert.equal(parseDocument("# T\n", "t.md").bodyStart, 0);
+  });
+
   test("tags are a list or a comma-separated string", () => {
     assert.deepEqual(parseDocument("---\ntags: [api, design]\n---\n", "t.md").tags, ["api", "design"]);
     assert.deepEqual(parseDocument("---\ntags: api, design ,  ops\n---\n", "t.md").tags, ["api", "design", "ops"]);

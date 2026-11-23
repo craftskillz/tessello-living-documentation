@@ -45,10 +45,24 @@ export class Conflict extends Error {
   }
 }
 
+/** A read of a file that does not exist (a link to a missing Document, an image that is gone). */
+export class NotFound extends Error {
+  readonly path: string;
+
+  constructor(path: string) {
+    super(`"${path}" does not exist.`);
+    this.name = "NotFound";
+    this.path = path;
+  }
+}
+
 export interface Project {
   /** The Folders and Documents, ordered as their Folder manifests say, hidden entries left out. */
   tree(): Promise<TreeEntry[]>;
+  /** A Document's text and version; rejects with NotFound when it does not exist. Other failures propagate unchanged. */
   read(path: string): Promise<DocumentText>;
+  /** An image's bytes, exactly as on disk; rejects with NotFound when it does not exist. */
+  readImage(path: string): Promise<Uint8Array>;
   /** Writes a Document read at `version`; resolves with its new version, or rejects with a Conflict. */
   save(path: string, text: string, version: string): Promise<string>;
   /**
@@ -101,8 +115,21 @@ export function openProject(module: ConnectedModule, folder: Folder): Project {
       return treeOf(entries, "", manifests);
     },
     async read(path) {
-      const { content, version } = await module.files.read(folder, path);
-      return { text: content, version };
+      try {
+        const { content, version } = await module.files.read(folder, path);
+        return { text: content, version };
+      } catch (error) {
+        throw missing(error, path);
+      }
+    },
+    async readImage(path) {
+      try {
+        const { content } = await module.files.read(folder, path, { as: "bytes" });
+        // The Test Host hands the bytes over as a JSON object ({"0": 137, ...}); a browser Host as a Uint8Array.
+        return content instanceof Uint8Array ? content : Uint8Array.from(Object.values(content as Record<string, number>));
+      } catch (error) {
+        throw missing(error, path);
+      }
     },
     async save(path, text, version) {
       try {
@@ -112,7 +139,7 @@ export function openProject(module: ConnectedModule, folder: Folder): Project {
       } catch (error) {
         if (!(error instanceof TesselloError && error.code === "conflict")) throw error;
         const theirs = await this.read(path).catch((reading: unknown) => {
-          if (reading instanceof TesselloError && reading.code === "not_found") return null;
+          if (reading instanceof NotFound) return null;
           throw reading;
         });
         throw new Conflict(path, theirs);
@@ -120,6 +147,9 @@ export function openProject(module: ConnectedModule, folder: Folder): Project {
     },
   };
 }
+
+/** The error a failed read of `path` becomes: NotFound when the file is missing, the error itself otherwise. */
+const missing = (error: unknown, path: string) => (error instanceof TesselloError && error.code === "not_found" ? new NotFound(path) : error);
 
 interface Manifest {
   order: string[];

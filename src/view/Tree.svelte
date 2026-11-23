@@ -21,7 +21,7 @@
         </details>
       {:else}
         <span
-          class="document"
+          class="entry"
           role="link"
           tabindex="0"
           aria-current={entry.path === current ? "page" : undefined}
@@ -39,12 +39,12 @@
     padding-left: 0.9rem;
     margin: 0;
   }
-  .document {
+  .entry {
     color: inherit;
     text-decoration: none;
     cursor: pointer;
   }
-  .document[aria-current="page"] {
+  .entry[aria-current="page"] {
     font-weight: 600;
   }
 </style>

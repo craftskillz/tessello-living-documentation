@@ -60,11 +60,14 @@ export async function openView(options: { storage?: TestHostOptions["storage"]; 
 }
 
 /** The View with a Project connected on a folder holding `files`, as the User does on a first visit. */
-export async function withProject(files: Record<string, string>): Promise<Opened & { disk: TestFolder }> {
-  const opened = await openView();
+export async function withProject(
+  files: Record<string, string | Uint8Array>,
+  options: { locale?: string } = {},
+): Promise<Opened & { disk: TestFolder }> {
+  const opened = await openView({ locale: options.locale });
   const disk = opened.host.folders.create("docs", files);
   opened.host.folders.choose(disk);
-  await opened.page.getByRole("button", { name: "Connect a folder" }).click();
+  await opened.page.getByRole("button", { name: options.locale === "fr" ? "Connecter un dossier" : "Connect a folder" }).click();
   await opened.page.getByRole("navigation", { name: "Documents" }).waitFor();
   return { ...opened, disk };
 }
