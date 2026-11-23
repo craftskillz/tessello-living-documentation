@@ -68,6 +68,22 @@ const en = {
   textCopied: "Your text was copied to the clipboard.",
   conflictPending: "This document changed on disk: choose Keep mine or Take theirs before leaving it.",
   textCopyFailed: "Your text could not be copied to the clipboard, so the disk's version was not taken. Copy it by hand, then try again.",
+  newDocument: "New document",
+  newFolder: "New folder",
+  name: "Name",
+  location: "Location",
+  rootLocation: "/ (root)",
+  willBeCreatedAt: "Will be created at",
+  cancel: "Cancel",
+  create: "Create",
+  createdOn: "Created",
+  modifiedOn: "Modified",
+  refusedEmpty: "Type a name.",
+  refusedCharacters: "A name cannot contain / \\ : * ? \" < > |.",
+  refusedEdges: "A name cannot start or end with a space or a dot.",
+  refusedReserved: "liv-doc-main.md is reserved for the Folder's order.",
+  refusedTaken: "An entry with this name already exists in this folder (names are compared ignoring case).",
+  refusedInvalidManifest: "This folder's liv-doc-main.md has an invalid frontmatter: fix it before adding entries here.",
 };
 
 type Messages = typeof en;
@@ -140,16 +156,37 @@ const fr: Messages = {
   textCopied: "Votre texte a été copié dans le presse-papier.",
   conflictPending: "Ce document a changé sur le disque : choisissez Garder le mien ou Prendre le leur avant de le quitter.",
   textCopyFailed: "Votre texte n'a pas pu être copié dans le presse-papier, donc la version du disque n'a pas été prise. Copiez-le à la main, puis réessayez.",
+  newDocument: "Nouveau document",
+  newFolder: "Nouveau dossier",
+  name: "Nom",
+  location: "Emplacement",
+  rootLocation: "/ (racine)",
+  willBeCreatedAt: "Sera créé à l'emplacement",
+  cancel: "Annuler",
+  create: "Créer",
+  createdOn: "Créé le",
+  modifiedOn: "Modifié le",
+  refusedEmpty: "Saisissez un nom.",
+  refusedCharacters: "Un nom ne peut pas contenir / \\ : * ? \" < > |.",
+  refusedEdges: "Un nom ne peut pas commencer ou finir par une espace ou un point.",
+  refusedReserved: "liv-doc-main.md est réservé à l'ordre du dossier.",
+  refusedTaken: "Une entrée de ce nom existe déjà dans ce dossier (les noms sont comparés sans tenir compte de la casse).",
+  refusedInvalidManifest: "Le liv-doc-main.md de ce dossier a un frontmatter invalide : corrigez-le avant d'y ajouter des entrées.",
 };
 
 export type MessageKey = keyof Messages;
 
 let messages: Messages = en;
+let language = "en";
 
 /** Chooses the catalog for a BCP 47 tag, such as "fr-FR"; English for any other language. */
 export function setLocale(locale: string): void {
+  language = locale;
   messages = locale.toLowerCase().split("-")[0] === "fr" ? fr : en;
 }
+
+/** The BCP 47 tag the View formats dates with. */
+export const currentLocale = (): string => language;
 
 /** The message in the current language, with each `{name}` replaced by its value. */
 export function t(key: MessageKey, values: Record<string, string | number> = {}): string {

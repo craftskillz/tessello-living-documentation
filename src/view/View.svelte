@@ -10,8 +10,8 @@
   import { decorateCollapsible } from "./collapsible.ts";
   import { drawDiagrams } from "./mermaid.ts";
   import { loadImages } from "../lib/images.ts";
-  import { t } from "../lib/i18n.ts";
-  import { Conflict, FOLDER_MANIFEST, NotFound, type DocumentText, type Project, type TreeEntry } from "../lib/project.ts";
+  import { t, type MessageKey } from "../lib/i18n.ts";
+  import { Conflict, documentFile, FOLDER_MANIFEST, NotFound, Refused, refusalOf, type DocumentText, type Project, type RefusalReason, type TreeEntry } from "../lib/project.ts";
   import { createProjects, TOC_WIDTH, type DisplayPreferences, type ListedProject } from "../lib/projects.ts";
   import { renderDocument } from "../lib/render.ts";
   import ArticleTools from "./ArticleTools.svelte";
@@ -468,6 +468,60 @@
 
   let reverting = $state(false);
 
+  // The New document / New folder dialog.
+  let creating = $state<{ kind: "document" | "folder"; name: string; folder: string; failure: string | null } | null>(null);
+
+  /** Every Folder of the Tree, by path, in Tree order. */
+  function folderPaths(entries: TreeEntry[]): string[] {
+    return entries.flatMap((entry) => (entry.kind === "folder" ? [entry.path, ...folderPaths(entry.children)] : []));
+  }
+  const folderOf = (file: string) => file.slice(0, Math.max(0, file.lastIndexOf("/")));
+  /** The entries of the Folder `folder` ("" = Project root) as the Tree shows them. */
+  function entriesOf(folder: string, entries: TreeEntry[] = tree): TreeEntry[] {
+    if (folder === "") return entries;
+    for (const entry of entries) {
+      if (entry.kind !== "folder") continue;
+      if (entry.path === folder) return entry.children;
+      const found = entriesOf(folder, entry.children);
+      if (found.length > 0) return found;
+    }
+    return [];
+  }
+  const REFUSALS: Record<RefusalReason, MessageKey> = {
+    empty: "refusedEmpty",
+    characters: "refusedCharacters",
+    edges: "refusedEdges",
+    reserved: "refusedReserved",
+    taken: "refusedTaken",
+    invalidManifest: "refusedInvalidManifest",
+  };
+  const refusalMessage = (reason: RefusalReason) => t(REFUSALS[reason]);
+  const refusal = $derived(creating ? refusalOf(creating.kind, creating.name, entriesOf(creating.folder).map((entry) => entry.name)) : null);
+  /** The path the entry will have: a Name already ending in .md is the file name itself. */
+  const createdPath = $derived.by(() => {
+    if (!creating) return "";
+    const file = creating.kind === "document" ? documentFile(creating.name) : creating.name;
+    return creating.folder === "" ? file : `${creating.folder}/${file}`;
+  });
+
+  function startCreating(kind: "document" | "folder") {
+    creating = { kind, name: "", folder: path ? folderOf(path) : "", failure: null };
+  }
+
+  async function create() {
+    if (!creating || !project || refusal) return;
+    const { kind, name, folder } = creating;
+    try {
+      const made = kind === "document" ? await project.createDocument(folder, name) : await project.createFolder(folder, name);
+      tree = await project.tree();
+      creating = null;
+      if (kind === "document") await openFresh(made);
+    } catch (reason) {
+      if (!creating) return;
+      creating.failure = reason instanceof Refused ? refusalMessage(reason.reason) : `${t("failed")} ${t("detail", { reason: reason instanceof Error ? reason.message : String(reason) })}`;
+    }
+  }
+
   /** Opens a `<dialog>` as a modal when it appears (the Host's frame blocks window.confirm). */
   function modal(node: HTMLDialogElement) {
     node.showModal();
@@ -565,6 +619,14 @@
   <div class="layout">
     <nav aria-label={t("documents")}>
       <p class="project">{active.name}</p>
+      <div class="creators">
+        <button type="button" aria-label={t("newDocument")} title={t("newDocument")} onclick={() => startCreating("document")}>
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 1.5h5l3 3v10H4z" /><path d="M8 7v4M6 9h4" /></svg>
+        </button>
+        <button type="button" aria-label={t("newFolder")} title={t("newFolder")} onclick={() => startCreating("folder")}>
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 3.5h4l1.5 1.5h7.5v8h-13z" /><path d="M8 7.5v4M6 9.5h4" /></svg>
+        </button>
+      </div>
       {#if tree.length === 0}
         <p class="muted">{t("emptyProject")}</p>
       {:else}
@@ -678,6 +740,39 @@
         <article class="document" bind:this={preview} onclick={(event) => event.preventDefault()}>{@html previewHtml}</article>
       </section>
     </div>
+  </dialog>
+{/if}
+
+{#if creating}
+  <dialog use:modal aria-labelledby="create-title" class="create" oncancel={() => (creating = null)}>
+    <form onsubmit={(event) => { event.preventDefault(); void create(); }}>
+      <h2 id="create-title">{creating.kind === "document" ? t("newDocument") : t("newFolder")}</h2>
+      <label>
+        {t("name")}
+        <input type="text" bind:value={creating.name} oninput={() => creating && (creating.failure = null)} aria-describedby="create-problem" autocomplete="off" spellcheck="false" />
+      </label>
+      <label>
+        {t("location")}
+        <select bind:value={creating.folder} onchange={() => creating && (creating.failure = null)}>
+          <option value="">{t("rootLocation")}</option>
+          {#each folderPaths(tree) as folder (folder)}
+            <option value={folder}>/{folder}</option>
+          {/each}
+        </select>
+      </label>
+      <p class="muted">{t("willBeCreatedAt")} <code>{createdPath}</code></p>
+      <div id="create-problem">
+        {#if creating.failure}
+          <p class="problem" role="alert">{creating.failure}</p>
+        {:else if refusal && refusal !== "empty"}
+          <p class="problem" role="alert">{refusalMessage(refusal)}</p>
+        {/if}
+      </div>
+      <div class="actions">
+        <button type="button" onclick={() => (creating = null)}>{t("cancel")}</button>
+        <button type="submit" class="primary" disabled={refusal !== null}>{t("create")}</button>
+      </div>
+    </form>
   </dialog>
 {/if}
 
@@ -840,6 +935,32 @@
     border: 1px solid var(--line);
     border-radius: 6px;
     padding: 0 1rem;
+  }
+  .creators {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 0.5rem;
+  }
+  .creators button {
+    padding: 0.2rem 0.4rem;
+    display: inline-flex;
+  }
+  dialog.create {
+    width: min(92vw, 28rem);
+  }
+  dialog.create h2 {
+    margin-top: 0;
+    font-size: 1.1rem;
+  }
+  dialog.create label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.75rem;
+  }
+  .problem {
+    color: #e53935;
+    margin: 0 0 0.75rem;
   }
   dialog .actions {
     display: flex;
