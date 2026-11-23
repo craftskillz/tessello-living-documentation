@@ -32,6 +32,7 @@
   let comparing = $state(false);
   let autosave: ReturnType<typeof setTimeout> | undefined;
   let checking: ReturnType<typeof setInterval> | undefined;
+  let stopParams: (() => void) | undefined;
 
   const model = $derived(current && path ? parseDocument(current.text, path) : null);
   const html = $derived(model ? renderMarkdown(model.body) : "");
@@ -39,18 +40,17 @@
 
   const fail = (reason: unknown) => (error = t("failed", { reason: reason instanceof Error ? reason.message : String(reason) }));
 
-  /** `#/p/<projectId>/doc/<path>`. */
-  function route(): { project: string; path: string } | null {
-    const match = /^#\/p\/([^/]+)\/doc\/(.+)$/.exec(location.hash);
-    return match ? { project: decodeURIComponent(match[1]!), path: decodeURIComponent(match[2]!) } : null;
+  /**
+   * The Document the View is opened on, from the Host's params (`project`, `doc`), as from the Widget. The View is an
+   * about:srcdoc page in the Host: it has no address of its own, so navigation never goes through the URL.
+   */
+  function route(params: Record<string, string> | undefined): { project: string; path: string | null } | null {
+    return params?.project ? { project: params.project, path: params.doc ?? null } : null;
   }
-
-  const hrefOf = (documentPath: string) =>
-    `#/p/${encodeURIComponent(active!.id)}/doc/${documentPath.split("/").map(encodeURIComponent).join("/")}`;
 
   async function start() {
     const list = await projects.list();
-    const wanted = route();
+    const wanted = route(host.context.params);
     const activeId = (await projects.active())?.id;
     // A deep link opens its Project; else the Active Project.
     active = list.find((each) => each.id === wanted?.project) ?? list.find((each) => each.id === activeId) ?? null;
@@ -64,10 +64,8 @@
     tree = await project.tree();
     await project.check();
     const target = wantedPath ?? (await projects.startDocument(active!));
-    if (target) {
-      if (location.hash !== hrefOf(target)) history.replaceState(null, "", hrefOf(target));
-      await show(target);
-    }
+    if (target) await show(target);
+    clearInterval(checking);
     checking = setInterval(() => void checkOutside(), CHECK_MS);
   }
 
@@ -99,7 +97,7 @@
     try {
       if (await projects.reconnect(active!)) {
         active = { ...active!, state: "available" };
-        await openActive(route()?.path ?? null);
+        await openActive(null);
       }
     } catch (reason) {
       fail(reason);
@@ -180,9 +178,10 @@
     if (!conflict) stopEditing();
   }
 
-  function onHashChange() {
-    const wanted = route();
-    if (wanted && project && wanted.path !== path) void show(wanted.path);
+  /** The View, already loaded, opened again on a Document, as from the Widget. */
+  function onParams(params: Record<string, string>) {
+    const wanted = route(params);
+    if (wanted?.path && project && active?.id === wanted.project && wanted.path !== path) void show(wanted.path);
   }
 
   function onVisibility() {
@@ -191,14 +190,14 @@
 
   onMount(() => {
     void start().catch(fail);
-    addEventListener("hashchange", onHashChange);
+    stopParams = host.onNavigationParams(onParams);
     document.addEventListener("visibilitychange", onVisibility);
   });
 
   onDestroy(() => {
     clearInterval(checking);
     clearTimeout(autosave);
-    removeEventListener("hashchange", onHashChange);
+    stopParams?.();
     document.removeEventListener("visibilitychange", onVisibility);
   });
 </script>
@@ -225,7 +224,7 @@
       {#if tree.length === 0}
         <p class="muted">{t("emptyProject")}</p>
       {:else}
-        <Tree entries={tree} current={path} {hrefOf} />
+        <Tree entries={tree} current={path} open={(target) => void show(target)} />
       {/if}
     </nav>
     <main>

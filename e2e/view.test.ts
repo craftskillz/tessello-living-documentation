@@ -24,12 +24,14 @@ describe("a first visit", () => {
 });
 
 describe("reading", () => {
-  test("a Document of the Tree opens, and a reload reopens it", async () => {
+  test("a Document of the Tree opens without changing the page's address, and a reload reopens it", async () => {
     const { page } = await withProject({ "a.md": "# A\n", "b.md": "# Bee\n\nSecond.\n" });
+    // In the Host, the View is an about:srcdoc page: it cannot change its address, and a link would leave it.
+    const address = page.url();
 
     await page.getByRole("link", { name: "b.md" }).click();
     await page.getByRole("heading", { level: 1, name: "Bee" }).waitFor();
-    assert.match(page.url(), /#\/p\/[^/]+\/doc\/b\.md$/);
+    assert.equal(page.url(), address);
 
     await page.reload();
     await page.getByRole("heading", { level: 1, name: "Bee" }).waitFor();

@@ -24,7 +24,7 @@ See ADR 0001–0003. Documents are raw Markdown files in Project folders reached
 
 ## Navigation
 
-- The View routes by hash: `#/p/<projectId>/doc/<path>`. Reloading reopens the same Document; the Widget and the Host can open a Document directly.
+- The View has no address of its own: in the Host it is an `about:srcdoc` page, which cannot change its URL, and a link with an address would leave it (found 2026-11-23, replacing the hash routing first planned). Opening a Document is the View's own state; a reload reopens the last Document opened in the Project. The Widget opens a Document through the View's params, `project` and `doc` (CONVENTION.md §6.3).
 - Opening a Project shows, in order: the deep-linked Document, else the last Document open in that Project, else the top favorite, else the first Document.
 
 ## Widget
