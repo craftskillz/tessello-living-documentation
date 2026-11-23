@@ -4,7 +4,7 @@
 import { type ConnectedModule, type Folder, type FolderEntry, TesselloError } from "@tessello/sdk";
 import { parse } from "yaml";
 
-/** The reserved file of each Folder: its order and its hidden entries (CONTEXT.md, Folder manifest). */
+/** The reserved file of each Folder: its order and its hidden entries (GLOSSARY.md, Folder manifest). */
 export const FOLDER_MANIFEST = "liv-doc-main.md";
 
 export type TreeEntry = TreeFolder | TreeDocument;

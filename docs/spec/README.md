@@ -1,6 +1,6 @@
 # Port specification
 
-The behavior settled for the port, feature by feature, as decided in the grilling rounds. Each page states the rules and is the source of the acceptance scenarios for TDD. The atlas (`/Users/ymedaghri/Documents/testRetrodocLivingDocByClaude`) describes the original; where a page here is silent, the original's behavior on the atlas page applies, unless an ADR says otherwise. Vocabulary: [CONTEXT.md](../../CONTEXT.md). Decisions with trade-offs: [docs/adr/](../adr/).
+The behavior settled for the port, feature by feature, as decided in the grilling rounds. Each page states the rules and is the source of the acceptance scenarios for TDD. The atlas (`/Users/ymedaghri/Documents/testRetrodocLivingDocByClaude`) describes the original; where a page here is silent, the original's behavior on the atlas page applies, unless an ADR says otherwise. Vocabulary: [GLOSSARY.md](../../GLOSSARY.md). Decisions with trade-offs: [docs/adr/](../adr/).
 
 | Page | Status |
 |---|---|

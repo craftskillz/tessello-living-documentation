@@ -8,7 +8,7 @@ In the local Host, an old Living Documentation folder opens but reads bare: no d
 
 ## Read first
 
-- `CONTEXT.md` (vocabulary), `docs/design.md` (modules: `document`, `render`, `project`), ADR 0005 (directives are HTML comments).
+- `GLOSSARY.md` (vocabulary), `docs/design.md` (modules: `document`, `render`, `project`), ADR 0005 (directives are HTML comments).
 - `docs/spec/documents-reading-and-editing.md`, `docs/spec/documents-tag-markers.md`, `docs/spec/kanban-boards.md` (rendering only), `docs/spec/cross-cutting.md` (Navigation).
 - The original's behavior: atlas `/Users/ymedaghri/Documents/testRetrodocLivingDocByClaude/features/documents/reading-and-editing.md`; source (read-only, never modify) `../living-documentation`, for its rendering rules and its CSS.
 - **The View is an `about:srcdoc` page** in the Host (base `https://package.tessello.invalid/view/`): no URL routing, no `href` that resolves to an address, no `history.*State` with a URL. The SDK Test Host runs the View top-level, so tests do not catch this: keep the e2e assertion that the page address never changes.
