@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Reading: links, images and the document stylesheet)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** done (d9fe29a)
 
 - [x] Copy path copies the Document's path in the Project
 - [x] Lines, White background and the table of contents work and are remembered
@@ -13,7 +13,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -25,6 +25,7 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
   - `renderDocument(..., { frontmatter: true })` shows a Document's frontmatter first as a highlighted YAML block; the model gains `frontmatterText` and `frontmatterEnd`.
   - The View: `Header.svelte` (Copy path, Lines, White background, Table of contents, Edit, Delete), `Toc.svelte` (headings as buttons, opens closed `<details>`, resizable), `ArticleTools.svelte` (right-click menu with Copy image / Copy table, Shift/Cmd + click enlargement in a `<dialog>`), `copy.ts` (ports of the original's copyTable and copyImage). The toast gains a success tone for confirmations, gone after 2 s.
   - Tests: 131 unit, 48 browser (18 new in `e2e/header.test.ts`, each checking that the page address never changes); `tessello validate` passes (the 2 known highlight.js warnings).
+- **Trial in the local Host** (2026-11-23): validated by the User. The sticky header and the "Saving…" indicator (d9fe29a) came from this trial.
 - **Differs from the original:**
   - White background is remembered (the original forgot it on reload), and keeps the Document in its light colors in a dark Host.
   - Delete is shown disabled with a "later version" title until the delete ticket.

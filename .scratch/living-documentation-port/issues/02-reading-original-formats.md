@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Reading: links, images and the document stylesheet)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** done (1f5e6c0)
 
 - [x] Each directive renders as in the original (expected HTML per directive)
 - [x] `:::compare` and column layouts render
@@ -14,7 +14,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder) on an old folder using these formats; differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder) on an old folder using these formats; differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -32,6 +32,7 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
   - `src/view/collapsible.ts` folds code blocks taller than 400px, with a translated Show more / Show less.
   - `src/lib/document.css` ports the original's styles: tables, images, code width, callouts, columns, compare, footnotes and the highlight.js github / github-dark colors.
   - Tests: 110 unit (`test/directives.test.ts` new), 30 browser (`e2e/formats.test.ts` new, 6 journeys); `tessello validate` passes.
+- **Trial in the local Host** (2026-11-23): validated by the User; no difference found beyond those listed above.
 - **Differs from the original:**
   - Directive comments are read from the Markdown tree, not by regex:
     - a directive inside fenced code or HTML is never applied;
