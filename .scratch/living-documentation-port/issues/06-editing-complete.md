@@ -20,7 +20,7 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 ## Comments
 
 - Pure modules added: `edits` (applyEdits), `sections` (sectionAt, replaceSection, rule R5), `diff` (sideBySide, Myers), `autosave` (no overlap, queue, pause/stop/reset, injected timer). The View drives both editors through them.
-- The section editor opens from a right-click on any block (**Edit section**, next to Copy image / Copy table; Shift + right-click keeps the browser's menu). It is a modal dialog with CodeMirror and a live preview, as in the original; synchronized scrolling of the original is not ported. Images in the preview are not loaded yet (no blob URLs there).
+- The section editor opens from a right-click on any block (**Edit section**, next to Copy image / Copy table; Shift + right-click keeps the browser's menu). It is a modal dialog with CodeMirror and a live preview, as in the original; synchronized scrolling of the original is not ported. Images in the preview are read from the Project like the reading (fixed after the first trial in the Host).
 - Escape and Ctrl/Cmd + Enter mean **Done** in the section dialog (never discard: Revert is the only way back).
 - **Take theirs** in the section editor copies my section, then closes the editor on the disk's version (my section's range no longer applies to their text). In the full-document editor it loads their text in the editor.
 - **Keep mine** writes the whole file as I edit it (my section in the text I started from) over theirs. **Revert** during a conflict also overwrites the disk's change.

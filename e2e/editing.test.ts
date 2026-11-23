@@ -198,3 +198,21 @@ describe("a pending conflict", () => {
     assert.equal(page.url(), address);
   });
 });
+
+describe("the section editor's preview", () => {
+  test("shows the section's Images, read from the Project like the reading", async () => {
+    // A 1x1 PNG.
+    const png = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC", "base64"));
+    const { page } = await withProject({ "guide/deep/a.md": "# One\n\nSee below.\n\n![a dot](../../images/dot.png)\n", "images/dot.png": png });
+    const address = page.url();
+    await page.getByText("See below.").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit section" }).click();
+
+    const preview = page.getByRole("dialog", { name: "Edit section" }).getByRole("region", { name: "Preview" });
+    await until(
+      () => preview.getByRole("img", { name: "a dot" }).evaluate((img: HTMLImageElement) => img.src.startsWith("blob:") && img.complete && img.naturalWidth > 0).catch(() => false),
+      "the image in the preview",
+    );
+    assert.equal(page.url(), address);
+  });
+});

@@ -240,6 +240,25 @@
     return loadImages(article, (imagePath) => project!.readImage(imagePath), (imagePath) => t("imageNotFound", { path: imagePath }));
   });
 
+  // The preview of the section editor shows its Images like the reading; each is read once while the editor is open
+  // (not again at every keystroke).
+  let preview = $state<HTMLElement>();
+  let previewImages = new Map<string, Promise<Uint8Array>>();
+  $effect(() => {
+    previewHtml;
+    if (!preview || !project) return;
+    const read = (imagePath: string) => {
+      if (!previewImages.has(imagePath)) {
+        // A failed read is tried again at the next render: the Image may have been added meanwhile.
+        const reading = project!.readImage(imagePath);
+        reading.catch(() => previewImages.delete(imagePath));
+        previewImages.set(imagePath, reading);
+      }
+      return previewImages.get(imagePath)!;
+    };
+    return loadImages(preview, read, (imagePath) => t("imageNotFound", { path: imagePath }));
+  });
+
   // Long code blocks fold after each render; the next render (or leaving) undoes this one.
   $effect(() => {
     html;
@@ -354,6 +373,7 @@
 
   function open(kind: Session, text: string) {
     original = current!.text;
+    previewImages = new Map();
     draft = text;
     session = kind;
     saving = false;
@@ -655,7 +675,7 @@
       <Editor text={draft} label={t("markdown")} onchange={typed} />
       <section class="preview" aria-label={t("preview")}>
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-        <article class="document" onclick={(event) => event.preventDefault()}>{@html previewHtml}</article>
+        <article class="document" bind:this={preview} onclick={(event) => event.preventDefault()}>{@html previewHtml}</article>
       </section>
     </div>
   </dialog>
