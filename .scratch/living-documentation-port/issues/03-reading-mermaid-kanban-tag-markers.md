@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (Reading: the original's formats)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** done (30298d7)
 
 - [x] Mermaid code blocks render as diagrams; a broken diagram shows its error, not a blank
 - [x] A Kanban block renders read-only; one inside code does not
@@ -12,7 +12,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -25,6 +25,7 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
   - A Mermaid block becomes a `[data-mermaid]` placeholder. `src/view/mermaid.ts` draws it with `mermaid` 11 (`securityLevel: "strict"`), redraws on a theme change, and on failure shows the translated message followed by the source.
   - Styles: yellow pill (`cursor: help`, whole tag in `title`), Mermaid centered, red error box, and the board preview in the original's six column themes, light and dark.
   - Tests: 164 unit (`test/tagMarkers.test.ts` and `test/kanban.test.ts` new) and 55 browser (`e2e/diagrams.test.ts` new, 5 journeys). `tessello validate` passes.
+- **Trial in the local Host** (2026-11-23): validated by the User; Mermaid draws in the Host's sandbox.
 - **Differs from the original:**
   - The pill shows the tag name, not the **b** glyph (spec rule 1). Every standard HTML element name is excluded, not only void elements.
   - A Kanban block renders as a read-only preview of its columns, with no cards, where the block is written. The board is ticket 21. Only the first block of a Document renders, and none inside `:::compare`.
@@ -35,6 +36,6 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - **Left over:**
   - The diagram error is translated, but Mermaid's own reason after the colon stays in English.
   - `dist/view/app.js` grew from 1.2 MB to 4.7 MB with Mermaid inlined. Splitting or lazy loading is still to decide.
-  - `tessello validate` now warns 3 times: `localStorage`, `sessionStorage` and an embedded frame in `view/app.js`. They come from Mermaid's code (the sandbox iframe mode is not used: `securityLevel` is `strict`). Whether Mermaid draws in the real sandbox is to check in the local Host.
+  - `tessello validate` now warns 3 times: `localStorage`, `sessionStorage` and an embedded frame in `view/app.js`. They come from Mermaid's code (the sandbox iframe mode is not used: `securityLevel` is `strict`).
   - Dark-mode drawing has no browser journey.
   - Review smells, left for a later refactor: the marker finder lives in `render.ts` rather than `tagMarkers.ts`; mdast nodes are built by hand with `as never`; the Mermaid width and align CSS repeats the `pre` rules.
