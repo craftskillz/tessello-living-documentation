@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
+import { until } from "@tessello/sdk/testing";
 import { useBrowser, withProject, type Opened } from "./living-documentation.ts";
 
 useBrowser();
@@ -322,5 +323,42 @@ describe("a Folder manifest", () => {
     await page.getByRole("button", { name: "Copy path" }).click();
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "guide/liv-doc-main.md");
     assert.equal(page.url(), address);
+  });
+});
+
+describe("the header stays on top", () => {
+  const long = "# Long\n" + "\n\nFiller paragraph.".repeat(120) + "\n\n## End\n\nLast.\n";
+  const onScreen = (page: Opened["page"], name: string) =>
+    page.waitForFunction((label) => {
+      const button = [...document.querySelectorAll("button")].find((each) => each.textContent?.trim() === label)!;
+      const box = button.getBoundingClientRect();
+      return box.top >= 0 && box.bottom <= window.innerHeight && document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === button;
+    }, name);
+
+  test("while reading, the actions stay visible at the end of a long Document", async () => {
+    const { page } = await project({ "a.md": long });
+    await page.getByRole("heading", { level: 1, name: "Long" }).waitFor();
+
+    await page.getByText("Last.").scrollIntoViewIfNeeded();
+
+    await onScreen(page, "Copy path");
+    await onScreen(page, "Delete");
+  });
+
+  test("while editing, Done stays visible; Saving… shows only during a save, and nothing says Saved", async () => {
+    const { page, host, disk } = await project({ "a.md": long });
+    await page.getByRole("button", { name: "Edit" }).click();
+    const editor = page.getByRole("textbox", { name: "Markdown" });
+    await editor.waitFor();
+    assert.equal(await page.getByText(/^(Saved|Saving…)$/).count(), 0);
+
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.type("Added.\n");
+
+    await onScreen(page, "Done");
+    await until(() => host.folders.read(disk, "a.md")?.includes("Added."), "the change on disk");
+    await page.getByText("Saving…").waitFor({ state: "detached" });
+    assert.equal(await page.getByText("Saved", { exact: true }).count(), 0);
   });
 });

@@ -1,6 +1,6 @@
 <script lang="ts">
   // The actions above the open Document: while reading, its path and display preferences, Edit and Delete; while editing,
-  // the save state and Done. A read-only Document (a Folder manifest) has no Edit and no Delete.
+  // Saving… during a save only, and Done. A read-only Document (a Folder manifest) has no Edit and no Delete.
   import { t } from "../lib/i18n.ts";
 
   let {
@@ -34,7 +34,7 @@
 
 <header class="toolbar">
   {#if editing}
-    <span class="muted">{saving ? t("saving") : t("saved")}</span>
+    {#if saving}<span class="muted" role="status">{t("saving")}</span>{/if}
     <button class="primary" onclick={ondone}>{t("done")}</button>
   {:else}
     {#if readOnly}<span class="badge">{t("readOnly")}</span>{/if}

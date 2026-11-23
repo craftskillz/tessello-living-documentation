@@ -51,10 +51,10 @@
 <style>
   aside {
     position: sticky;
-    top: 0;
+    top: var(--header-height, 0px);
     flex: none;
     align-self: flex-start;
-    max-height: 100%;
+    max-height: calc(100vh - var(--header-height, 0px));
     overflow: auto;
     box-sizing: border-box;
     padding: 0 0 0 1rem;

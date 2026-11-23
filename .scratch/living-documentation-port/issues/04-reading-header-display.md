@@ -32,6 +32,7 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
   - The Table of contents button shows even without a heading; only the panel is hidden then.
   - Enlargement covers images only; Mermaid diagrams come with ticket 03.
   - Copy path, Copy image and Copy table confirm in the toast; a refused copy shows a translated failure.
+  - The header stays on top while the Document scrolls, while reading and while editing; the table of contents and scrolled-to headings sit below it. While editing, "Saving…" shows only during a save; "Saved" is gone (asked by the User after the first build).
 - **Left over:**
   - The Folder manifest opens only through the View's params (`doc`), since the Tree hides it; showing it with the hidden entries is ticket 10.
   - Clipboard writes are tested on the Test Host's top-level page; they still need checking in the Host's `about:srcdoc` frame (the prototype covered image copy only).

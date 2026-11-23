@@ -34,6 +34,8 @@
   /** The Documents left through links, oldest first; the Tree clears it. */
   let trail = $state.raw<{ path: string; title: string }[]>([]);
   let article = $state<HTMLElement>();
+  /** The sticky header's height: the table of contents and scrolled-to headings sit below it. */
+  let headerHeight = $state(0);
   /** The failure toast is red; a confirmation (`tone` "success") is not, and goes away by itself. */
   let tone = $state<"failure" | "success">("failure");
   let confirmation: ReturnType<typeof setTimeout> | undefined;
@@ -389,8 +391,10 @@
         <Tree entries={tree} current={path} open={openFresh} />
       {/if}
     </nav>
-    <main>
+    <main style:--header-height="{headerHeight}px">
       {#if current && model}
+        <!-- The header stays on top while the Document scrolls, while reading and while editing. -->
+        <div class="sticky" bind:offsetHeight={headerHeight}>
         <Header
           {editing}
           {saving}
@@ -405,6 +409,7 @@
           onedit={startEditing}
           ondone={done}
         />
+        </div>
         {#if conflict}
           <div class="banner" role="alert">
             <p>{conflict.theirs ? t("changedOutside") : t("deletedOutside")}</p>
@@ -487,8 +492,18 @@
     margin-top: 0;
   }
   main {
-    padding: 1rem 2rem;
+    padding: 0 2rem 1rem;
     overflow: auto;
+  }
+  .sticky {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    padding: 1rem 0 0.5rem;
+    background: var(--bg);
+  }
+  main :global(.document [id]) {
+    scroll-margin-top: calc(var(--header-height, 0px) + 0.5rem);
   }
   .reading {
     display: flex;
