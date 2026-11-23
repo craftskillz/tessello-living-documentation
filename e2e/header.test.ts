@@ -280,8 +280,10 @@ describe("images and tables", () => {
     await page.getByText("Outside text.").click();
     await page.getByRole("menu").waitFor({ state: "hidden" });
 
+    // Elsewhere the menu offers Edit section, but no copy.
     await page.getByText("Outside text.").click({ button: "right" });
-    assert.equal(await page.getByRole("menu").count(), 0);
+    await page.getByRole("menuitem", { name: "Edit section" }).waitFor();
+    assert.equal(await page.getByRole("menuitem", { name: /^Copy / }).count(), 0);
   });
 
   test("a copy that the browser refuses is told as a failure", async () => {

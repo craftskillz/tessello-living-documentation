@@ -1,6 +1,7 @@
 <script lang="ts">
   // What the User does with the pictures and tables of the article: Shift or Cmd + click enlarges an image in a modal
   // dialog; a right-click on an image or a table opens a small menu to copy it. Elsewhere the browser's own menu stays.
+  import type { TextRange } from "../lib/edits.ts";
   import { t } from "../lib/i18n.ts";
   import { copyImage, copyTable } from "./copy.ts";
 
@@ -8,12 +9,21 @@
     article,
     notify,
     fail,
-  }: { article: HTMLElement | undefined; notify: (message: string) => void; fail: (message: string, reason?: unknown) => void } = $props();
+    sectionAt,
+    onsection,
+  }: {
+    article: HTMLElement | undefined;
+    notify: (message: string) => void;
+    fail: (message: string, reason?: unknown) => void;
+    /** The section holding an offset of the Document; null: none, or the Document cannot be edited. */
+    sectionAt: (offset: number) => TextRange | null;
+    onsection: (range: TextRange) => void;
+  } = $props();
 
-  let menu = $state<{ x: number; y: number; target: HTMLImageElement | HTMLTableElement } | null>(null);
+  let menu = $state<{ x: number; y: number; target: HTMLImageElement | HTMLTableElement | null; section: TextRange | null } | null>(null);
   let enlarged = $state<{ src: string; alt: string } | null>(null);
   let dialog = $state<HTMLDialogElement>();
-  let first = $state<HTMLButtonElement>();
+  let menuElement = $state<HTMLElement>();
 
   $effect(() => {
     if (!article) return;
@@ -27,9 +37,12 @@
     };
     const contextmenu = (event: MouseEvent) => {
       const target = (event.target as Element).closest<HTMLImageElement | HTMLTableElement>("img, table");
-      if (!target) return;
+      // Shift keeps the browser's own menu for the sections; the copy items stay.
+      const source = event.shiftKey ? null : /^(\d+)-\d+$/.exec((event.target as Element).closest("[data-src]")?.getAttribute("data-src") ?? "");
+      const section = source ? sectionAt(Number(source[1])) : null;
+      if (!target && !section) return;
       event.preventDefault();
-      menu = { x: event.clientX, y: event.clientY, target };
+      menu = { x: event.clientX, y: event.clientY, target, section };
     };
     root.addEventListener("click", click, true);
     root.addEventListener("contextmenu", contextmenu);
@@ -45,17 +58,24 @@
   });
 
   $effect(() => {
-    if (menu) first?.focus();
+    if (menu) menuElement?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
   });
 
   function copy() {
     const target = menu!.target;
     menu = null;
+    if (!target) return;
     if (target instanceof HTMLImageElement) {
       copyImage(target).then(() => notify(t("imageCopied")), (reason) => fail(t("imageCopyFailed"), reason));
     } else {
       copyTable(target).then(() => notify(t("tableCopied")), (reason) => fail(t("tableCopyFailed"), reason));
     }
+  }
+
+  function editSection() {
+    const range = menu!.section!;
+    menu = null;
+    onsection(range);
   }
 
   function closeMenu(event: Event) {
@@ -70,8 +90,13 @@
 <svelte:window onpointerdown={closeMenu} onkeydown={key} />
 
 {#if menu}
-  <div class="menu" role="menu" style:left="{menu.x}px" style:top="{menu.y}px">
-    <button role="menuitem" bind:this={first} onclick={copy}>{menu.target instanceof HTMLImageElement ? t("copyImage") : t("copyTable")}</button>
+  <div class="menu" role="menu" bind:this={menuElement} style:left="{menu.x}px" style:top="{menu.y}px">
+    {#if menu.target}
+      <button role="menuitem" onclick={copy}>{menu.target instanceof HTMLImageElement ? t("copyImage") : t("copyTable")}</button>
+    {/if}
+    {#if menu.section}
+      <button role="menuitem" onclick={editSection}>{t("editSection")}</button>
+    {/if}
   </div>
 {/if}
 

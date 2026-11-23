@@ -2,6 +2,10 @@
   // The Active Project: its Tree, the open Document (read or edited), agent edits and conflicts (docs/spec/cross-cutting.md).
   import type { ConnectedModule } from "@tessello/sdk";
   import { onDestroy, onMount, tick } from "svelte";
+  import { createAutosave, type Autosave } from "../lib/autosave.ts";
+  import { sideBySide } from "../lib/diff.ts";
+  import { applyEdits, type TextRange } from "../lib/edits.ts";
+  import { replaceSection, sectionAt } from "../lib/sections.ts";
   import { parseDocument } from "../lib/document.ts";
   import { decorateCollapsible } from "./collapsible.ts";
   import { drawDiagrams } from "./mermaid.ts";
@@ -44,13 +48,17 @@
   let display = $state<DisplayPreferences>({ lines: false, whiteBackground: false, toc: { open: false, width: TOC_WIDTH.default } });
   let headings = $state.raw<Heading[]>([]);
 
-  let editing = $state(false);
+  type Session = { kind: "document" } | { kind: "section"; range: TextRange };
+  let session = $state.raw<Session | null>(null);
+  const editing = $derived(session?.kind === "document");
+  /** The file's text when Edit was clicked, for Revert. */
+  let original = "";
   let draft = $state("");
   let saving = $state(false);
+  let autosave: Autosave | null = null;
   /** What is on disk when an agent changed the Document during an edit; null: deleted. */
   let conflict = $state.raw<{ theirs: DocumentText | null } | null>(null);
   let comparing = $state(false);
-  let autosave: ReturnType<typeof setTimeout> | undefined;
   let checking: ReturnType<typeof setInterval> | undefined;
   let stopParams: (() => void) | undefined;
 
@@ -63,6 +71,17 @@
         compareSource: t("compareSource"),
         compareRender: t("compareRender"),
       }, { frontmatter: readOnly }) : "");
+  /** The live preview of the section being edited, rendered as a Document of its own; its links do nothing. */
+  const previewHtml = $derived(
+    session?.kind === "section" && path
+      ? renderDocument(parseDocument(draft, path), path, {
+          footnotes: t("footnotes"),
+          footnoteBack: t("footnoteBack"),
+          compareSource: t("compareSource"),
+          compareRender: t("compareRender"),
+        })
+      : "",
+  );
   const hasHeading = $derived(model ? /^ {0,3}# /m.test(model.body) : false);
 
   /** Shows `message`, the raw reason, if any, only as a detail (docs/spec/cross-cutting.md, Failures). */
@@ -145,6 +164,8 @@
   }
 
   async function show(target: string, loaded?: DocumentText) {
+    // The text typed is saved before another Document opens; on a conflict or a failure, the open one stays.
+    if (!(await leave())) return;
     stopEditing();
     path = target;
     error = null;
@@ -160,15 +181,17 @@
   }
 
   /** Opens a Document from the Tree (or the Host): a new reading, without a back trail. */
-  function openFresh(target: string) {
+  async function openFresh(target: string) {
+    if (!(await leave())) return;
     trail = [];
-    void show(target);
+    await show(target);
   }
 
   /** Follows a link to a Document: it is read first, so a missing one leaves the open Document in place. */
   async function follow(target: string, anchor: string | null) {
     // A link to the open Document only moves within it.
     if (target === path) return scrollTo(anchor);
+    if (!(await leave())) return;
     let loaded: DocumentText;
     try {
       loaded = await project!.read(target);
@@ -286,14 +309,19 @@
   /** Agent edits: the Tree updates silently; the open Document reloads, or is a conflict while edited. */
   async function checkOutside() {
     if (!project || document.hidden) return;
+    const checked = path;
     try {
       const changes = await project.check();
       if (changes.tree) tree = await project.tree();
-      if (!path || !changes.documents.includes(path)) return;
-      const theirs = await project.read(path).catch(() => null);
-      if (editing) {
-        if (theirs?.text !== draft) conflict = { theirs };
-        else current = theirs;
+      // A save of ours still running shows as a change: it is not an agent's edit (theirs would fail that save instead).
+      if (!checked || !changes.documents.includes(checked) || autosave?.saving) return;
+      const theirs = await project.read(checked).catch(() => null);
+      if (path !== checked) return;
+      if (session) {
+        if (theirs?.text !== composed(draft)) {
+          conflict = { theirs };
+          autosave?.pause();
+        } else current = theirs;
       } else if (theirs) {
         current = theirs;
       }
@@ -302,65 +330,164 @@
     }
   }
 
-  function startEditing() {
-    draft = current!.text;
-    editing = true;
+  /** Saves what was typed before the open Document is left; false, with the reason shown, when it cannot be. */
+  async function leave(): Promise<boolean> {
+    if (!autosave || (await autosave.flush())) return true;
+    if (conflict) report(t("conflictPending"));
+    return false;
   }
 
+  /** The full file text of the editing session for the editor's `text`. */
+  function composed(text: string): string {
+    if (!session || !current) return text;
+    if (session.kind === "document") return text;
+    return applyEdits(current.text, [replaceSection(current.text, session.range, text)]);
+  }
+
+  function startEditing() {
+    open({ kind: "document" }, current!.text);
+  }
+
+  function startSection(range: TextRange) {
+    open({ kind: "section", range }, current!.text.slice(range.from, range.to));
+  }
+
+  function open(kind: Session, text: string) {
+    original = current!.text;
+    draft = text;
+    session = kind;
+    saving = false;
+    autosave = createAutosave({
+      saved: text,
+      delay: AUTOSAVE_MS,
+      save: async (full) => {
+        const whole = composed(full);
+        const version = await project!.save(path!, whole, current!.version);
+        if (session?.kind === "section") {
+          const edit = replaceSection(current!.text, session.range, full);
+          session = { kind: "section", range: { from: session.range.from, to: session.range.from + edit.text.length } };
+        }
+        current = { text: whole, version };
+      },
+      onchange: () => (saving = autosave?.saving ?? false),
+      onerror: (reason) => {
+        if (reason instanceof Conflict) {
+          conflict = { theirs: reason.theirs };
+          autosave?.pause();
+        } else report(t("saveFailed"), reason);
+      },
+    });
+  }
+
+  /** Ends the editing session without saving anything (the caller has flushed or stopped the autosave). */
   function stopEditing() {
-    clearTimeout(autosave);
-    editing = false;
+    session = null;
+    autosave = null;
     conflict = null;
     comparing = false;
+    saving = false;
   }
 
   function typed(text: string) {
     draft = text;
-    clearTimeout(autosave);
-    if (!conflict) autosave = setTimeout(() => void save(), AUTOSAVE_MS);
+    autosave?.typed(text);
   }
 
-  async function save(over?: string) {
-    if (!current || !path || draft === current.text && over === undefined) return;
-    saving = true;
-    const text = draft;
+  /** Keep mine: my text overwrites what is on disk. */
+  async function keepMine() {
+    const theirs = conflict?.theirs;
+    if (!theirs || !autosave) return;
     try {
-      const version = await project!.save(path, text, over ?? current.version);
-      current = { text, version };
+      // Mine is the whole file as I edit it: my section in the text I started from, not in theirs.
+      const whole = composed(draft);
+      const version = await project!.save(path!, whole, theirs.version);
+      if (session?.kind === "section") {
+        const edit = replaceSection(current!.text, session.range, draft);
+        session = { kind: "section", range: { from: session.range.from, to: session.range.from + edit.text.length } };
+      }
+      current = { text: whole, version };
+      autosave.reset(draft);
+      autosave.resume();
       conflict = null;
       comparing = false;
     } catch (reason) {
       if (reason instanceof Conflict) conflict = { theirs: reason.theirs };
-      else fail(reason);
-    } finally {
-      saving = false;
+      else report(t("saveFailed"), reason);
     }
   }
 
-  function takeTheirs() {
-    if (conflict?.theirs) {
-      current = conflict.theirs;
-      draft = conflict.theirs.text;
-    }
-    conflict = null;
-    comparing = false;
-  }
-
-  function keepMine() {
+  /** Take theirs: the disk's text is loaded, after my text went to the clipboard so that nothing is lost. */
+  async function takeTheirs() {
     const theirs = conflict?.theirs;
-    if (theirs) void save(theirs.version);
+    if (!theirs || !autosave) return;
+    try {
+      await navigator.clipboard.writeText(draft);
+    } catch (reason) {
+      report(t("textCopyFailed"), reason);
+      return;
+    }
+    current = theirs;
+    if (session?.kind === "document") {
+      draft = theirs.text;
+      autosave.reset(theirs.text);
+      autosave.resume();
+      conflict = null;
+      comparing = false;
+    } else {
+      // The section's range no longer applies to the disk's version: the editor closes on it.
+      await autosave.stop();
+      stopEditing();
+      notify(t("textCopied"));
+    }
   }
 
   async function done() {
-    clearTimeout(autosave);
-    if (!conflict) await save();
-    if (!conflict) stopEditing();
+    if (!autosave) return;
+    if (await autosave.flush()) stopEditing();
+  }
+
+  let reverting = $state(false);
+
+  /** Opens a `<dialog>` as a modal when it appears (the Host's frame blocks window.confirm). */
+  function modal(node: HTMLDialogElement) {
+    node.showModal();
+  }
+
+  async function revert() {
+    if (!autosave) return;
+    if (composed(draft) !== original || current!.text !== original) {
+      reverting = true;
+      return;
+    }
+    await doRevert();
+  }
+
+  async function doRevert() {
+    reverting = false;
+    if (!autosave) return;
+    await autosave.stop();
+    if (current!.text !== original) {
+      try {
+        // Reverting overwrites a change made on disk meanwhile, as Keep mine does.
+        await project!.save(path!, original, conflict?.theirs?.version ?? current!.version);
+      } catch (reason) {
+        if (reason instanceof Conflict) {
+          conflict = { theirs: reason.theirs };
+          autosave.reset(draft);
+          autosave.pause();
+        } else report(t("revertFailed"), reason);
+        return;
+      }
+    }
+    const reread = await project!.read(path!).catch(() => null);
+    stopEditing();
+    if (reread) current = reread;
   }
 
   /** The View, already loaded, opened again on a Document, as from the Widget. */
   function onParams(params: Record<string, string>) {
     const wanted = route(params);
-    if (wanted?.path && project && active?.id === wanted.project && wanted.path !== path) openFresh(wanted.path);
+    if (wanted?.path && project && active?.id === wanted.project && wanted.path !== path) void openFresh(wanted.path);
   }
 
   function onVisibility() {
@@ -375,12 +502,29 @@
 
   onDestroy(() => {
     clearInterval(checking);
-    clearTimeout(autosave);
     clearTimeout(confirmation);
     stopParams?.();
     document.removeEventListener("visibilitychange", onVisibility);
   });
 </script>
+
+{#snippet compareTable(mine: string, theirs: string)}
+  <section class="compare" aria-label={t("compare")}>
+    <table>
+      <thead><tr><th></th><th>{t("mine")}</th><th></th><th>{t("theirs")}</th></tr></thead>
+      <tbody>
+        {#each sideBySide(mine, theirs) as row, index (index)}
+          <tr class={row.kind}>
+            <td class="n">{row.mineLine ?? ""}</td>
+            <td><pre>{row.mine ?? ""}</pre></td>
+            <td class="n">{row.theirsLine ?? ""}</td>
+            <td><pre>{row.theirs ?? ""}</pre></td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </section>
+{/snippet}
 
 {#if !loaded}
   <p class="center muted">…</p>
@@ -404,7 +548,7 @@
       {#if tree.length === 0}
         <p class="muted">{t("emptyProject")}</p>
       {:else}
-        <Tree entries={tree} current={path} open={openFresh} />
+        <Tree entries={tree} current={path} open={(target) => void openFresh(target)} />
       {/if}
     </nav>
     <main style:--header-height="{headerHeight}px">
@@ -423,7 +567,8 @@
           onwhite={() => void setDisplay({ whiteBackground: !display.whiteBackground })}
           ontoc={() => void setDisplay({ toc: { open: !display.toc.open } })}
           onedit={startEditing}
-          ondone={done}
+          ondone={() => void done()}
+          onrevert={() => void revert()}
         />
         </div>
         {#if conflict}
@@ -431,15 +576,12 @@
             <p>{conflict.theirs ? t("changedOutside") : t("deletedOutside")}</p>
             {#if conflict.theirs}
               <button onclick={() => (comparing = !comparing)}>{t("compare")}</button>
-              <button onclick={keepMine}>{t("keepMine")}</button>
-              <button class="primary" onclick={takeTheirs}>{t("takeTheirs")}</button>
+              <button onclick={() => void keepMine()}>{t("keepMine")}</button>
+              <button class="primary" onclick={() => void takeTheirs()}>{t("takeTheirs")}</button>
             {/if}
           </div>
           {#if comparing && conflict.theirs}
-            <section class="compare" aria-label={t("compare")}>
-              <div><h2>{t("mine")}</h2><pre>{draft}</pre></div>
-              <div><h2>{t("theirs")}</h2><pre>{conflict.theirs.text}</pre></div>
-            </section>
+            {@render compareTable(composed(draft), conflict.theirs.text)}
           {/if}
         {/if}
         {#if editing}
@@ -467,11 +609,67 @@
               />
             {/if}
           </div>
-          <ArticleTools {article} {notify} fail={report} />
+          <ArticleTools
+            {article}
+            {notify}
+            fail={report}
+            sectionAt={(offset) => (readOnly || session || !current ? null : sectionAt(current.text, offset))}
+            onsection={startSection}
+          />
         {/if}
       {/if}
     </main>
   </div>
+{/if}
+
+{#if session?.kind === "section" && current}
+  {@const compareWith = conflict?.theirs}
+  <dialog
+    use:modal
+    class="section"
+    aria-label={t("editSection")}
+    oncancel={(event) => { event.preventDefault(); void done(); }}
+    onkeydown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void done(); } }}
+  >
+    <header class="toolbar">
+      <h2>{t("editSection")}</h2>
+      <p class="muted hint">{t("sectionHint")}</p>
+      {#if saving}<span class="muted" role="status">{t("saving")}</span>{/if}
+      <button onclick={() => void revert()}>{t("revert")}</button>
+      <button class="primary" onclick={() => void done()}>{t("done")}</button>
+    </header>
+    {#if conflict}
+      <div class="banner" role="alert">
+        <p>{compareWith ? t("changedOutside") : t("deletedOutside")}</p>
+        {#if compareWith}
+          <button onclick={() => (comparing = !comparing)}>{t("compare")}</button>
+          <button onclick={() => void keepMine()}>{t("keepMine")}</button>
+          <button class="primary" onclick={() => void takeTheirs()}>{t("takeTheirs")}</button>
+        {/if}
+      </div>
+      {#if comparing && compareWith}
+        {@render compareTable(composed(draft), compareWith.text)}
+      {/if}
+    {/if}
+    <div class="panes">
+      <Editor text={draft} label={t("markdown")} onchange={typed} />
+      <section class="preview" aria-label={t("preview")}>
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+        <article class="document" onclick={(event) => event.preventDefault()}>{@html previewHtml}</article>
+      </section>
+    </div>
+  </dialog>
+{/if}
+
+{#if reverting}
+  <dialog use:modal aria-labelledby="revert-title" oncancel={() => (reverting = false)}>
+    <h2 id="revert-title">{t("revertTitle")}</h2>
+    <p>{t("revertText")}</p>
+    <div class="actions">
+      <button onclick={() => (reverting = false)}>{t("keepEditing")}</button>
+      <button class="primary" onclick={() => void doRevert()}>{t("revert")}</button>
+    </div>
+  </dialog>
 {/if}
 
 {#if error}
@@ -548,10 +746,85 @@
     grid-template-columns: 1fr 1fr;
     gap: 1rem;
   }
+  .compare {
+    display: block;
+    overflow: auto;
+    max-height: 40vh;
+  }
+  .compare table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .compare th {
+    text-align: left;
+  }
   .compare pre {
     white-space: pre-wrap;
+    margin: 0;
+  }
+  .compare td.n {
+    width: 2.5rem;
+    color: var(--ink-muted, #777);
+    text-align: right;
+    vertical-align: top;
+  }
+  .compare tr.changed {
+    background: color-mix(in srgb, #ffd54a 30%, transparent);
+  }
+  .compare tr.removed {
+    background: color-mix(in srgb, #e53935 22%, transparent);
+  }
+  .compare tr.added {
+    background: color-mix(in srgb, #43a047 22%, transparent);
+  }
+  dialog {
+    background: var(--panel);
+    color: var(--ink);
     border: 1px solid var(--line);
-    padding: 0.5rem;
+    border-radius: 8px;
+  }
+  dialog.section {
+    width: min(96vw, 90rem);
+    height: 90vh;
+    padding: 0.75rem 1rem;
+  }
+  dialog.section[open] {
+    display: flex;
+    flex-direction: column;
+  }
+  dialog.section .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  dialog.section h2 {
+    margin: 0;
+    font-size: 1.1rem;
+  }
+  dialog.section .hint {
+    margin: 0 auto 0 0;
+  }
+  .panes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    flex: 1;
+    min-height: 0;
+  }
+  .panes > :global(*) {
+    min-height: 0;
+    overflow: auto;
+  }
+  .preview {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0 1rem;
+  }
+  dialog .actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
   }
   /* Failures float at the bottom of the screen, wherever the reader has scrolled (Sonner-like). */
   .toast {

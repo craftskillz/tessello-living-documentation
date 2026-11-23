@@ -16,6 +16,7 @@
     ontoc,
     onedit,
     ondone,
+    onrevert,
   }: {
     editing: boolean;
     saving: boolean;
@@ -29,12 +30,14 @@
     ontoc: () => void;
     onedit: () => void;
     ondone: () => void;
+    onrevert: () => void;
   } = $props();
 </script>
 
 <header class="toolbar">
   {#if editing}
     {#if saving}<span class="muted" role="status">{t("saving")}</span>{/if}
+    <button onclick={onrevert}>{t("revert")}</button>
     <button class="primary" onclick={ondone}>{t("done")}</button>
   {:else}
     {#if readOnly}<span class="badge">{t("readOnly")}</span>{/if}

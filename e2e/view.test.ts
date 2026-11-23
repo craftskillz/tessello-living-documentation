@@ -69,7 +69,7 @@ describe("editing", () => {
     host.folders.write(disk, "a.md", "# A\n\nTheirs.\n");
 
     const banner = page.getByRole("alert");
-    await banner.getByText("changed outside").waitFor();
+    await banner.getByText("changed on disk").waitFor();
     await banner.getByRole("button", { name: "Take theirs" }).click();
     await page.getByRole("textbox", { name: "Markdown" }).getByText("Theirs.").waitFor();
     assert.equal(host.folders.read(disk, "a.md"), "# A\n\nTheirs.\n");

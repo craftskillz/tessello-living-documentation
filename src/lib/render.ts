@@ -101,7 +101,7 @@ function renderTree(text: string, path: string, bodyStart: number, labels: Rende
   return pipeline(labels, clobberPrefix).processSync({ value: masked, data: pass }).result as Root;
 }
 
-interface CompareRegion {
+export interface CompareRegion {
   from: number;
   to: number;
   innerFrom: number;
@@ -109,7 +109,7 @@ interface CompareRegion {
 }
 
 /** The `:::compare` … `:::` regions at column 0, outside fenced code. A compare never closed is not a region. */
-function compareRegions(text: string): CompareRegion[] {
+export function compareRegions(text: string): CompareRegion[] {
   const regions: CompareRegion[] = [];
   const lines = text.split("\n");
   const offsets: number[] = [];
