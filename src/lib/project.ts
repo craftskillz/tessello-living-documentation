@@ -64,7 +64,7 @@ export class NotFound extends Error {
 }
 
 /** Why a name or a change is refused; each reason has a translated message in the View. */
-export type RefusalReason = "empty" | "characters" | "edges" | "reserved" | "taken" | "invalidManifest";
+export type RefusalReason = "empty" | "characters" | "edges" | "extension" | "reserved" | "taken" | "invalidManifest";
 
 /** A new entry refused: its name breaks the naming rule, or its Folder's manifest is invalid. */
 export class Refused extends Error {
@@ -77,19 +77,20 @@ export class Refused extends Error {
   }
 }
 
-/** The file name of a new Document named `name`: a Name already ending in `.md` (any case) is the file name itself; otherwise `.md` is added. */
-export const documentFile = (name: string) => (name.toLowerCase().endsWith(".md") ? name : `${name}.md`);
+/** The file name of a new Document named `name`: `.md` is always added (a Name ending in `.md` is refused). */
+export const documentFile = (name: string) => `${name}.md`;
 
 /**
  * The naming rule for a new entry named `name` (exactly as typed, never trimmed or changed) among the names of the
  * entries already in its Folder (`siblings`, every file and folder name, manifest included). null when allowed.
- * For a Document, `name` is the Name the User typed and the entry's name is `<name>.md` (or `name` itself when it
- * already ends with `.md`, in any case).
+ * For a Document, `name` is the Name the User typed and the entry's name is `<name>.md`; a Name ending in `.md` (any
+ * case) is refused, so no file is ever named `x.md.md`.
  */
 export function refusalOf(kind: "document" | "folder", name: string, siblings: string[]): RefusalReason | null {
   if (name === "") return "empty";
   if (/[/\\:*?"<>|]/.test(name)) return "characters";
   if (/^[ .]|[ .]$/.test(name)) return "edges";
+  if (kind === "document" && name.toLowerCase().endsWith(".md")) return "extension";
   const entry = (kind === "document" ? documentFile(name) : name).toLowerCase();
   if (entry === FOLDER_MANIFEST) return "reserved";
   if (siblings.some((sibling) => sibling.toLowerCase() === entry)) return "taken";
@@ -226,9 +227,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       }
     },
     async createDocument(parent, name) {
-      const file = documentFile(name);
-      const heading = file === name ? name.slice(0, -".md".length) : name;
-      return create("document", parent, name, file, `---\ntimestamp: ${clock().toISOString()}\n---\n# ${heading}\n`);
+      return create("document", parent, name, documentFile(name), `---\ntimestamp: ${clock().toISOString()}\n---\n# ${name}\n`);
     },
     async createFolder(parent, name) {
       return create("folder", parent, name, name, EMPTY_MANIFEST);

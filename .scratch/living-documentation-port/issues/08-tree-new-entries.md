@@ -21,9 +21,10 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 
 - **Host change:** the Host gave no modified time, so `files.list` file entries now carry `modified` (ms since the epoch): `../tessello` branch `feat/folder-files-capability`, commit 61d9700 (SDK, Test Host, host-core, Convention §6.5, ADR 0022), not pushed. Rebuild the local Host (`npm run start:host`) before the trial.
 - **Dates:** a `timestamp` is shown as written (to the minute, no time-zone conversion, as the original); new Documents get `toISOString()` (UTC), so their time shows in UTC, as in the original. Without a timestamp that reads as a date, the file's modified time in the reader's time zone. `tree()` now reads every Document for its timestamp.
-- **A Name already ending in `.md`** (any case) is the file name itself (`notes.md`, not `notes.md.md`), heading without `.md`. The spec says `<Name>.md`; say if you prefer `.md.md` or a refusal.
+- **A Document Name ending in `.md`** (any case) is refused ("Type the name without .md: it is added for you."), the User's choice over `x.md.md`. A Folder name may end in `.md`.
+- **Icons:** Lucide's file-plus and folder-plus (ISC licence), inline SVG.
 - **New Document opens** after creation (as the original); a new Folder is shown open in the Tree.
-- **Live check vs. hidden entries:** the dialog checks the name live against what the Tree shows; a clash with a hidden or non-Markdown file is refused by the Project on Create, with the same message in the dialog.
+- **Clashes (accepted by the User):** the dialog checks the name live against what the Tree shows; a clash with a hidden or non-Markdown file is refused by the Project on Create, with the same message in the dialog.
 - **Manifest changed meanwhile:** if an agent changes the parent manifest between our read and write, the entry is created but not appended to the order (no message).
 - **Not here:** `images` and `files` at the Project root are not refused as Folder names yet (reserved folders: ticket 10). A non-refusal failure shows the generic translated message with the raw reason as a detail.
 - **`tessello validate`:** installable, with 3 sandbox warnings in `view/app.js` (localStorage, sessionStorage, embedded frame), from bundled libraries, not from this ticket.

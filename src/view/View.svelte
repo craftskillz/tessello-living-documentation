@@ -491,6 +491,7 @@
     empty: "refusedEmpty",
     characters: "refusedCharacters",
     edges: "refusedEdges",
+    extension: "refusedExtension",
     reserved: "refusedReserved",
     taken: "refusedTaken",
     invalidManifest: "refusedInvalidManifest",
@@ -618,14 +619,16 @@
 {:else}
   <div class="layout">
     <nav aria-label={t("documents")}>
-      <p class="project">{active.name}</p>
-      <div class="creators">
-        <button type="button" aria-label={t("newDocument")} title={t("newDocument")} onclick={() => startCreating("document")}>
-          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 1.5h5l3 3v10H4z" /><path d="M8 7v4M6 9h4" /></svg>
-        </button>
-        <button type="button" aria-label={t("newFolder")} title={t("newFolder")} onclick={() => startCreating("folder")}>
-          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 3.5h4l1.5 1.5h7.5v8h-13z" /><path d="M8 7.5v4M6 9.5h4" /></svg>
-        </button>
+      <div class="nav-head">
+        <p class="project">{active.name}</p>
+        <div class="creators">
+          <button type="button" class="icon" aria-label={t("newDocument")} title={t("newDocument")} onclick={() => startCreating("document")}>
+            {@render entryIcon("document")}
+          </button>
+          <button type="button" class="icon" aria-label={t("newFolder")} title={t("newFolder")} onclick={() => startCreating("folder")}>
+            {@render entryIcon("folder")}
+          </button>
+        </div>
       </div>
       {#if tree.length === 0}
         <p class="muted">{t("emptyProject")}</p>
@@ -743,24 +746,52 @@
   </dialog>
 {/if}
 
+<!-- Lucide's file-plus and folder-plus (ISC licence), drawn with the text's colour. -->
+{#snippet entryIcon(kind: "document" | "folder")}
+  <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    {#if kind === "document"}
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M12 12v6" /><path d="M9 15h6" />
+    {:else}
+      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /><path d="M12 10v6" /><path d="M9 13h6" />
+    {/if}
+  </svg>
+{/snippet}
+
 {#if creating}
   <dialog use:modal aria-labelledby="create-title" class="create" oncancel={() => (creating = null)}>
     <form onsubmit={(event) => { event.preventDefault(); void create(); }}>
-      <h2 id="create-title">{creating.kind === "document" ? t("newDocument") : t("newFolder")}</h2>
-      <label>
-        {t("name")}
-        <input type="text" bind:value={creating.name} oninput={() => creating && (creating.failure = null)} aria-describedby="create-problem" autocomplete="off" spellcheck="false" />
-      </label>
-      <label>
-        {t("location")}
-        <select bind:value={creating.folder} onchange={() => creating && (creating.failure = null)}>
-          <option value="">{t("rootLocation")}</option>
-          {#each folderPaths(tree) as folder (folder)}
-            <option value={folder}>/{folder}</option>
-          {/each}
-        </select>
-      </label>
-      <p class="muted">{t("willBeCreatedAt")} <code>{createdPath}</code></p>
+      <header>
+        <span class="badge-icon">{@render entryIcon(creating.kind)}</span>
+        <h2 id="create-title">{creating.kind === "document" ? t("newDocument") : t("newFolder")}</h2>
+      </header>
+      <div class="field">
+        <label for="create-name">{t("name")}</label>
+        <input
+          id="create-name"
+          type="text"
+          class:invalid={creating.failure !== null || (refusal !== null && refusal !== "empty")}
+          bind:value={creating.name}
+          oninput={() => creating && (creating.failure = null)}
+          aria-describedby="create-problem"
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </div>
+      <div class="field">
+        <label for="create-location">{t("location")}</label>
+        <div class="select">
+          <select id="create-location" bind:value={creating.folder} onchange={() => creating && (creating.failure = null)}>
+            <option value="">{t("rootLocation")}</option>
+            {#each folderPaths(tree) as folder (folder)}
+              <option value={folder}>/{folder}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+      <div class="preview-path">
+        <span>{t("willBeCreatedAt")}</span>
+        <code>{createdPath}</code>
+      </div>
       <div id="create-problem">
         {#if creating.failure}
           <p class="problem" role="alert">{creating.failure}</p>
@@ -936,31 +967,156 @@
     border-radius: 6px;
     padding: 0 1rem;
   }
+  .nav-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .nav-head .project {
+    flex: 1;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .creators {
     display: flex;
-    gap: 0.25rem;
-    margin-bottom: 0.5rem;
+    gap: 0.125rem;
   }
-  .creators button {
-    padding: 0.2rem 0.4rem;
-    display: inline-flex;
+  button.icon {
+    display: inline-grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+    color: var(--muted, #777);
+    transition: background-color 120ms, color 120ms;
+  }
+  button.icon:hover {
+    background: color-mix(in srgb, var(--ink) 8%, transparent);
+    color: var(--ink);
+  }
+  button.icon:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
   dialog.create {
     width: min(92vw, 28rem);
+    padding: 1.25rem 1.5rem 1.25rem;
+    box-shadow: 0 20px 50px rgb(0 0 0 / 0.25);
+  }
+  dialog.create::backdrop {
+    background: rgb(0 0 0 / 0.35);
+  }
+  dialog.create header {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-bottom: 1.25rem;
   }
   dialog.create h2 {
-    margin-top: 0;
+    margin: 0;
     font-size: 1.1rem;
   }
-  dialog.create label {
+  .badge-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 8px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .field {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    margin-bottom: 0.75rem;
+    gap: 0.35rem;
+    margin-bottom: 1rem;
+  }
+  .field label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted, #777);
+  }
+  .field input,
+  .field select {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.5rem 0.7rem;
+    transition: border-color 120ms, box-shadow 120ms;
+  }
+  .field input:hover,
+  .field select:hover {
+    border-color: color-mix(in srgb, var(--ink) 30%, var(--line));
+  }
+  .field input:focus,
+  .field select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+  .field input.invalid {
+    border-color: #e53935;
+  }
+  .field input.invalid:focus {
+    box-shadow: 0 0 0 3px rgb(229 57 53 / 0.2);
+  }
+  /* The select draws its own chevron, in the text's colour, instead of the browser's. */
+  .select {
+    position: relative;
+  }
+  .select select {
+    appearance: none;
+    padding-right: 2.2rem;
+    cursor: pointer;
+  }
+  .select::after {
+    content: "";
+    position: absolute;
+    right: 0.9rem;
+    top: 50%;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 1.75px solid var(--muted, #777);
+    border-bottom: 1.75px solid var(--muted, #777);
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+  }
+  .preview-path {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.55rem 0.75rem;
+    margin-bottom: 1rem;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--ink) 5%, transparent);
+    font-size: 0.8rem;
+    color: var(--muted, #777);
+  }
+  .preview-path code {
+    color: var(--ink);
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
   }
   .problem {
     color: #e53935;
-    margin: 0 0 0.75rem;
+    font-size: 0.875rem;
+    margin: -0.25rem 0 1rem;
+  }
+  dialog.create .actions {
+    margin-top: 0.5rem;
+  }
+  dialog.create .actions button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   dialog .actions {
     display: flex;

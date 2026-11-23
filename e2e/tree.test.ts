@@ -120,8 +120,17 @@ describe("a refused name", () => {
     const { page } = await withProject({ "a.md": "# A\n" });
     await page.getByRole("button", { name: "New document" }).click();
     const dialog = page.getByRole("dialog", { name: "New document" });
-    await dialog.getByRole("textbox", { name: "Name" }).fill("liv-doc-main.md");
+    await dialog.getByRole("textbox", { name: "Name" }).fill("liv-doc-main");
     await dialog.getByRole("alert").getByText("liv-doc-main.md is reserved for the Folder's order.").waitFor();
+  });
+
+  test("a name typed with .md is refused: .md is added for the User", async () => {
+    const { page } = await withProject({ "a.md": "# A\n" });
+    await page.getByRole("button", { name: "New document" }).click();
+    const dialog = page.getByRole("dialog", { name: "New document" });
+    await dialog.getByRole("textbox", { name: "Name" }).fill("Notes.md");
+    await dialog.getByRole("alert").getByText("Type the name without .md: it is added for you.").waitFor();
+    assert.equal(await dialog.getByRole("button", { name: "Create" }).isDisabled(), true);
   });
 });
 

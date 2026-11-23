@@ -234,10 +234,12 @@ describe("the naming rule", () => {
     assert.equal(refusalOf("document", "Other", ["guide.md", "liv-doc-main.md"]), null);
   });
 
-  test("a Document Name already ending in .md (any case) is the file name itself", () => {
-    assert.equal(refusalOf("document", "Guide.MD", ["guide.md"]), "taken");
-    assert.equal(refusalOf("document", "Guide.md", []), null);
-    assert.equal(refusalOf("document", "liv-doc-main.MD", []), "reserved");
+  test("a Document Name ending in .md (any case) is refused: .md is added to the Name; a Folder may end in .md", () => {
+    assert.equal(refusalOf("document", "Guide.md", []), "extension");
+    assert.equal(refusalOf("document", "Guide.MD", ["guide.md"]), "extension");
+    assert.equal(refusalOf("document", "liv-doc-main.md", []), "extension");
+    assert.equal(refusalOf("document", "Guide.mdx", []), null);
+    assert.equal(refusalOf("folder", "notes.md", []), null);
   });
 
   test("the first broken rule wins: characters before edges before reserved before taken", () => {
@@ -268,19 +270,10 @@ describe("creating a Document", () => {
     assert.match(host.folders.read(disk, "guide/B.md") as string, /^---\ntimestamp: .*\n---\n# B\n$/);
   });
 
-  test("a Name already ending in .md is the file name and the heading drops the suffix", async () => {
-    const { host, disk, project } = await projectOf({}, { now: NOW });
-
-    const path = await project.createDocument("", "Notes.MD");
-
-    assert.equal(path, "Notes.MD");
-    assert.match(host.folders.read(disk, path) as string, /# Notes\n$/);
-  });
-
   test("a refused name writes nothing and rejects with its reason", async () => {
     const { host, disk, project } = await projectOf({ "guide.md": "mine" });
 
-    for (const [name, reason] of [["", "empty"], ["a/b", "characters"], [" a", "edges"], ["liv-doc-main", "reserved"], ["GUIDE", "taken"]]) {
+    for (const [name, reason] of [["", "empty"], ["a/b", "characters"], [" a", "edges"], ["liv-doc-main", "reserved"], ["GUIDE", "taken"], ["Notes.MD", "extension"]]) {
       const refused = await project.createDocument("", name!).catch((error: unknown) => error);
       assert.ok(refused instanceof Refused, name);
       assert.equal(refused.reason, reason);
