@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human (built; the trial in the local Host is left)
+**Status:** done (66157fd)
 
 - [x] Relative `.md` links and `?doc=<id>` links open the target in the View, with `#anchor` scrolled to; Back returns
 - [x] External `http(s)` links open in a new tab; nothing navigates the View
@@ -15,7 +15,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder) on an old Living Documentation folder; differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder) on an old Living Documentation folder; differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -29,7 +29,8 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
   - `src/lib/document.css` is the stylesheet, light and dark through `data-mode` from the Host theme.
   - In the View: link clicks, the back trail and anchor scrolling.
   - Tests: 59 unit, 23 browser; `tessello validate` passes.
-- **Not done: the trial in the local Host** on an old Living Documentation folder. It is the one open criterion; set `done` after it.
+- **Trial in the local Host** (2026-11-23, an old Living Documentation folder): images, look (light and dark), address, relative / nested / `../` / `?doc=` links, anchors, same-Document anchors, external and `mailto:` links all work.
+  - One difference found and fixed (66157fd): the missing-Document message showed at the top of the page, out of view when the reader had scrolled down. Failures are now a toast at the bottom right (Sonner-like), kept until closed or the next navigation. It sits outside the layout, so failures on the welcome and reconnect screens show too; before, they were silent.
 - **Decisions where the spec is silent:**
   - Opening a Document from the Tree (or from the Host's params) clears the back trail.
   - Back reopens the Document at its top.
