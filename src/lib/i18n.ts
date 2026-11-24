@@ -129,6 +129,16 @@ const en = {
   truncated: "⚠ Truncated at 1 MB",
   openFileFailed: "Could not open “{name}”.",
   chooseDocument: "Choose a document in the Tree.",
+  favorites: "Favorites",
+  favorite: "Favorite",
+  addFavorite: "Add to favorites",
+  removeFavorite: "Remove from favorites",
+  dragToReorder: "Drag to reorder",
+  noFavorites: "No favorites yet. Star a document to pin it here.",
+  favoriteMissing: "Missing",
+  favoritesFull: "At most {max} favorites.",
+  favoritesFailed: "The favorites could not be saved. Try again.",
+  widgetNoFavorites: "No favorites yet. Open Living Documentation and star a document.",
 };
 
 type Messages = typeof en;
@@ -262,6 +272,16 @@ const fr: Messages = {
   truncated: "⚠ Tronqué à 1 Mo",
   openFileFailed: "« {name} » n'a pas pu être ouvert.",
   chooseDocument: "Choisissez un document dans l'arborescence.",
+  favorites: "Favoris",
+  favorite: "Favori",
+  addFavorite: "Ajouter aux favoris",
+  removeFavorite: "Retirer des favoris",
+  dragToReorder: "Glisser pour réordonner",
+  noFavorites: "Aucun favori. Cliquez sur l'étoile d'un document pour l'épingler ici.",
+  favoriteMissing: "Introuvable",
+  favoritesFull: "Au plus {max} favoris.",
+  favoritesFailed: "Les favoris n'ont pas pu être enregistrés. Réessayez.",
+  widgetNoFavorites: "Aucun favori. Ouvrez Living Documentation et cliquez sur l'étoile d'un document.",
 };
 
 export type MessageKey = keyof Messages;

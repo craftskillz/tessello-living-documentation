@@ -53,7 +53,7 @@ project.settings / setSettings               // .living-doc.json
 project.changes(): AsyncIterable<Change>     // 5-second poll, Agent edits
 ```
 
-Hides the cascades of R12-style rules: rewriting relative Links on rename and move, updating Folder manifests (order append, hidden), carrying annotations, favorites and Kanban column folders, refusing names, never overwriting Images, lazy creation of Project metadata. Tested on the in-memory folder with journeys from the spec ("rename a Folder: links in other Documents follow, favorites follow").
+Hides the cascades of R12-style rules: rewriting relative Links on rename and move, updating Folder manifests (order append, hidden), carrying annotations and Kanban column folders, refusing names, never overwriting Images, lazy creation of Project metadata. Tested on the in-memory folder with journeys from the spec ("rename a Folder: links in other Documents follow"). Favorites live in the Module's storage (ADR 0007), so they follow in `projects`: the Project returned by `projects.open()` updates them after its own rename, move and remove.
 
 ### 4. `annotations` — placement and storage
 

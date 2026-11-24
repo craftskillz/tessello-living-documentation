@@ -15,6 +15,7 @@ import {
   type TestHost,
   type TestHostOptions,
   type TestSurface,
+  WIDGET_SIZES,
 } from "@tessello/sdk/testing";
 
 // The View checks the Project for agent edits every 5 seconds: waits must outlast one check.
@@ -70,4 +71,12 @@ export async function withProject(
   await opened.page.getByRole("button", { name: options.locale === "fr" ? "Connecter un dossier" : "Connect a folder" }).click();
   await opened.page.getByRole("navigation", { name: "Documents" }).waitFor();
   return { ...opened, disk };
+}
+
+/** The Widget, at size M, on the Test Host of a View: the same Module's storage and folders. */
+export async function openWidget(host: TestHost): Promise<Opened> {
+  const page = await (await browser.newContext({ viewport: WIDGET_SIZES.M })).newPage();
+  const surface = await host.attach(page, { surface: "widget" });
+  await page.goto(`${server.url}/${manifest.widget.entry}`);
+  return { page, host, surface };
 }

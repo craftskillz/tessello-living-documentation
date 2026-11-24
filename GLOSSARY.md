@@ -86,6 +86,10 @@ _Avoid_: Asset, attachment, upload
 A change to a Project folder made outside the Module, by a coding agent, an editor or `git`. The Module notices it but never assumes it did not happen.
 _Avoid_: External sync, remote change
 
+**Favorite**:
+A Document the User starred, listed in the Favorites menu and the Widget in their order. Personal, per Project, kept in the Module's storage (ADR 0007); one whose file is gone stays listed as Missing.
+_Avoid_: Bookmark, pin, starred document
+
 **HTML template**:
 One of the Module's built-in page layouts (Interview sheet, Article) a Document can be presented with, named in its Frontmatter `html_template` field.
 _Avoid_: Template (alone; that is the Template library), theme, export

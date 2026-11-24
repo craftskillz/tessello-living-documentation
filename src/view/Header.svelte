@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The actions above the open Document: while reading, its path and display preferences, Edit and Delete; while editing,
+  // The actions above the open Document: while reading, its path and display preferences, Favorite, Edit and Delete; while editing,
   // Saving… during a save only, and Done. A read-only Document (a Folder manifest) has no Edit and no Delete.
   import { t } from "../lib/i18n.ts";
 
@@ -10,10 +10,12 @@
     lines,
     whiteBackground,
     tocOpen,
+    favorite,
     oncopypath,
     onlines,
     onwhite,
     ontoc,
+    onfavorite,
     onedit,
     ondelete,
     ondone,
@@ -25,10 +27,12 @@
     lines: boolean;
     whiteBackground: boolean;
     tocOpen: boolean;
+    favorite: boolean;
     oncopypath: () => void;
     onlines: () => void;
     onwhite: () => void;
     ontoc: () => void;
+    onfavorite: () => void;
     onedit: () => void;
     ondelete: () => void;
     ondone: () => void;
@@ -48,6 +52,10 @@
     <button aria-pressed={whiteBackground} title={t("whiteBackgroundHint")} onclick={onwhite}>{t("whiteBackground")}</button>
     <button aria-pressed={tocOpen} onclick={ontoc}>{t("toc")}</button>
     {#if !readOnly}
+      <button aria-pressed={favorite} title={favorite ? t("removeFavorite") : t("addFavorite")} onclick={onfavorite}>
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill={favorite ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z" /></svg>
+        {t("favorite")}
+      </button>
       <button onclick={onedit}>{t("edit")}</button>
       <button onclick={ondelete}>{t("delete")}</button>
     {/if}

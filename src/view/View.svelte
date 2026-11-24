@@ -14,11 +14,12 @@
   import { previewOf, type FilePreview } from "../lib/otherFiles.ts";
   import { Conflict, documentFile, FOLDER_MANIFEST, isInsideReserved, isReservedFolder, NotFound, Refused, refusalOf, type Deletion, type DocumentText, type Project, type RefusalReason, type TreeDocument, type TreeEntry, type TreeFolder } from "../lib/project.ts";
   import { entryMapper } from "../lib/links.ts";
-  import { createProjects, TOC_WIDTH, type DisplayPreferences, type ListedProject } from "../lib/projects.ts";
+  import { createProjects, MAX_FAVORITES, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject } from "../lib/projects.ts";
   import { renderDocument } from "../lib/render.ts";
   import ArticleTools from "./ArticleTools.svelte";
   import { applyLineLabels } from "./lines.ts";
   import Editor from "./Editor.svelte";
+  import Favorites from "./Favorites.svelte";
   import Header from "./Header.svelte";
   import Toc, { type Heading } from "./Toc.svelte";
   import Tree, { type Dragging, type DropPosition } from "./Tree.svelte";
@@ -49,6 +50,11 @@
   /** The User's display preferences (Lines, White background, table of contents), kept in the Module's storage. */
   let display = $state<DisplayPreferences>({ lines: false, whiteBackground: false, showHidden: false, toc: { open: false, width: TOC_WIDTH.default } });
   let headings = $state.raw<Heading[]>([]);
+  /** The Project's favorites in the User's order (personal, ADR 0007), with the Documents' current titles. */
+  let favorites = $state.raw<Favorite[]>([]);
+  let favoritesSaving: Promise<void> = Promise.resolve();
+  let favoriteEdits = 0;
+  const starred = $derived(path !== null && favorites.some((each) => each.path === path));
 
   type Session = { kind: "document" } | { kind: "section"; range: TextRange };
   let session = $state.raw<Session | null>(null);
@@ -155,6 +161,51 @@
     if (active?.state === "available") await openActive(wanted?.path ?? null);
   }
 
+  /** The favorites read again: after a rename, move, delete or agent edit, and when the menu opens. */
+  async function loadFavorites() {
+    if (!active) return;
+    const asked = active;
+    const edits = favoriteEdits;
+    try {
+      const latest = await projects.favorites(asked);
+      // A list read before the User's last change would put it back.
+      if (active === asked && edits === favoriteEdits) favorites = latest;
+    } catch (reason) {
+      fail(reason);
+    }
+  }
+
+  /** Shows `next` at once, then keeps it; if it cannot be kept, the previous list comes back with a message. */
+  async function saveFavorites(next: Favorite[]) {
+    const previous = favorites;
+    favorites = next;
+    const edit = ++favoriteEdits;
+    const project = active!;
+    // One save after the other, so that a quick series (Alt + ↓ twice) is kept in the order it was made.
+    const turn = favoritesSaving.then(() => projects.setFavorites(project, next.map(({ path, title }) => ({ path, title }))));
+    favoritesSaving = turn.then(() => undefined, () => undefined);
+    try {
+      await turn;
+    } catch (reason) {
+      // A later change, already shown, carries this one on: putting this list back would hide it.
+      if (edit === favoriteEdits) favorites = previous;
+      report(t("favoritesFailed"), reason);
+    }
+  }
+
+  function toggleFavorite() {
+    if (path === null || !model) return;
+    if (starred) return void saveFavorites(favorites.filter((each) => each.path !== path));
+    if (favorites.length >= MAX_FAVORITES) return report(t("favoritesFull", { max: MAX_FAVORITES }));
+    void saveFavorites([...favorites, { path, title: model.title, missing: false }]);
+  }
+
+  function moveFavorite(from: number, to: number) {
+    const next = [...favorites];
+    next.splice(to, 0, ...next.splice(from, 1));
+    void saveFavorites(next);
+  }
+
   /** The Tree as the display preferences want it: with the hidden items when Show hidden items is on. */
   const loadTree = () => project!.tree({ hidden: display.showHidden });
 
@@ -162,6 +213,7 @@
     project = projects.open(active!);
     tree = await loadTree();
     await project.check();
+    void loadFavorites();
     const target = wantedPath ?? (await projects.startDocument(active!));
     if (target) await show(target);
     clearInterval(checking);
@@ -338,6 +390,7 @@
     try {
       const changes = await project.check();
       if (changes.tree) tree = await loadTree();
+      if (changes.tree || changes.documents.length > 0) void loadFavorites();
       // A save of ours still running shows as a change: it is not an agent's edit (theirs would fail that save instead).
       if (!checked || !changes.documents.includes(checked) || autosave?.saving) return;
       const theirs = await project.read(checked).catch(() => null);
@@ -598,6 +651,7 @@
     const map = entryMapper(from, to, isFolder);
     try {
       tree = await loadTree();
+      void loadFavorites();
       trail = trail.map((entry) => ({ ...entry, path: map(entry.path) ?? entry.path }));
       const folders = new Set([...closed].map((folder) => map(folder) ?? folder));
       if (reveal !== undefined) folders.delete(reveal);
@@ -787,6 +841,7 @@
     deleting = null;
     try {
       tree = await loadTree();
+      void loadFavorites();
       trail = trail.filter((each) => !gone(each.path));
       closed = new Set([...closed].filter((folder) => !gone(folder)));
       if (openFile && gone(openFile.path)) closeFile();
@@ -1020,6 +1075,13 @@
     <nav aria-label={t("documents")}>
       <div class="nav-head">
         <p class="project">{active.name}</p>
+        <Favorites
+          entries={favorites}
+          onshow={() => void loadFavorites()}
+          onopen={(target) => void openFresh(target)}
+          onremove={(target) => void saveFavorites(favorites.filter((each) => each.path !== target))}
+          onmove={moveFavorite}
+        />
         <div class="creators">
           <button type="button" class="icon" aria-label={t("newDocument")} title={t("newDocument")} onclick={() => startCreating("document")}>
             {@render entryIcon("document")}
@@ -1053,10 +1115,12 @@
           lines={display.lines}
           whiteBackground={display.whiteBackground}
           tocOpen={display.toc.open}
+          favorite={starred}
           oncopypath={() => void copyPath()}
           onlines={() => void setDisplay({ lines: !display.lines })}
           onwhite={() => void setDisplay({ whiteBackground: !display.whiteBackground })}
           ontoc={() => void setDisplay({ toc: { open: !display.toc.open } })}
+          onfavorite={toggleFavorite}
           onedit={startEditing}
           ondelete={() => void askDeletion({ kind: "document", name: nameOf(path!), path: path! })}
           ondone={() => void done()}

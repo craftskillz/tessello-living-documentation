@@ -1,4 +1,4 @@
-// The Widget: the Active Project's name; a click opens the View. Favorites come with the favorites feature.
+// The Widget: the Active Project's name and its favorites; a click on one opens the View on that Document (View params).
 
 import { connect } from "@tessello/sdk";
 import { mount } from "svelte";

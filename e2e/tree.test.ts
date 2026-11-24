@@ -421,7 +421,12 @@ describe("drag and drop", () => {
     assert.equal(host.folders.read(disk, "doc.md"), null);
     await page.getByRole("heading", { level: 1, name: "Doc" }).waitFor();
     assert.equal(await page.getByRole("link", { name: "doc.md" }).getAttribute("aria-current"), "page");
-    assert.deepEqual(await links(page).allInnerTexts(), ["doc.md", "x.md"]);
+    // The Tree is reloaded after the move and passes through another order on the way: the final one must hold.
+    await until(async () => {
+      const shown = (await links(page).allInnerTexts()).join();
+      await page.waitForTimeout(400);
+      return shown === "doc.md,x.md" && (await links(page).allInnerTexts()).join() === shown;
+    }, "the Tree after the move");
   });
 
   test("a Folder dropped into its own sub-folder: nothing moves, Could not move with the reason", async () => {
