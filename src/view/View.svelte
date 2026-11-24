@@ -156,16 +156,25 @@
   const sidebarWidth = $derived(draggedWidth ?? pendingSidebar ?? display.sidebar.width);
   const tocWidth = $derived(pendingToc ?? display.toc.width);
 
+  /**
+   * The widths asked so far: only the last write clears the pending width. Comparing widths would not do: 272, 288, 272
+   * cleared it when the first 272 was kept, and 288 showed until the last write landed.
+   */
+  let sidebarWrites = 0;
+  let tocWrites = 0;
+
   async function keepSidebar(width: number) {
+    const write = ++sidebarWrites;
     pendingSidebar = width;
     await setDisplay({ sidebar: { width } });
-    if (pendingSidebar === width) pendingSidebar = null;
+    if (write === sidebarWrites) pendingSidebar = null;
   }
 
   async function keepToc(width: number) {
+    const write = ++tocWrites;
     pendingToc = width;
     await setDisplay({ toc: { width } });
-    if (pendingToc === width) pendingToc = null;
+    if (write === tocWrites) pendingToc = null;
   }
 
   /** Writes follow one another, so that key presses in a row are kept in order. */
