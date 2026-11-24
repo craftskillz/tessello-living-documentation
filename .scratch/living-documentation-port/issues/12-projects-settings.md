@@ -4,15 +4,23 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** ready-for-human (built in 12c940b, Host side in ../tessello bb8aca1; awaiting the trial in the local Host)
 
-- [ ] Project switcher: switch, connect, remove, reconnect
-- [ ] Overlap refused (decision recorded in an ADR)
-- [ ] Project settings panel over `.living-doc.json`, created only when a setting is saved
-- [ ] Connect repository refuses a folder that does not contain the Project folder
-- [ ] The View's address never changes (the e2e assertion is kept for every new journey)
-- [ ] Every text in English and French; every failure shows a translated message
-- [ ] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
+- [x] Project switcher: switch, connect, remove, reconnect
+- [x] Overlap refused (decision recorded in an ADR)
+- [x] Project settings panel over `.living-doc.json`, created only when a setting is saved
+- [x] Connect repository refuses a folder that does not contain the Project folder
+- [x] The View's address never changes (the e2e assertion is kept for every new journey)
+- [x] Every text in English and French; every failure shows a translated message
+- [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
 - [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
+
+## Comments
+
+- **Overlap (ADR 0010):** refused by the Host, not the Module: `folders.request({ mustNotOverlap })` in `../tessello` (branch `feat/folder-files-capability`, commit bb8aca1, not pushed; Convention §6.5 and ADR 0022 updated). The refusal `overlapping` carries the clashing folder's id in a new optional `folder` field of protocol errors, so the message names the Project. **Rebuild the local Host before trying.** Choosing the folder of an existing Project is now refused too (it used to switch to it).
+- **Click rule:** `connect()` sends its request without reading the storage first, from the Project folders it last read (the View lists them on load). Called on a fresh `Projects` before any read, it would not refuse an overlap; the View never does that. To check in the Host: the Host itself reads its grants before opening the picker, for `mustNotOverlap` as for `mustContain`.
+- **Panel:** opened from the switcher (Project settings…). Repository: Connect repository (refused when the folder does not hold the Project folder), its name, Disconnect (not asked for, but the only way to change it). The Repository grant is kept per User in the Module's storage, not in `.living-doc.json`. Shared section: the line-break checkbox (also in the cog); Tag names come with ticket 13. A grant is given back only when no other Project uses it as its folder or repository (two Projects in one repository share one grant; a repository can be the Project folder itself).
+- **Removing the Active Project** opens the first available Project left, else an unavailable one (its screen), else the welcome screen. The unavailable screen has the switcher too, so the User is never stuck.
+- **Left over:** an unavailable repository (after a browser restart) shows "(unavailable)" with Disconnect only; Reconnect for it belongs with Versions (ticket 23). If the open Document cannot be saved when connecting a folder, the new Project stays listed but the open one stays Active. `tessello validate` gives the same 3 warnings as before (from bundled libraries). The trial in the local Host.
