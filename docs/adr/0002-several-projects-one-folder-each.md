@@ -4,7 +4,7 @@ The original serves a single documentation folder per running hub. The Module in
 
 ## Consequences
 
-- Project folders may not be the same, nested in, or around one another: the Module refuses the second one and names the conflicting Project.
+- Project folders may not be the same, nested in, or around one another: the Module refuses the second one and names the conflicting Project (the Host checks it, ADR 0010).
 - Removing a Project only forgets it and revokes its grant; it never touches files.
 - A Project whose folder is gone or ungranted stays listed as unavailable, with Reconnect and Remove.
 - Opening a folder writes nothing: Project metadata is created only when the User first changes something it records.

@@ -16,7 +16,9 @@
   import { entryMapper } from "../lib/links.ts";
   import { compileLabelFilter, NO_LABEL_FILTER, type LabelFilter } from "../lib/labels.ts";
   import { DEFAULT_SETTINGS, readSettings, setSoftBreaks, SETTINGS_FILE, type ProjectSettings } from "../lib/projectSettings.ts";
-  import { createProjects, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject } from "../lib/projects.ts";
+  import { createProjects, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject } from "../lib/projects.ts";
+  import ProjectSettingsPanel from "./ProjectSettings.svelte";
+  import ProjectSwitcher from "./ProjectSwitcher.svelte";
   import { renderDocument } from "../lib/render.ts";
   import ArticleTools from "./ArticleTools.svelte";
   import { applyLineLabels } from "./lines.ts";
@@ -35,6 +37,8 @@
 
   let loaded = $state(false);
   let active = $state<ListedProject | null>(null);
+  /** Every Project, for the switcher: read again when its menu opens. */
+  let allProjects = $state.raw<ListedProject[]>([]);
   let project: Project | null = null;
   let tree = $state.raw<TreeEntry[]>([]);
   let path = $state<string | null>(null);
@@ -218,6 +222,7 @@
     const wanted = route(host.context.params);
     const activeId = (await projects.active())?.id;
     // A deep link opens its Project; else the Active Project.
+    allProjects = list;
     active = list.find((each) => each.id === wanted?.project) ?? list.find((each) => each.id === activeId) ?? null;
     if (active && active.id !== activeId) await projects.setActive(active);
     loaded = true;
@@ -481,27 +486,169 @@
     return () => document.documentElement.classList.remove("ld-white-background");
   });
 
-  async function connectFolder() {
+  /** The message for a folder the Host refused, null for any other failure. */
+  function refusedText(reason: unknown): string | null {
+    if (!(reason instanceof FolderRefused)) return null;
+    return reason.reason === "overlapping" ? (reason.project ? t("overlapNamed", { name: reason.project.name }) : t("overlapUnnamed")) : null;
+  }
+
+  async function loadProjects() {
     try {
-      const connected = await projects.connect();
-      if (!connected) return;
-      active = { ...connected, state: "available" };
-      await openActive(null);
+      allProjects = await projects.list();
     } catch (reason) {
       fail(reason);
     }
   }
 
-  async function reconnect() {
+  /** Forgets what the open Project showed, before another one opens (its text was saved by `leave`). */
+  function resetOpen() {
+    clearInterval(checking);
+    project = null;
+    stopEditing();
+    closeFile();
+    path = null;
+    current = null;
+    trail = [];
+    tree = [];
+    favorites = [];
+    settings = DEFAULT_SETTINGS;
+    closed = new Set();
+    error = null;
+    detail = null;
+    menu = null;
+    creating = renaming = moving = deleting = null;
+    settingsOpen = false;
+  }
+
+  /** Makes `next` the Active Project and opens it (an Unavailable one shows its screen). */
+  async function openProjectAs(next: ListedProject | null) {
+    resetOpen();
+    active = next;
+    if (!next) return;
     try {
-      if (await projects.reconnect(active!)) {
-        active = { ...active!, state: "available" };
-        await openActive(null);
-      }
+      await projects.setActive(next);
+      if (next.state === "available") await openActive(null);
     } catch (reason) {
       fail(reason);
     }
   }
+
+  /** Switches to another Project, once the open Document's text is saved. */
+  async function switchTo(next: ListedProject) {
+    if (active?.id === next.id) return;
+    if (!(await leave())) return;
+    await openProjectAs(next);
+  }
+
+  /** The Host's folder prompt opens first, straight from the click; the text typed is saved after. */
+  async function connectFolder() {
+    const previous = active;
+    try {
+      const connected = await projects.connect();
+      if (!connected) return;
+      if (!(await leave())) {
+        // The open Document could not be saved: it stays the Active Project.
+        if (previous) await projects.setActive(previous);
+        void loadProjects();
+        return;
+      }
+      await loadProjects();
+      await openProjectAs({ ...connected, state: "available" });
+    } catch (reason) {
+      const refused = refusedText(reason);
+      if (refused) report(refused);
+      else fail(reason);
+    }
+  }
+
+  /** Asks the User to allow the Project's folder again, straight from the click, then opens it. */
+  function reconnectProject(target: ListedProject) {
+    const asked = projects.reconnect(target);
+    void (async () => {
+      try {
+        if (!(await asked)) return;
+        await loadProjects();
+        const now = { ...target, state: "available" as const };
+        if (active?.id === target.id) await openProjectAs(now);
+        else await switchTo(now);
+      } catch (reason) {
+        fail(reason);
+      }
+    })();
+  }
+
+  let removing = $state<{ project: ListedProject; running: boolean } | null>(null);
+
+  async function confirmRemoval() {
+    const asked = removing;
+    if (!asked || asked.running) return;
+    asked.running = true;
+    const wasActive = asked.project.id === active?.id;
+    try {
+      if (wasActive && !(await leave())) return void (removing = null);
+      await projects.remove(asked.project);
+      removing = null;
+      await loadProjects();
+      if (wasActive) {
+        // The first Project left that can open; else one that waits for its folder; else the welcome screen.
+        await openProjectAs(allProjects.find((each) => each.state === "available") ?? allProjects[0] ?? null);
+      }
+    } catch (reason) {
+      removing = null;
+      report(t("removeProjectFailed"), reason);
+    }
+  }
+
+  // The Project settings panel of the Active Project.
+  let settingsOpen = $state(false);
+  let repository = $state<{ name: string; state: "available" | "unavailable" } | null>(null);
+  let repositoryFailure = $state<string | null>(null);
+
+  async function loadRepository() {
+    const asked = active;
+    if (!asked) return;
+    try {
+      const kept = await projects.repository(asked);
+      if (active === asked) repository = kept && { name: kept.name, state: kept.state };
+    } catch (reason) {
+      fail(reason);
+    }
+  }
+
+  function openSettings() {
+    repository = null;
+    repositoryFailure = null;
+    settingsOpen = true;
+    void loadRepository();
+  }
+
+  /** The Host's folder prompt opens straight from the click. */
+  function connectRepository() {
+    const asked = active!;
+    const prompt = projects.connectRepository(asked);
+    void (async () => {
+      try {
+        const connected = await prompt;
+        if (!connected) return;
+        repositoryFailure = null;
+        await loadRepository();
+      } catch (reason) {
+        repositoryFailure = reason instanceof FolderRefused && reason.reason === "notContaining" ? t("notContaining", { name: asked.name }) : t("repositoryFailed");
+      }
+    })();
+  }
+
+  async function disconnectRepository() {
+    try {
+      await projects.disconnectRepository(active!);
+      repositoryFailure = null;
+      await loadRepository();
+    } catch {
+      repositoryFailure = t("repositoryFailed");
+    }
+  }
+
+  const reconnect = () => reconnectProject(active!);
 
   /** Agent edits: the Tree updates silently; the open Document reloads, or is a conflict while edited. */
   async function checkOutside() {
@@ -1177,6 +1324,20 @@
   </section>
 {/snippet}
 
+{#snippet switcher(withSettings: boolean)}
+  <ProjectSwitcher
+    active={active!}
+    projects={allProjects}
+    settings={withSettings}
+    onshow={() => void loadProjects()}
+    onswitch={(next) => void switchTo(next)}
+    onreconnect={reconnectProject}
+    onremove={(target) => (removing = { project: target, running: false })}
+    onconnect={() => void connectFolder()}
+    onsettings={openSettings}
+  />
+{/snippet}
+
 {#if !loaded}
   <p class="center muted">…</p>
 {:else if !active}
@@ -1191,12 +1352,15 @@
     <h1>{t("unavailable", { name: active.name })}</h1>
     <p>{t("unavailableText")}</p>
     <button class="primary" onclick={reconnect}>{t("reconnect")}</button>
+    <div class="other-projects">
+      {@render switcher(false)}
+    </div>
   </main>
 {:else}
   <div class="layout" style:--sidebar-width="{sidebarWidth}px">
     <nav aria-label={t("documents")} bind:this={treeNav}>
       <div class="nav-head">
-        <p class="project">{active.name}</p>
+        {@render switcher(true)}
         <Favorites
           entries={favorites}
           onshow={() => void loadFavorites()}
@@ -1526,6 +1690,35 @@
   </dialog>
 {/if}
 
+{#if removing}
+  {@const { project: leaving } = removing}
+  <dialog use:modal aria-labelledby="remove-project-title" class="create" oncancel={(event) => { event.preventDefault(); if (!removing?.running) removing = null; }}>
+    <form onsubmit={(event) => { event.preventDefault(); void confirmRemoval(); }}>
+      <header>
+        <span class="badge-icon danger">{@render entryIcon("delete")}</span>
+        <h2 id="remove-project-title">{t("removeProjectTitle", { name: leaving.name })}</h2>
+      </header>
+      <p>{t("removeProjectText")}</p>
+      <div class="actions">
+        <button type="button" disabled={removing.running} onclick={() => (removing = null)}>{t("cancel")}</button>
+        <button type="submit" class="danger" disabled={removing.running}>{removing.running ? t("removing") : t("remove")}</button>
+      </div>
+    </form>
+  </dialog>
+{/if}
+
+{#if settingsOpen && active}
+  <ProjectSettingsPanel
+    {repository}
+    failure={repositoryFailure}
+    softBreaks={settings.softBreaks}
+    onconnectrepository={connectRepository}
+    ondisconnectrepository={() => void disconnectRepository()}
+    onsoftbreaks={(on) => void changeSoftBreaks(on)}
+    onclose={() => (settingsOpen = false)}
+  />
+{/if}
+
 {#if menu}
   <!-- svelte-ignore a11y_interactive_supports_focus -->
   <div class="menu" role="menu" aria-label={menu.entry.name} style:left="{menu.x}px" style:top="{menu.y}px" use:focusFirst onkeydown={menuKey}>
@@ -1584,9 +1777,10 @@
     padding: 1rem;
     overflow: auto;
   }
-  .project {
-    font-weight: 600;
-    margin-top: 0;
+  .other-projects {
+    margin-top: 1.5rem;
+    display: flex;
+    justify-content: center;
   }
   main {
     padding: 0 2rem 1rem;
@@ -1709,13 +1903,6 @@
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 0.75rem;
-  }
-  .nav-head .project {
-    flex: 1;
-    margin: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .creators {
     display: flex;

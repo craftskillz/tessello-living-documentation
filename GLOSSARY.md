@@ -13,7 +13,7 @@ One documentation set: a single folder on the User's disk, chosen by them, holdi
 _Avoid_: Workspace, space, repo, docs folder (when meaning the Project itself)
 
 **Project folder**:
-The folder on disk a Project lives in, typically a code repository's `docs/`. Two Projects never share or nest their folders.
+The folder on disk a Project lives in, typically a code repository's `docs/`. Two Projects never share or nest their folders: the Host refuses an overlapping one (ADR 0010).
 _Avoid_: Root, target folder, documentation directory
 
 **Folder grant**:

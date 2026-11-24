@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { connect } from "@tessello/sdk";
 import { createTestHost, type TestHostOptions } from "@tessello/sdk/testing";
-import { createProjects } from "../src/lib/projects.ts";
+import { createProjects, FolderRefused } from "../src/lib/projects.ts";
 
 const MODULE = { id: "@craftskillz/living-documentation", version: "0.0.1" };
 
@@ -53,15 +53,78 @@ describe("connecting a folder", () => {
     assert.deepEqual(await projects.list(), []);
   });
 
-  test("connecting the folder of a Project again does not add a second one", async () => {
+  test("choosing the folder of a Project again is refused as overlapping, naming that Project", async () => {
     const host = hostOf();
     const docs = host.folders.create("docs");
     host.folders.choose(docs);
     const projects = await projectsOf(host);
     const project = await projects.connect();
 
-    assert.equal((await projects.connect())?.id, project?.id);
+    const refused = await projects.connect().catch((error: unknown) => error);
+
+    assert.ok(refused instanceof FolderRefused);
+    assert.equal(refused.reason, "overlapping");
+    assert.equal(refused.project?.id, project?.id);
     assert.equal((await projects.list()).length, 1);
+  });
+
+  test("a folder inside a Project is refused, and the Active Project stays", async () => {
+    const host = hostOf();
+    const docs = host.folders.create("docs", { "guide/a.md": "a" });
+    host.folders.choose(docs);
+    const projects = await projectsOf(host);
+    const project = await projects.connect();
+    host.folders.choose(host.folders.inside(docs, "guide"));
+
+    const refused = await projects.connect().catch((error: unknown) => error);
+
+    assert.ok(refused instanceof FolderRefused);
+    assert.equal(refused.reason, "overlapping");
+    assert.equal(refused.project?.id, project?.id);
+    assert.equal((await projects.list()).length, 1);
+    assert.equal((await projects.active())?.id, project?.id);
+  });
+
+  test("a folder around a Project is refused", async () => {
+    const host = hostOf();
+    const repository = host.folders.create("shop", { "docs/a.md": "a" });
+    host.folders.choose(host.folders.inside(repository, "docs"));
+    const projects = await projectsOf(host);
+    const project = await projects.connect();
+    host.folders.choose(repository);
+
+    const refused = await projects.connect().catch((error: unknown) => error);
+
+    assert.ok(refused instanceof FolderRefused);
+    assert.equal(refused.project?.id, project?.id);
+    assert.equal((await projects.list()).length, 1);
+  });
+
+  test("a folder apart from every Project is accepted", async () => {
+    const host = hostOf();
+    host.folders.choose(host.folders.create("docs"));
+    const projects = await projectsOf(host);
+    await projects.connect();
+    host.folders.choose(host.folders.create("handbook"));
+
+    assert.equal((await projects.connect())?.name, "handbook");
+    assert.equal((await projects.list()).length, 2);
+  });
+
+  test("an Unavailable Project still counts for the overlap", async () => {
+    const host = hostOf();
+    const docs = host.folders.create("docs");
+    host.folders.choose(docs);
+    const project = await (await projectsOf(host)).connect();
+    host.folders.restart();
+    const projects = await projectsOf(host);
+    // As the View does on load: connect() sends its request without reading the storage first.
+    await projects.list();
+
+    const refused = await projects.connect().catch((error: unknown) => error);
+
+    assert.ok(refused instanceof FolderRefused);
+    assert.equal(refused.project?.id, project?.id);
   });
 });
 
@@ -295,5 +358,157 @@ describe("label filter", () => {
 
     assert.deepEqual(await projects.labelFilter(one), { pattern: "", replacement: "" });
     assert.deepEqual(await projects.labelFilter(two), { pattern: "c", replacement: "d" });
+  });
+});
+
+describe("a Project's Repository grant", () => {
+  /** A repository `shop` holding two Project folders, `docs` and `handbook`; the first is connected. */
+  async function inRepository() {
+    const host = hostOf();
+    const repository = host.folders.create("shop", { "docs/a.md": "a", "handbook/b.md": "b", ".git/HEAD": "ref" });
+    const docs = host.folders.inside(repository, "docs");
+    const handbook = host.folders.inside(repository, "handbook");
+    host.folders.choose(docs);
+    const projects = await projectsOf(host);
+    const project = (await projects.connect())!;
+    return { host, repository, docs, handbook, projects, project };
+  }
+
+  /** The names of the folders the Host lists as granted. */
+  const granted = async (host: ReturnType<typeof hostOf>) => {
+    const module = await connect({ transport: host.mount({ surface: "view" }).transport });
+    return (await module.folders.list()).map((folder) => folder.name).sort();
+  };
+
+  test("a repository holding the Project folder is kept, available, and stays out of the Project's info", async () => {
+    const { host, repository, projects, project } = await inRepository();
+    host.folders.choose(repository);
+
+    const kept = await projects.connectRepository(project);
+
+    assert.equal(kept?.name, "shop");
+    assert.deepEqual(await projects.repository(project), { ...kept, state: "available" });
+    assert.deepEqual(await projects.active(), { id: project.id, name: "docs" });
+    assert.deepEqual(await projects.list(), [{ id: project.id, name: "docs", state: "available" }]);
+  });
+
+  test("a Project has none until one is connected", async () => {
+    const { projects, project } = await inRepository();
+
+    assert.equal(await projects.repository(project), null);
+  });
+
+  test("cancelling the picker keeps nothing", async () => {
+    const { host, projects, project } = await inRepository();
+    host.folders.choose(null);
+
+    assert.equal(await projects.connectRepository(project), null);
+    assert.equal(await projects.repository(project), null);
+  });
+
+  test("a folder that does not hold the Project folder is refused and nothing is kept", async () => {
+    const { host, projects, project } = await inRepository();
+    host.folders.choose(host.folders.create("elsewhere"));
+
+    const refused = await projects.connectRepository(project).catch((error: unknown) => error);
+
+    assert.ok(refused instanceof FolderRefused);
+    assert.equal(refused.reason, "notContaining");
+    assert.equal(await projects.repository(project), null);
+    assert.deepEqual(await granted(host), ["docs"]);
+  });
+
+  test("it is kept for the next visit, and unavailable after a browser restart", async () => {
+    const { host, repository, projects, project } = await inRepository();
+    host.folders.choose(repository);
+    await projects.connectRepository(project);
+    host.folders.restart();
+
+    assert.equal((await (await projectsOf(host)).repository(project))?.state, "unavailable");
+  });
+
+  test("disconnecting forgets it and gives its folder back", async () => {
+    const { host, repository, projects, project } = await inRepository();
+    host.folders.choose(repository);
+    await projects.connectRepository(project);
+
+    await projects.disconnectRepository(project);
+
+    assert.equal(await projects.repository(project), null);
+    assert.deepEqual(await granted(host), ["docs"]);
+  });
+
+  test("connecting another repository gives the previous one back", async () => {
+    const { host, repository, docs, projects, project } = await inRepository();
+    host.folders.choose(repository);
+    await projects.connectRepository(project);
+    host.folders.choose(docs);
+    await projects.connectRepository(project);
+
+    assert.deepEqual(await granted(host), ["docs"]);
+    assert.equal((await projects.repository(project))?.name, "docs");
+  });
+
+  test("two Projects in one repository share its grant, given back with the last one", async () => {
+    const { host, repository, handbook, projects, project: first } = await inRepository();
+    host.folders.choose(handbook);
+    const second = (await projects.connect())!;
+    host.folders.choose(repository);
+    await projects.connectRepository(first);
+    host.folders.choose(repository);
+    await projects.connectRepository(second);
+
+    await projects.disconnectRepository(first);
+    assert.deepEqual(await granted(host), ["docs", "handbook", "shop"]);
+    assert.equal((await projects.repository(second))?.state, "available");
+
+    await projects.disconnectRepository(second);
+    assert.deepEqual(await granted(host), ["docs", "handbook"]);
+  });
+
+  test("a repository that is the Project folder itself is never given back by disconnecting it", async () => {
+    const { host, docs, projects, project } = await inRepository();
+    host.folders.choose(docs);
+    const kept = await projects.connectRepository(project);
+    assert.equal(kept?.id, project.id);
+
+    await projects.disconnectRepository(project);
+
+    assert.equal(await projects.repository(project), null);
+    assert.deepEqual(await granted(host), ["docs"]);
+    assert.equal((await projects.list())[0]?.state, "available");
+  });
+
+  test("removing the Project forgets its repository and gives that back too", async () => {
+    const { host, repository, projects, project } = await inRepository();
+    host.folders.choose(repository);
+    await projects.connectRepository(project);
+
+    await projects.remove(project);
+
+    assert.deepEqual(await granted(host), []);
+  });
+
+  test("removing a Project keeps a repository another Project still uses", async () => {
+    const { host, repository, handbook, projects, project: first } = await inRepository();
+    host.folders.choose(handbook);
+    const second = (await projects.connect())!;
+    host.folders.choose(repository);
+    await projects.connectRepository(first);
+    host.folders.choose(repository);
+    await projects.connectRepository(second);
+
+    await projects.remove(first);
+
+    assert.deepEqual(await granted(host), ["handbook", "shop"]);
+  });
+
+  test("a malformed kept repository is dropped", async () => {
+    const { host, projects, project } = await inRepository();
+    const module = await connect({ transport: host.mount({ surface: "view" }).transport });
+    await module.storage.set("projects", { projects: [{ id: project.id, name: "docs", repository: { id: 3 } }], active: project.id, lastOpened: {} });
+
+    assert.equal(await projects.repository(project), null);
+    assert.deepEqual(await projects.list(), [{ id: project.id, name: "docs", state: "available" }]);
   });
 });

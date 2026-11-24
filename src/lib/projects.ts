@@ -13,6 +13,23 @@ export interface ProjectInfo {
   name: string;
 }
 
+/** A git repository the Project may read its history from (Repository grant, ADR 0008). */
+export type RepositoryInfo = { id: string; name: string };
+
+/** The Host refused the chosen folder (ADR 0010, ADR 0008); nothing was granted or kept. */
+export class FolderRefused extends Error {
+  reason: "overlapping" | "notContaining";
+  /** For `overlapping`: the Project whose folder clashes, when it is still listed. */
+  project?: ProjectInfo;
+
+  constructor(reason: "overlapping" | "notContaining", project?: ProjectInfo) {
+    super(reason === "overlapping" ? "This folder overlaps another Project folder" : "This folder does not contain the Project folder");
+    this.name = "FolderRefused";
+    this.reason = reason;
+    this.project = project;
+  }
+}
+
 export interface ListedProject extends ProjectInfo {
   /** `unavailable` after a browser restart, until the User reconnects it. */
   state: "available" | "unavailable";
@@ -54,7 +71,7 @@ export const TOC_WIDTH = { min: 160, max: 400, default: 224 };
 export const SIDEBAR_WIDTH = { min: 200, max: 600, default: 256 };
 
 export interface Projects {
-  /** Asks the User for a folder (call it from their click) and adds it as the Active Project; null if they cancel. */
+  /** Asks the User for a folder (call it from their click, after `list` or `active` was read once) and adds it as the Active Project; null if they cancel. Rejects with `FolderRefused` when it is, lies inside or holds the folder of a Project. */
   connect(): Promise<ProjectInfo | null>;
   list(): Promise<ListedProject[]>;
   active(): Promise<ProjectInfo | null>;
@@ -75,7 +92,13 @@ export interface Projects {
   labelFilter(project: ProjectInfo): Promise<LabelFilter>;
   /** Keeps `filter` as the Project's label filter (the caller validates the pattern); resolves with what is kept. */
   setLabelFilter(project: ProjectInfo, filter: LabelFilter): Promise<LabelFilter>;
-  /** Forgets the Project, its favorites and its label filter, and gives its folder back; its files stay on disk. */
+  /** Asks the User for the git repository holding the Project folder (call it from their click, before anything is awaited) and keeps it as the Project's Repository grant, replacing a previous one; null if they cancel. Rejects with `FolderRefused` when the folder does not hold the Project folder. */
+  connectRepository(project: ProjectInfo): Promise<RepositoryInfo | null>;
+  /** The Project's Repository grant, `unavailable` until the User allows it again after a browser restart; null when it has none. */
+  repository(project: ProjectInfo): Promise<(RepositoryInfo & { state: "available" | "unavailable" }) | null>;
+  /** Forgets the Project's Repository grant and gives its folder back, unless another Project still uses it. */
+  disconnectRepository(project: ProjectInfo): Promise<void>;
+  /** Forgets the Project, its repository, its favorites and its label filter, and gives its folder back; its files stay on disk. */
   remove(project: ProjectInfo): Promise<void>;
   /** The User's display preferences; defaults when none were kept or the kept value is malformed. */
   preferences(): Promise<DisplayPreferences>;
@@ -91,8 +114,12 @@ const FAVORITES_KEY = "favorites";
 // Personal, per Project: projectId → label filter.
 const LABEL_FILTERS_KEY = "labelFilters";
 
+interface StoredProject extends ProjectInfo {
+  repository?: RepositoryInfo;
+}
+
 interface Stored {
-  projects: ProjectInfo[];
+  projects: StoredProject[];
   active: string | null;
   lastOpened: Record<string, string>;
 }
@@ -102,7 +129,11 @@ function readStored(value: Json): Stored {
   const projects = Array.isArray(raw.projects)
     ? raw.projects.flatMap((each) =>
         typeof each === "object" && each !== null && !Array.isArray(each) && typeof each.id === "string" && typeof each.name === "string"
-          ? [{ id: each.id, name: each.name }]
+          ? [
+              isObject(each.repository) && typeof each.repository.id === "string" && typeof each.repository.name === "string"
+                ? { id: each.id, name: each.name, repository: { id: each.repository.id, name: each.repository.name } }
+                : { id: each.id, name: each.name },
+            ]
           : [],
       )
     : [];
@@ -213,8 +244,27 @@ function firstDocument(entries: TreeEntry[]): string | null {
 }
 
 export function createProjects(module: ConnectedModule): Projects {
-  const read = async () => readStored(await module.storage.get(KEY));
-  const write = (stored: Stored) => module.storage.set(KEY, { ...stored, projects: stored.projects.map((project) => ({ ...project })) });
+  // The Project folders last read or written: connect() must send its request straight from the User's click (ADR 0022),
+  // so it cannot read the storage first.
+  let projectFolders: Folder[] = [];
+  const read = async () => {
+    const stored = readStored(await module.storage.get(KEY));
+    projectFolders = stored.projects.map(folderOf);
+    return stored;
+  };
+  const write = async (stored: Stored) => {
+    await module.storage.set(KEY, { ...stored, projects: stored.projects.map((project) => ({ ...project, ...(project.repository && { repository: { ...project.repository } }) })) });
+    projectFolders = stored.projects.map(folderOf);
+  };
+
+  /** Gives the folder back unless a Project still has it as its folder or its repository; already given back is fine. */
+  async function releaseUnused(stored: Stored, folder: Folder) {
+    if (stored.projects.some((each) => each.id === folder.id || each.repository?.id === folder.id)) return;
+    await module.folders.release(folder).catch((error: unknown) => {
+      // Already given back, as from the Host's About screen.
+      if (!(error instanceof TesselloError && error.code === "not_found")) throw error;
+    });
+  }
 
   const readDisplay = async () => readPreferences(await module.storage.get(DISPLAY_KEY));
 
@@ -273,10 +323,18 @@ export function createProjects(module: ConnectedModule): Projects {
       return next;
     },
     async connect() {
-      const folder = await module.folders.request();
+      // Nothing awaited before the request: it must leave from the User's click.
+      const mustNotOverlap = projectFolders;
+      const folder = await module.folders.request({ mustNotOverlap }).catch((error: unknown) => {
+        if (error instanceof TesselloError && error.code === "overlapping") {
+          const clash = mustNotOverlap.find((each) => each.id === error.folder);
+          throw new FolderRefused("overlapping", clash && { id: clash.id, name: clash.name });
+        }
+        throw error;
+      });
       if (!folder) return null;
       const stored = await read();
-      const project = stored.projects.find((each) => each.id === folder.id) ?? { id: folder.id, name: folder.name };
+      const project = { id: folder.id, name: folder.name };
       if (!stored.projects.some((each) => each.id === project.id)) stored.projects.push(project);
       stored.active = project.id;
       await write(stored);
@@ -284,11 +342,12 @@ export function createProjects(module: ConnectedModule): Projects {
     },
     async list() {
       const states = new Map((await module.folders.list()).map((folder) => [folder.id, folder.state]));
-      return (await read()).projects.map((project) => ({ ...project, state: states.get(project.id) === "granted" ? "available" : "unavailable" }));
+      return (await read()).projects.map((project) => ({ id: project.id, name: project.name, state: states.get(project.id) === "granted" ? "available" : "unavailable" }));
     },
     async active() {
       const stored = await read();
-      return stored.projects.find((project) => project.id === stored.active) ?? null;
+      const active = stored.projects.find((project) => project.id === stored.active);
+      return active ? { id: active.id, name: active.name } : null;
     },
     async setActive(project) {
       const stored = await read();
@@ -351,16 +410,45 @@ export function createProjects(module: ConnectedModule): Projects {
     async reconnect(project) {
       return (await module.folders.reconnect(folderOf(project))) === "granted";
     },
-    async remove(project) {
-      await module.folders.release(folderOf(project)).catch((error: unknown) => {
-        // Already given back, as from the Host's About screen.
-        if (!(error instanceof TesselloError && error.code === "not_found")) throw error;
+    async connectRepository(project) {
+      const folder = await module.folders.request({ mustContain: folderOf(project) }).catch((error: unknown) => {
+        if (error instanceof TesselloError && error.code === "not_containing") throw new FolderRefused("notContaining");
+        throw error;
       });
+      if (!folder) return null;
       const stored = await read();
+      const kept = stored.projects.find((each) => each.id === project.id);
+      if (!kept) return { id: folder.id, name: folder.name };
+      const previous = kept.repository;
+      kept.repository = { id: folder.id, name: folder.name };
+      await write(stored);
+      if (previous && previous.id !== folder.id) await releaseUnused(stored, previous);
+      return { ...kept.repository };
+    },
+    async repository(project) {
+      const kept = (await read()).projects.find((each) => each.id === project.id)?.repository;
+      if (!kept) return null;
+      const states = new Map((await module.folders.list()).map((folder) => [folder.id, folder.state]));
+      return { id: kept.id, name: kept.name, state: states.get(kept.id) === "granted" ? "available" : "unavailable" };
+    },
+    async disconnectRepository(project) {
+      const stored = await read();
+      const kept = stored.projects.find((each) => each.id === project.id);
+      const previous = kept?.repository;
+      if (!kept || !previous) return;
+      delete kept.repository;
+      await write(stored);
+      await releaseUnused(stored, previous);
+    },
+    async remove(project) {
+      const stored = await read();
+      const repository = stored.projects.find((each) => each.id === project.id)?.repository;
       stored.projects = stored.projects.filter((each) => each.id !== project.id);
       if (stored.active === project.id) stored.active = null;
       delete stored.lastOpened[project.id];
       await write(stored);
+      await releaseUnused(stored, folderOf(project));
+      if (repository) await releaseUnused(stored, repository);
       const favorites = await readAllFavorites();
       delete favorites[project.id];
       await writeFavorites(favorites);

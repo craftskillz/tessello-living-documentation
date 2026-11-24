@@ -214,6 +214,6 @@ The Module becomes a complete port of the original's documentation features, dec
 ## Further Notes
 
 - Already built (slice 1, commits up to `036fc35` plus setup `7c946ae`): Project connect, list, Active Project, start Document, reconnect, remove; Tree from Folder manifests; read, version-checked save with Conflict, `check()`; Document title, Tags, description, Type, invalid YAML; a View with the Tree, a basic rendering, CodeMirror editing with autosave and the conflict banner; the Widget with the Active Project. 27 unit and 9 browser tests.
-- Known gaps from slice 1: Project overlap is not refused yet (the Host checks containment only at request time with `mustContain`; refusing overlap needs a design); the Tree shows file names, not titles; raw HTML is dropped from the rendering.
+- Known gaps from slice 1: Project overlap was not refused (settled in ticket 12: the Host's `mustNotOverlap`, ADR 0010); the Tree shows file names, not titles; raw HTML is dropped from the rendering.
 - The behavior of the original is in the Retrodoc atlas (`/Users/ymedaghri/Documents/testRetrodocLivingDocByClaude`, `features/*.md`); its source (`../living-documentation`) is read-only. The port's decisions are in `docs/spec/` and the ADRs; where they are silent, the original's behavior applies.
 - Vocabulary: `GLOSSARY.md`.
