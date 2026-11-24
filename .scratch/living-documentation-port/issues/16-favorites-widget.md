@@ -4,7 +4,7 @@
 
 **Blocked by:** 09 (Tree: rename and move), 10 (Tree: delete, hide and show, reserved folders, other files)
 
-**Status:** ready-for-human (built in 8dc51e8; awaiting the trial in the local Host)
+**Status:** done (8dc51e8)
 
 - [x] Favorite toggle (not on the Folder manifest); seeding once
 - [x] Menu with titles, Missing, reorder, Escape
@@ -14,7 +14,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -29,3 +29,4 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - **Test change:** `e2e/tree.test.ts` "a Document dropped in the middle of a closed Folder…" now waits for the final Tree order. Once the move also writes favorites, a Tree read can see an earlier order on the way there. It settles on the right order. Not investigated further: probably the 5-second agent-edit check reloading the Tree mid-move.
 - **Left over:** the star icon is drawn in both Header and Favorites. Some e2e journeys read the `favorites` storage key to wait for a save.
 
+- **Tried in the local Host** by the User (2026-11-24): works.
