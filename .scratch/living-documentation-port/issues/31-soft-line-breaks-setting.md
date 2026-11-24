@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human (built in a79d3cb; awaiting the trial in the local Host)
+**Status:** done (a79d3cb)
 
 - [x] `markdownSoftBreaks` read from `.living-doc.json`: `true` or `false` as written; missing, malformed file or not a boolean gives `true`; unit-tested
 - [x] On: a single newline inside a paragraph, list item, blockquote or table cell renders as `<br>`; never inside code blocks, inline code, Mermaid or front matter; unit-tested in `test/render.test.ts`
@@ -16,7 +16,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder), on a folder written with the original
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder), on a folder written with the original
 
 **From the original:**
 - `src/lib/config.ts`: `markdownSoftBreaks: boolean`, default `true` (line 181).

@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human (built in be0d270; awaiting the trial in the local Host)
+**Status:** done (be0d270, 1d3e6f4)
 
 - [x] A handle on the sidebar's right edge (a `separator` with a translated accessible name, `col-resize` cursor, visible on hover) resizes it while dragged, and the Document area takes the rest
 - [x] The width stays between 200 and 600 px, rounded to whole pixels; the default is today's 16 rem (256 px)
@@ -15,7 +15,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder)
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder)
 
 **From the original** (`../living-documentation/src/frontend-svelte/src/lib/home/Sidebar.svelte`): a 6 px handle on the right edge, 200 to 600 px, default `w-72` (288 px), kept in `localStorage`. Here it is kept in the Module's storage instead (no `localStorage` in the Host's sandbox), and the default stays at today's width.
 
