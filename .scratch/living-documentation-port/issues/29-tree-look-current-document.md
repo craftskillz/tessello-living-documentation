@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** ready-for-human (built in d997354; awaiting the trial in the local Host)
 
 - [x] The open Document is unmistakable (background, left bar, bold), and `aria-current="page"` stays on it
 - [x] It is scrolled into view when it opens from outside the Tree (link, favorite, Widget, deep link)
