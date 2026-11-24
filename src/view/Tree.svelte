@@ -55,6 +55,9 @@
     label?: (entry: TreeFolder | TreeDocument) => string;
   } = $props();
 
+  /** A label in pieces that each end after `_`, `-` or `.`: a long name wraps there first, as names seldom have spaces. */
+  const pieces = (label: string) => label.match(/[^_.-]*[_.-]*/g)!.filter((piece) => piece !== "");
+
   /** The tooltip of a row whose label is not its name: the name. */
   const fullName = (entry: Movable, shown: string) => (shown === entry.name ? undefined : entry.name);
 
@@ -141,7 +144,7 @@
             oncontextmenu={(event) => onContextMenu(event, entry)}
           >
             {@render icon("chevron")}
-            <span class="entry">{@render icon("folder")}<span class="label">{shown}</span></span>
+            <span class="entry">{@render icon("folder")}<span class="label">{@render breakable(shown)}</span></span>
           </summary>
           <Tree entries={entry.children} {current} {open} {onfile} {drag} {label} />
         </details>
@@ -154,7 +157,7 @@
             tabindex="0"
             aria-current={entry.path === current ? "page" : undefined}
             onclick={() => open(entry.path)}
-            onkeydown={(event) => onKey(event, entry.path)}>{@render icon("file")}<span class="label">{entry.name}</span></span
+            onkeydown={(event) => onKey(event, entry.path)}>{@render icon("file")}<span class="label">{@render breakable(entry.name)}</span></span
           >
         </div>
       {:else if entry.kind === "file"}
@@ -165,7 +168,7 @@
             role="link"
             tabindex="0"
             onclick={() => onfile(entry.path)}
-            onkeydown={(event) => { if (event.key === "Enter") onfile(entry.path); }}>{@render icon("file")}<span class="label">{entry.name}</span></span
+            onkeydown={(event) => { if (event.key === "Enter") onfile(entry.path); }}>{@render icon("file")}<span class="label">{@render breakable(entry.name)}</span></span
           >
         </div>
       {:else}
@@ -195,7 +198,7 @@
             tabindex="0"
             aria-current={entry.path === current ? "page" : undefined}
             onclick={() => open(entry.path)}
-            onkeydown={(event) => { onKey(event, entry.path); onMenuKey(event, entry); }}>{@render icon("document")}<span class="label">{shown}</span></span
+            onkeydown={(event) => { onKey(event, entry.path); onMenuKey(event, entry); }}>{@render icon("document")}<span class="label">{@render breakable(shown)}</span></span
           >
           <!-- Outside the link: its accessible name stays the label. -->
           <small class="date" title={entry.date.kind === "created" ? t("createdOn") : t("modifiedOn")}>{formatTreeDate(entry.date, currentLocale())}</small>
@@ -204,6 +207,8 @@
     </li>
   {/each}
 </ul>
+
+{#snippet breakable(label: string)}{#each pieces(label) as piece, index (index)}{#if index > 0}<wbr />{/if}{piece}{/each}{/snippet}
 
 <!-- Lucide's chevron-right, folder, folder-open, file-text and file (ISC licence), drawn with the text's colour. -->
 {#snippet icon(kind: "chevron" | "folder" | "document" | "file")}
@@ -240,7 +245,7 @@
     position: relative;
     display: grid;
     grid-template-columns: 1rem minmax(0, 1fr);
-    align-items: center;
+    align-items: start;
     column-gap: 0.15rem;
     padding: 0.2rem 0.4rem 0.2rem 0.2rem;
     border-radius: 6px;
@@ -258,25 +263,33 @@
   }
   .entry {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.4rem;
     min-width: 0;
     color: inherit;
     text-decoration: none;
     outline: none;
   }
+  /* A long label wraps onto a second line (anywhere, as file names often have no spaces); beyond, it is cut. */
   .label {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    /* Breaks a piece itself only when it is longer than a line. */
+    overflow-wrap: anywhere;
   }
+  /* Icons sit on the first line of the label. */
   .icon {
     flex: none;
+    margin-top: 0.2rem;
     color: var(--muted, #777);
   }
   .icon.chevron {
     width: 14px;
     height: 14px;
+    margin-top: 0.3rem;
     transition: transform 120ms;
   }
   details[open] > summary .icon.chevron {
@@ -329,6 +342,7 @@
   }
   .lock {
     justify-self: center;
+    margin-top: 0.15rem;
     flex: none;
     font-style: normal;
     font-size: 0.8em;

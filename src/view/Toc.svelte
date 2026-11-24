@@ -54,7 +54,8 @@
     top: var(--header-height, 0px);
     flex: none;
     align-self: flex-start;
-    max-height: calc(100vh - var(--header-height, 0px));
+    /* Down to the bottom of the View (less the reading area's bottom padding), whatever the length of the list. */
+    height: calc(100vh - var(--header-height, 0px) - 1rem);
     overflow: auto;
     box-sizing: border-box;
     padding: 0 0 0 1rem;
