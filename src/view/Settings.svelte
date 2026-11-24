@@ -1,6 +1,6 @@
 <script lang="ts">
   // The settings cog of the Document header: what the Tree shows for a Document (file name or title) and the Project's label
-  // filter. It only shows and asks: View keeps the choices.
+  // filter, plus the Project's own setting (every newline is a line break, shared in .living-doc.json). It only shows and asks: View keeps the choices.
   import { t } from "../lib/i18n.ts";
   import { compileLabelFilter, type LabelFilter } from "../lib/labels.ts";
   import type { TreeLabels } from "../lib/projects.ts";
@@ -8,15 +8,21 @@
   let {
     treeLabels,
     filter,
+    softBreaks,
     onlabels,
     onfilter,
+    onsoftbreaks,
   }: {
     treeLabels: TreeLabels;
     /** The Project's kept filter: the fields start from it. */
     filter: LabelFilter;
+    /** The Project's setting: every newline is a line break. */
+    softBreaks: boolean;
     onlabels: (treeLabels: TreeLabels) => void;
     /** A valid filter, to apply and keep. */
     onfilter: (filter: LabelFilter) => void;
+    /** The new value of the Project's setting. */
+    onsoftbreaks: (on: boolean) => void;
   } = $props();
 
   let shown = $state(false);
@@ -79,6 +85,11 @@
         </label>
         <p class="hint muted">{t("labelFilterHint")}</p>
       </fieldset>
+      <fieldset>
+        <legend>{t("projectSettings")}</legend>
+        <label class="check"><input type="checkbox" checked={softBreaks} onchange={(event) => onsoftbreaks(event.currentTarget.checked)} /> {t("softBreaks")}</label>
+        <p class="hint muted">{t("softBreaksHint")}</p>
+      </fieldset>
     </div>
   {/if}
 </div>
@@ -132,13 +143,15 @@
   .mono[aria-invalid="true"] {
     border-color: #c0392b;
   }
-  label:has(> input[type="radio"]) {
+  label:has(> input[type="radio"]),
+  .check {
     display: flex;
     align-items: center;
     gap: 0.4rem;
     cursor: pointer;
   }
-  input[type="radio"] {
+  input[type="radio"],
+  input[type="checkbox"] {
     accent-color: var(--accent);
     margin: 0;
   }

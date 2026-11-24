@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import { parseDocument } from "../src/lib/document.ts";
 import { renderDocument } from "../src/lib/render.ts";
 
-const render = (text: string, path = "guide/intro.md") => renderDocument(parseDocument(text, path), path);
+const render = (text: string, path = "guide/intro.md") => renderDocument(parseDocument(text, path), path, {}, { softBreaks: false });
 
 describe("source ranges", () => {
   test("a block carries its range in the full text, frontmatter included", () => {
@@ -116,7 +116,7 @@ describe("no address", () => {
 });
 
 describe("the frontmatter shown as a YAML block", () => {
-  const withFrontmatter = (text: string) => renderDocument(parseDocument(text, "liv-doc-main.md"), "liv-doc-main.md", {}, { frontmatter: true });
+  const withFrontmatter = (text: string) => renderDocument(parseDocument(text, "liv-doc-main.md"), "liv-doc-main.md", {}, { frontmatter: true, softBreaks: false });
 
   test("it opens the page as a highlighted YAML code block, then the body as usual", () => {
     // "---\norder:\n  - a.md\n---" is 23 characters, so the block is 0-23 and "# Hi" is 24-28.
@@ -272,5 +272,75 @@ describe("Tag markers", () => {
 
   test("the heading's id ignores the pill", () => {
     assert.match(render("# Plan <todo>\n"), /<h1 id="plan" /);
+  });
+});
+
+describe("every newline as a line break", () => {
+  const on = (text: string) => renderDocument(parseDocument(text, "a.md"), "a.md", {}, { softBreaks: true });
+  const off = (text: string) => renderDocument(parseDocument(text, "a.md"), "a.md", {}, { softBreaks: false });
+
+  test("a newline in a paragraph is a <br>", () => {
+    assert.match(on("a\nb\n"), /<p data-src="0-3">a<br>\nb<\/p>/);
+  });
+
+  test("in a list item, a blockquote and a lazy continuation", () => {
+    assert.match(on("- a\n  b\n"), /<li data-src="0-7">a<br>\nb<\/li>/);
+    assert.match(on("> a\n> b\n"), /a<br>\nb<\/p>/);
+    assert.match(on("> a\nb\n"), /a<br>\nb<\/p>/);
+  });
+
+  test("in a callout, a column and the rendered side of a compare block", () => {
+    assert.match(on("> [!NOTE]\n> a\n> b\n"), /a<br>\nb/);
+    assert.match(on("<!-- columns -->\n\nleft\nmore\n\n<!-- column -->\n\nright\n\n<!-- /columns -->\n"), /left<br>\nmore/);
+    assert.match(on(":::compare\na\nb\n:::\n"), /ld-compare-render[^>]*>\s*<p[^>]*>a<br>\nb<\/p>/);
+  });
+
+  test("the source side of a compare block stays raw text", () => {
+    assert.doesNotMatch(on(":::compare\na\nb\n:::\n").split("ld-compare-render")[0]!, /<br>/);
+  });
+
+  test("code blocks, inline code and Mermaid are untouched", () => {
+    assert.doesNotMatch(on("```\na\nb\n```\n"), /<br>/);
+    assert.doesNotMatch(on("x `a\nb` y\n"), /<code>a<br>/);
+    assert.doesNotMatch(on("```mermaid\nA-->B\nB-->C\n```\n"), /<br>/);
+  });
+
+  test("the frontmatter block is code", () => {
+    const html = renderDocument(parseDocument("---\ntitle: T\ntags: [a]\n---\nx\n", "a.md"), "a.md", {}, { softBreaks: true, frontmatter: true });
+    assert.doesNotMatch(html, /<br>/);
+  });
+
+  test("off, it is plain CommonMark: two spaces and <br/> still break", () => {
+    assert.match(off("a\nb\n"), /<p data-src="0-3">a\nb<\/p>/);
+    assert.match(off("a  \nb\n"), /<p data-src="0-5">a<br>\nb<\/p>/);
+    assert.match(on("a  \nb\n"), /<p data-src="0-5">a<br>\nb<\/p>/);
+  });
+
+  test("raw <br/> in the source is handled as before", () => {
+    assert.equal(on("a<br/>b\n"), off("a<br/>b\n"));
+  });
+
+  test("a table renders the same on and off", () => {
+    const table = "| a | b |\n|---|---|\n| 1 | 2 |\n";
+    assert.equal(on(table), off(table));
+  });
+
+  test("every block keeps its range and every heading its id", () => {
+    const text = "# Title\n\nline one\nline two\n\n- a\n  b\n\n> q\n> r\n\n## Next\n";
+    const strip = (html: string) => html.replace(/<br>/g, "");
+    const attrs = (html: string) => [...html.matchAll(/ (data-src|id)="([^"]*)"/g)].map((m) => m[0]);
+    assert.deepEqual(attrs(on(text)), attrs(off(text)));
+    assert.match(strip(on(text)), /id="title"/);
+  });
+
+  test("a footnote definition breaks too", () => {
+    assert.match(on("x[^1]\n\n[^1]: a\n    b\n"), /a<br>\nb/);
+  });
+});
+
+describe("line breaks keep the spaces around inline nodes", () => {
+  test("a space before inline code survives a newline earlier in the text", () => {
+    const html = renderDocument(parseDocument("a\nb `x`\n", "a.md"), "a.md", {}, { softBreaks: true });
+    assert.match(html, /a<br>\nb <code>x<\/code>/);
   });
 });

@@ -42,6 +42,8 @@ type Pass = {
   /** The text this pass parses (offsets of its nodes are in it), and the whole Document's, for closing tags. */
   text: string;
   documentText: string;
+  /** Every newline of a paragraph is a line break (the Project setting), not only two trailing spaces. */
+  softBreaks: boolean;
 };
 
 /** The unified pipeline, up to the hast tree. `clobberPrefix` starts the ids of footnotes. */
@@ -50,6 +52,7 @@ function pipeline(labels: RenderLabels, clobberPrefix: string) {
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkDirectives)
+    .use(remarkSoftBreaks)
     .use(remarkRehype, {
       clobberPrefix,
       footnoteLabel: labels.footnotes,
@@ -71,15 +74,15 @@ function pipeline(labels: RenderLabels, clobberPrefix: string) {
 export function renderDocument(
   model: DocumentModel,
   path: string,
-  labels: Partial<RenderLabels> = {},
-  options: { frontmatter?: boolean } = {},
+  labels: Partial<RenderLabels>,
+  options: { frontmatter?: boolean; softBreaks: boolean },
 ): string {
   const all = { ...ENGLISH, ...labels };
   const documentText = `${model.frontmatterText ?? ""}\n${model.body}`;
-  const tree = renderTree(model.body, path, model.bodyStart, all, "ld-", documentText, true);
+  const tree = renderTree(model.body, path, model.bodyStart, all, "ld-", { documentText, topLevel: true, softBreaks: options.softBreaks });
   if (options.frontmatter && model.frontmatterText !== null && model.frontmatterEnd !== null) {
     const fence = "`".repeat(Math.max(3, ...(model.frontmatterText.match(/`+/g) ?? []).map((run) => run.length + 1)));
-    const block = renderTree(`${fence}yaml\n${model.frontmatterText}\n${fence}`, path, 0, all, "ld-frontmatter-");
+    const block = renderTree(`${fence}yaml\n${model.frontmatterText}\n${fence}`, path, 0, all, "ld-frontmatter-", { softBreaks: false });
     for (const node of block.children) if (node.type === "element") node.properties.dataSrc = `0-${model.frontmatterEnd}`;
     tree.children = [...block.children, { type: "text", value: "\n" }, ...tree.children];
   }
@@ -87,17 +90,27 @@ export function renderDocument(
 }
 
 /** `text` starts at offset `bodyStart` of the Document. Each `:::compare` region is rendered apart, then swapped in. */
-/** `topLevel`: the pass of the Document itself, not of a `:::compare` or the frontmatter (only it shows a Kanban block). */
-function renderTree(text: string, path: string, bodyStart: number, labels: RenderLabels, clobberPrefix: string, documentText = text, topLevel = false): Root {
+/**
+ * `documentText`: the whole Document's text, for closing tags (`text` by default). `topLevel`: the pass of the Document
+ * itself, not of a `:::compare` or the frontmatter (only it shows a Kanban block). `softBreaks`: the Project setting.
+ */
+function renderTree(
+  text: string,
+  path: string,
+  bodyStart: number,
+  labels: RenderLabels,
+  clobberPrefix: string,
+  { documentText = text, topLevel = false, softBreaks }: { documentText?: string; topLevel?: boolean; softBreaks: boolean },
+): Root {
   const regions = compareRegions(text);
   const rendered = regions.map((region, index) => {
     const source = region.inner.endsWith("\n") ? region.inner.slice(0, -1) : region.inner;
-    const inner = renderTree(source, path, bodyStart + region.innerFrom, labels, `${clobberPrefix}compare-${index}-`, documentText);
+    const inner = renderTree(source, path, bodyStart + region.innerFrom, labels, `${clobberPrefix}compare-${index}-`, { documentText, softBreaks });
     return compareElement(source, inner, labels);
   });
   const masked = regions.reduceRight((rest, region) => rest.slice(0, region.from) + placeholder(rest.slice(region.from, region.to)) + rest.slice(region.to), text);
   const compares = new Map(regions.map((region, index) => [region.from, index]));
-  const pass: Pass = { path, bodyStart, compares, rendered, kanban: topLevel, text, documentText };
+  const pass: Pass = { path, bodyStart, compares, rendered, kanban: topLevel, text, documentText, softBreaks };
   return pipeline(labels, clobberPrefix).processSync({ value: masked, data: pass }).result as Root;
 }
 
@@ -265,6 +278,35 @@ function imageOf(element: Element, path: string): ElementContent[] | null {
 /** The text of a node, the Tag marker pills left out (a heading's id does not depend on them). */
 const textOf = (node: ElementContent): string =>
   node.type === "text" ? node.value : node.type === "element" && node.tagName !== "mark" ? node.children.map(textOf).join("") : "";
+
+// ---- line breaks: with the Project setting, every newline of a text node is a `<br>` ----
+
+/** Splits `text` nodes (never code, inline code or html) at newlines into text and `break` nodes, dropping the spaces around them. */
+function remarkSoftBreaks() {
+  return (tree: MdastRoot, file: { data: object }) => {
+    if (!(file.data as Pass).softBreaks) return;
+    const walk = (parent: Parents): void => {
+      const children: Nodes[] = [];
+      for (const node of parent.children as Nodes[]) {
+        if (node.type === "text" && /\r?\n/.test(node.value)) {
+          const lines = node.value.split(/\r?\n/);
+          lines.forEach((line, at) => {
+            if (at > 0) children.push({ type: "break" });
+            let value = line;
+            if (at > 0) value = value.replace(/^[ \t]+/, "");
+            if (at < lines.length - 1) value = value.replace(/[ \t]+$/, "");
+            if (value !== "") children.push({ type: "text", value });
+          });
+        } else {
+          if ("children" in node) walk(node as Parents);
+          children.push(node);
+        }
+      }
+      (parent as { children: Nodes[] }).children = children;
+    };
+    walk(tree);
+  };
+}
 
 // ---- directives: the comments before a block, read on the Markdown tree and left on it as properties ----
 

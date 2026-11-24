@@ -89,6 +89,7 @@ const en = {
   refusedIntoItself: "A folder cannot be moved into itself or one of its folders.",
   refusedReservedFolder: "“images” and “files” at the Project root are reserved for pasted images and attachments.",
   refusedMissing: "This entry or its destination no longer exists.",
+  refusedInvalidSettings: "The Project's .living-doc.json is not valid JSON: fix it or remove it, then try again.",
   rename: "Rename",
   moveTo: "Move to…",
   renameDocument: "Rename document",
@@ -148,6 +149,11 @@ const en = {
   labelPattern: "Pattern",
   labelReplacement: "Replacement",
   labelFilterHint: "A regular expression and its replacement, for the Tree only. Example: ^\\d{4}(_\\d{2}){4}_ with an empty replacement shows 2026_04_11_13_25_guide as guide.",
+  projectSettings: "This Project (shared in .living-doc.json)",
+  softBreaks: "Treat every newline as a line break",
+  softBreaksHint:
+    "Checked (default, GitHub-flavoured): every newline in the source becomes a line break. Convenient for chat-style writing, but a long paragraph can no longer be wrapped over several lines in the source without visible breaks. Unchecked (CommonMark): a single newline is rendered as a space, and adjacent lines merge into one paragraph; to force a line break, end the line with two spaces or use <br/>.",
+  settingsConflict: "The Project's settings changed on disk meanwhile: try again.",
   labelPatternInvalid: "This pattern is not a valid regular expression.",
   labelFilterFailed: "The label filter could not be saved. Try again.",
 };
@@ -243,6 +249,7 @@ const fr: Messages = {
   refusedIntoItself: "Un dossier ne peut pas être déplacé dans lui-même ni dans l'un de ses dossiers.",
   refusedReservedFolder: "« images » et « files » à la racine du projet sont réservés aux images collées et aux pièces jointes.",
   refusedMissing: "Cette entrée ou sa destination n'existe plus.",
+  refusedInvalidSettings: "Le .living-doc.json du projet n'est pas un JSON valide : corrigez-le ou supprimez-le, puis réessayez.",
   rename: "Renommer",
   moveTo: "Déplacer vers…",
   renameDocument: "Renommer le document",
@@ -302,6 +309,11 @@ const fr: Messages = {
   labelPattern: "Motif",
   labelReplacement: "Remplacement",
   labelFilterHint: "Une expression régulière et son remplacement, pour l'arborescence seulement. Exemple : ^\\d{4}(_\\d{2}){4}_ avec un remplacement vide affiche 2026_04_11_13_25_guide en guide.",
+  projectSettings: "Ce projet (partagé dans .living-doc.json)",
+  softBreaks: "Traiter chaque retour à la ligne comme un saut de ligne",
+  softBreaksHint:
+    "Coché (par défaut, GitHub-flavoured) : chaque retour à la ligne dans la source devient un vrai saut de ligne. Pratique pour un style d'écriture « chat », mais vous ne pourrez plus couper un long paragraphe sur plusieurs lignes dans la source sans voir le saut apparaître. Décoché (CommonMark) : un seul retour à la ligne est rendu comme un espace, et deux lignes adjacentes fusionnent dans un même paragraphe ; pour forcer un saut de ligne, terminez la ligne par deux espaces ou utilisez <br/>.",
+  settingsConflict: "Les réglages du projet ont changé sur le disque entre-temps : réessayez.",
   labelPatternInvalid: "Ce motif n'est pas une expression régulière valide.",
   labelFilterFailed: "Le filtre des libellés n'a pas pu être enregistré. Réessayez.",
 };

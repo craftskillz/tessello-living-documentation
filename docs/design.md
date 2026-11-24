@@ -49,7 +49,7 @@ project.tree(): Tree                         // order + hidden from Folder manif
 project.read(path): Promise<{ text, version }>
 project.write(path, edits | text, { ifVersion }): Promise<Version>   // conflict → Conflict
 project.create / rename / move / remove(path, …)
-project.settings / setSettings               // .living-doc.json
+readSettings / changeSetting(project, …)     // .living-doc.json (projectSettings.ts)
 project.changes(): AsyncIterable<Change>     // 5-second poll, Agent edits
 ```
 

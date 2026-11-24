@@ -87,7 +87,7 @@ export class NotFound extends Error {
 }
 
 /** Why a name or a change is refused; each reason has a translated message in the View. */
-export type RefusalReason = "empty" | "characters" | "edges" | "extension" | "reserved" | "taken" | "invalidManifest" | "intoItself" | "missing" | "reservedFolder";
+export type RefusalReason = "empty" | "characters" | "edges" | "extension" | "reserved" | "taken" | "invalidManifest" | "intoItself" | "missing" | "reservedFolder" | "invalidSettings";
 
 /** A new entry refused: its name breaks the naming rule, or its Folder's manifest is invalid. */
 export class Refused extends Error {
@@ -147,8 +147,8 @@ export interface Project {
   read(path: string): Promise<DocumentText>;
   /** Any file's bytes, exactly as on disk (an image, an attachment); rejects with NotFound when it does not exist. */
   readBytes(path: string): Promise<Uint8Array>;
-  /** Writes a Document read at `version`; resolves with its new version, or rejects with a Conflict. */
-  save(path: string, text: string, version: string): Promise<string>;
+  /** Writes a Document read at `version` (`null`: create it, it must not exist); resolves with its new version, or rejects with a Conflict. */
+  save(path: string, text: string, version: string | null): Promise<string>;
   /**
    * What changed on disk since the last check, made by anyone but this Project (an agent, an editor, git): whether the
    * Tree changed (an entry added, removed or renamed), and the files changed, added or removed, by path. The first check

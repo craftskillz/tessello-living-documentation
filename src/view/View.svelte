@@ -15,6 +15,7 @@
   import { Conflict, documentFile, FOLDER_MANIFEST, isInsideReserved, isReservedFolder, NotFound, Refused, refusalOf, type Deletion, type DocumentText, type Project, type RefusalReason, type TreeDocument, type TreeEntry, type TreeFolder } from "../lib/project.ts";
   import { entryMapper } from "../lib/links.ts";
   import { compileLabelFilter, NO_LABEL_FILTER, type LabelFilter } from "../lib/labels.ts";
+  import { DEFAULT_SETTINGS, readSettings, setSoftBreaks, SETTINGS_FILE, type ProjectSettings } from "../lib/projectSettings.ts";
   import { createProjects, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject } from "../lib/projects.ts";
   import { renderDocument } from "../lib/render.ts";
   import ArticleTools from "./ArticleTools.svelte";
@@ -54,6 +55,9 @@
   let headings = $state.raw<Heading[]>([]);
   /** The Project's favorites in the User's order (personal, ADR 0007), with the Documents' current titles. */
   let favorites = $state.raw<Favorite[]>([]);
+  /** The Project's own settings (shared in its .living-doc.json), read when it is opened and when an agent changes the file. */
+  let settings = $state<ProjectSettings>(DEFAULT_SETTINGS);
+  let settingEdits = 0;
   let favoritesSaving: Promise<void> = Promise.resolve();
   /** The Project's label filter (kept per Project): only the Tree's display uses it. */
   let labelFilter = $state<LabelFilter>({ ...NO_LABEL_FILTER });
@@ -99,7 +103,7 @@
         footnoteBack: t("footnoteBack"),
         compareSource: t("compareSource"),
         compareRender: t("compareRender"),
-      }, { frontmatter: readOnly }) : "");
+      }, { frontmatter: readOnly, softBreaks: settings.softBreaks }) : "");
   /** The live preview of the section being edited, rendered as a Document of its own; its links do nothing. */
   const previewHtml = $derived(
     session?.kind === "section" && path
@@ -108,7 +112,7 @@
           footnoteBack: t("footnoteBack"),
           compareSource: t("compareSource"),
           compareRender: t("compareRender"),
-        })
+        }, { softBreaks: settings.softBreaks })
       : "",
   );
   const hasHeading = $derived(model ? /^ {0,3}# /m.test(model.body) : false);
@@ -234,6 +238,41 @@
     }
   }
 
+  /** The Project's settings read again: when it is opened, and when an agent or a teammate changed the file. */
+  async function loadSettings() {
+    if (!project) return;
+    const asked = project;
+    const edits = settingEdits;
+    try {
+      const latest = await readSettings(asked);
+      // A read made before the User's last change would put the old value back.
+      if (project === asked && edits === settingEdits) settings = latest;
+    } catch (reason) {
+      fail(reason);
+    }
+  }
+
+  /** Shows the new value at once, then keeps it in the Project's file; if it cannot be kept, the disk's value comes back with a message. */
+  async function changeSoftBreaks(on: boolean) {
+    if (!project) return;
+    const asked = project;
+    const previous = settings;
+    const edit = ++settingEdits;
+    settings = { ...settings, softBreaks: on };
+    try {
+      await setSoftBreaks(asked, on);
+    } catch (reason) {
+      if (project !== asked) return;
+      if (edit === settingEdits) settings = previous;
+      if (reason instanceof Refused) report(refusalMessage(reason.reason));
+      else if (reason instanceof Conflict) {
+        report(t("settingsConflict"));
+        settingEdits++;
+        void loadSettings();
+      } else fail(reason);
+    }
+  }
+
   /** Shows `next` at once, then keeps it; if it cannot be kept, the previous list comes back with a message. */
   async function saveFavorites(next: Favorite[]) {
     const previous = favorites;
@@ -278,6 +317,8 @@
     tree = await loadTree();
     await project.check();
     void loadFavorites();
+    settings = DEFAULT_SETTINGS;
+    void loadSettings();
     const target = wantedPath ?? (await projects.startDocument(active!));
     if (target) await show(target);
     clearInterval(checking);
@@ -470,6 +511,7 @@
       const changes = await project.check();
       if (changes.tree) tree = await loadTree();
       if (changes.tree || changes.documents.length > 0) void loadFavorites();
+      if (changes.documents.includes(SETTINGS_FILE)) void loadSettings();
       // A save of ours still running shows as a change: it is not an agent's edit (theirs would fail that save instead).
       if (!checked || !changes.documents.includes(checked) || autosave?.saving) return;
       const theirs = await project.read(checked).catch(() => null);
@@ -636,6 +678,7 @@
     intoItself: "refusedIntoItself",
     missing: "refusedMissing",
     reservedFolder: "refusedReservedFolder",
+    invalidSettings: "refusedInvalidSettings",
   };
   /** The message of a refusal; `change` for a rename or a move, whose invalid-manifest wording is not about adding entries. */
   const refusalMessage = (reason: RefusalReason, change = false) =>
@@ -1209,6 +1252,8 @@
           favorite={starred}
           treeLabels={display.treeLabels}
           {labelFilter}
+          softBreaks={settings.softBreaks}
+          onsoftbreaks={(on) => void changeSoftBreaks(on)}
           onlabels={(treeLabels) => void setDisplay({ treeLabels })}
           onfilter={setLabelFilter}
           oncopypath={() => void copyPath()}

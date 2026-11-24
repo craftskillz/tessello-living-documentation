@@ -384,3 +384,112 @@ describe("the header stays on top", () => {
     assert.equal(await page.getByText("Saved", { exact: true }).count(), 0);
   });
 });
+
+describe("every newline as a line break", () => {
+  const source = "# A\n\nfirst line\nsecond line\n";
+  const FILE = ".living-doc.json";
+  const open = async (page: Opened["page"], name = "Display settings") => {
+    await page.getByRole("button", { name }).click();
+    return page.getByRole("dialog", { name });
+  };
+  const brs = (page: Opened["page"]) => page.locator("article p br").count();
+  const box = (page: Opened["page"], name = "Treat every newline as a line break") => page.getByRole("checkbox", { name });
+  const settled = (page: Opened["page"], expected: number) => until(async () => (await brs(page)) === expected, `${expected} line break(s)`);
+
+  test("with no .living-doc.json the setting is on and a newline is a line break", async () => {
+    const { page } = await project({ "a.md": source });
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+    await settled(page, 1);
+    const panel = await open(page);
+    assert.equal(await box(page).isChecked(), true);
+    await panel.getByText("This Project (shared in .living-doc.json)").waitFor();
+    await panel.getByText(/^Checked \(default, GitHub-flavoured\)/).waitFor();
+  });
+
+  test("unchecking renders at once and writes only markdownSoftBreaks, creating the file", async () => {
+    const { page, host, disk } = await project({ "a.md": source });
+    await settled(page, 1);
+    await open(page);
+    await box(page).uncheck();
+    await settled(page, 0);
+    await until(() => host.folders.read(disk, FILE) != null, "the settings file");
+    assert.equal(host.folders.read(disk, FILE), '{\n  "markdownSoftBreaks": false\n}\n');
+  });
+
+  test("an existing .living-doc.json keeps its other keys and their order", async () => {
+    const existing = '{\n  "favorites": [],\n  "tagSuggestions": ["todo"]\n}\n';
+    const { page, host, disk } = await project({ "a.md": source, [FILE]: existing });
+    await settled(page, 1);
+    await open(page);
+    await box(page).uncheck();
+    await until(async () => String(host.folders.read(disk, FILE)).includes("markdownSoftBreaks"), "the key written");
+    const text = String(host.folders.read(disk, FILE));
+    assert.deepEqual(JSON.parse(text), { favorites: [], tagSuggestions: ["todo"], markdownSoftBreaks: false });
+    assert.deepEqual(Object.keys(JSON.parse(text)), ["favorites", "tagSuggestions", "markdownSoftBreaks"]);
+  });
+
+  test("after a reload the checkbox is still unchecked", async () => {
+    const { page, host, disk } = await project({ "a.md": source });
+    await settled(page, 1);
+    await open(page);
+    await box(page).uncheck();
+    await until(() => host.folders.read(disk, FILE) != null, "the settings file");
+    await page.reload();
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+    await settled(page, 0);
+    await open(page);
+    assert.equal(await box(page).isChecked(), false);
+  });
+
+  test("a change made outside the Module is picked up", async () => {
+    const { page, host, disk } = await project({ "a.md": source, [FILE]: '{"markdownSoftBreaks": false}\n' });
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+    await settled(page, 0);
+    host.folders.write(disk, FILE, '{"markdownSoftBreaks": true}\n');
+    await settled(page, 1);
+    await open(page);
+    assert.equal(await box(page).isChecked(), true);
+  });
+
+  test("a malformed file reads as the default; unchecking is refused with a message and the checkbox goes back", async () => {
+    const { page, host, disk } = await project({ "a.md": source, [FILE]: "{ nope" });
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+    await settled(page, 1);
+    await open(page);
+    assert.equal(await box(page).isChecked(), true);
+    await box(page).uncheck();
+    await page.getByText("The Project's .living-doc.json is not valid JSON").waitFor();
+    await until(async () => await box(page).isChecked(), "the checkbox back");
+    await settled(page, 1);
+    assert.equal(host.folders.read(disk, FILE), "{ nope");
+  });
+
+  test("the section editor's preview follows the setting", async () => {
+    const { page } = await project({ "a.md": source, [FILE]: '{"markdownSoftBreaks": false}\n' });
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+    await settled(page, 0);
+    await page.getByText("first line").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit section" }).click();
+    const dialog = page.getByRole("dialog", { name: "Edit section" });
+    const preview = dialog.getByRole("region", { name: "Preview" });
+    await preview.getByText("first line").waitFor();
+    assert.equal(await preview.locator("p br").count(), 0);
+  });
+
+  test("the section editor's preview shows the line break when the setting is on", async () => {
+    const { page } = await project({ "a.md": source });
+    await page.getByText("first line").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit section" }).click();
+    const preview = page.getByRole("dialog", { name: "Edit section" }).getByRole("region", { name: "Preview" });
+    await preview.getByText("first line").waitFor();
+    assert.equal(await preview.locator("p br").count(), 1);
+  });
+
+  test("the cog is in French in a French Host", async () => {
+    const { page } = await project({ "a.md": source }, { locale: "fr" });
+    const panel = await open(page, "Réglages d'affichage");
+    await panel.getByText("Ce projet (partagé dans .living-doc.json)").waitFor();
+    await box(page, "Traiter chaque retour à la ligne comme un saut de ligne").waitFor();
+    await panel.getByText(/^Coché \(par défaut, GitHub-flavoured\)/).waitFor();
+  });
+});

@@ -44,7 +44,7 @@ describe("line labels", () => {
   test("the ranges of a rendered Document with frontmatter give the file's lines", () => {
     // Lines: 1 "---", 2 "title: T", 3 "---", 4 "# Hi", 5 "", 6 "one", 7 "two".
     const text = "---\ntitle: T\n---\n# Hi\n\none\ntwo\n";
-    const html = renderDocument(parseDocument(text, "a.md"), "a.md");
+    const html = renderDocument(parseDocument(text, "a.md"), "a.md", {}, { softBreaks: false });
     const ranges = [...html.matchAll(/data-src="(\d+)-(\d+)"/g)].map((m): [number, number] => [Number(m[1]), Number(m[2])]);
     assert.equal(lineLabel(text, [ranges[0]!]), "4");
     assert.equal(lineLabel(text, [ranges[1]!]), "6-7");

@@ -16,8 +16,10 @@
     favorite,
     treeLabels,
     labelFilter,
+    softBreaks,
     onlabels,
     onfilter,
+    onsoftbreaks,
     oncopypath,
     onlines,
     onwhite,
@@ -37,8 +39,10 @@
     favorite: boolean;
     treeLabels: TreeLabels;
     labelFilter: LabelFilter;
+    softBreaks: boolean;
     onlabels: (treeLabels: TreeLabels) => void;
     onfilter: (filter: LabelFilter) => void;
+    onsoftbreaks: (on: boolean) => void;
     oncopypath: () => void;
     onlines: () => void;
     onwhite: () => void;
@@ -62,7 +66,7 @@
     <button aria-pressed={lines} title={t("linesHint")} onclick={onlines}>{t("lines")}</button>
     <button aria-pressed={whiteBackground} title={t("whiteBackgroundHint")} onclick={onwhite}>{t("whiteBackground")}</button>
     <button aria-pressed={tocOpen} onclick={ontoc}>{t("toc")}</button>
-    <Settings {treeLabels} filter={labelFilter} {onlabels} {onfilter} />
+    <Settings {treeLabels} filter={labelFilter} {softBreaks} {onlabels} {onfilter} {onsoftbreaks} />
     {#if !readOnly}
       <button aria-pressed={favorite} title={favorite ? t("removeFavorite") : t("addFavorite")} onclick={onfavorite}>
         <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill={favorite ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z" /></svg>

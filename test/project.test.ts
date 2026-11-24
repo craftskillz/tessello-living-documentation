@@ -200,6 +200,28 @@ describe("reading a missing file or an image", () => {
 });
 
 describe("noticing changes made outside the Module", () => {
+  test("save with a null version creates the file, and a file that exists is a Conflict", async () => {
+    const { disk, host, project } = await projectOf({ "a.md": "a" });
+
+    const version = await project.save(".living-doc.json", "{}\n", null);
+
+    assert.deepEqual(await project.read(".living-doc.json"), { text: "{}\n", version });
+    await assert.rejects(project.save("a.md", "mine", null), Conflict);
+    assert.equal(host.folders.read(disk, "a.md"), "a");
+  });
+
+  test("a write through save is not reported by the next check, an outside write of .living-doc.json is", async () => {
+    const { host, disk, project } = await projectOf({ ".living-doc.json": "{}" });
+    await project.check();
+
+    const { version } = await project.read(".living-doc.json");
+    await project.save(".living-doc.json", '{"a":1}', version);
+    assert.deepEqual(await project.check(), { tree: false, documents: [] });
+
+    host.folders.write(disk, ".living-doc.json", '{"a":2}');
+    assert.deepEqual(await project.check(), { tree: false, documents: [".living-doc.json"] });
+  });
+
   test("a Document an agent changed is reported once; the Tree is unchanged", async () => {
     const { host, disk, project } = await projectOf({ "a.md": "a", "b.md": "b" });
     await project.check();

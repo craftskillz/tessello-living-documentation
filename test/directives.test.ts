@@ -6,7 +6,7 @@ import { describe, test } from "node:test";
 import { parseDocument } from "../src/lib/document.ts";
 import { renderDocument } from "../src/lib/render.ts";
 
-const render = (text: string, path = "guide/intro.md") => renderDocument(parseDocument(text, path), path);
+const render = (text: string, path = "guide/intro.md") => renderDocument(parseDocument(text, path), path, {}, { softBreaks: false });
 
 const TABLE = "| a | b |\n|---|---|\n| 1 | 2 |\n";
 const TABLE_HTML = "<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</tbody>\n</table></div>";
@@ -223,7 +223,7 @@ describe("compare blocks", () => {
   });
 
   test("the labels come from the caller", () => {
-    const html = renderDocument(parseDocument(":::compare\nx\n:::\n", "a.md"), "a.md", { footnotes: "Notes", footnoteBack: "Back", compareSource: "Source", compareRender: "Rendu" });
+    const html = renderDocument(parseDocument(":::compare\nx\n:::\n", "a.md"), "a.md", { footnotes: "Notes", footnoteBack: "Back", compareSource: "Source", compareRender: "Rendu" }, { softBreaks: false });
     assert.match(html, /data-label="Source"/);
     assert.match(html, /data-label="Rendu"/);
   });
@@ -275,7 +275,7 @@ describe("footnotes", () => {
 
   test("the labels come from the caller", () => {
     const labels = { footnotes: "Notes", footnoteBack: "Retour", compareSource: "S", compareRender: "R" };
-    const html = renderDocument(parseDocument("A[^1]\n\n[^1]: n\n", "a.md"), "a.md", labels);
+    const html = renderDocument(parseDocument("A[^1]\n\n[^1]: n\n", "a.md"), "a.md", labels, { softBreaks: false });
     assert.match(html, />Notes<\/h2>/);
     assert.match(html, /aria-label="Retour"/);
   });
