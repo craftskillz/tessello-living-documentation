@@ -164,6 +164,7 @@ The Module becomes a complete port of the original's documentation features, dec
 104. As a French-speaking developer, I want every text, date and plural in French when the Host is in French, so that the Module speaks my language.
 105. As a developer, I want every failure to say what failed and what to do, never a raw error alone, so that I am never left guessing.
 106. As a developer, I want changes made by agents noticed within about five seconds while the View is visible, and at once when it becomes visible again, so that the Module and my agents work side by side.
+107. As a developer, I want a Project setting to treat every newline as a line break (on by default, as in the original), so that Documents written in a chat style read as they did in Living Documentation.
 
 ## Implementation Decisions
 
