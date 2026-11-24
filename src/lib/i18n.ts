@@ -85,6 +85,21 @@ const en = {
   refusedReserved: "liv-doc-main.md is reserved for the Folder's order.",
   refusedTaken: "An entry with this name already exists in this folder (names are compared ignoring case).",
   refusedInvalidManifest: "This folder's liv-doc-main.md has an invalid frontmatter: fix it before adding entries here.",
+  refusedInvalidManifestChange: "A folder's liv-doc-main.md has an invalid frontmatter: fix it before changing its entries.",
+  refusedIntoItself: "A folder cannot be moved into itself or one of its folders.",
+  refusedMissing: "This entry or its destination no longer exists.",
+  rename: "Rename",
+  moveTo: "Move to…",
+  renameDocument: "Rename document",
+  renameFolder: "Rename folder",
+  newName: "New name",
+  renameHint: "Links from other documents are updated.",
+  moveDocument: "Move document",
+  moveFolder: "Move folder",
+  destination: "Destination",
+  willBeMovedTo: "Will be moved to",
+  move: "Move",
+  moveFailed: "Could not move “{name}”.",
 };
 
 type Messages = typeof en;
@@ -174,6 +189,21 @@ const fr: Messages = {
   refusedReserved: "liv-doc-main.md est réservé à l'ordre du dossier.",
   refusedTaken: "Une entrée de ce nom existe déjà dans ce dossier (les noms sont comparés sans tenir compte de la casse).",
   refusedInvalidManifest: "Le liv-doc-main.md de ce dossier a un frontmatter invalide : corrigez-le avant d'y ajouter des entrées.",
+  refusedInvalidManifestChange: "Le liv-doc-main.md d'un dossier a un frontmatter invalide : corrigez-le avant de modifier ses entrées.",
+  refusedIntoItself: "Un dossier ne peut pas être déplacé dans lui-même ni dans l'un de ses dossiers.",
+  refusedMissing: "Cette entrée ou sa destination n'existe plus.",
+  rename: "Renommer",
+  moveTo: "Déplacer vers…",
+  renameDocument: "Renommer le document",
+  renameFolder: "Renommer le dossier",
+  newName: "Nouveau nom",
+  renameHint: "Les liens depuis les autres documents sont mis à jour.",
+  moveDocument: "Déplacer le document",
+  moveFolder: "Déplacer le dossier",
+  destination: "Destination",
+  willBeMovedTo: "Sera déplacé vers",
+  move: "Déplacer",
+  moveFailed: "« {name} » n'a pas pu être déplacé.",
 };
 
 export type MessageKey = keyof Messages;

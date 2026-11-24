@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { headingId, resolveImage, resolveLink } from "../src/lib/links.ts";
+import { entryMapper, headingId, resolveImage, resolveLink, rewriteLinks } from "../src/lib/links.ts";
 
 describe("?doc= links", () => {
   test("open the Document named by the id, with its anchor", () => {
@@ -95,5 +95,107 @@ describe("heading ids", () => {
     assert.equal(headingId("What's new? (v2)"), "whats-new-v2");
     assert.equal(headingId("Été  2026"), "t-2026");
     assert.equal(headingId("  A - B  "), "a---b");
+  });
+});
+
+describe("entry mapper", () => {
+  test("maps a file, or a Folder and everything below it, and nothing else", () => {
+    const file = entryMapper("a/x.md", "a/y.md", false);
+    assert.equal(file("a/x.md"), "a/y.md");
+    assert.equal(file("a/x.mdx"), null);
+    assert.equal(file("a/x.md/z"), null);
+    const folder = entryMapper("a", "b/c", true);
+    assert.equal(folder("a"), "b/c");
+    assert.equal(folder("a/x.md"), "b/c/x.md");
+    assert.equal(folder("ab/x.md"), null);
+  });
+});
+
+describe("rewriting links after a rename or move", () => {
+  const encoded = (id: string) => encodeURIComponent(encodeURIComponent(id));
+
+  test("links, images, reference definitions and ?doc= links to a renamed Document follow, fragments and queries kept", () => {
+    const map = entryMapper("guide/x.md", "guide/renamed.md", false);
+    const text = [
+      "[rel](./guide/x.md#top)",
+      "[bare](guide/x.md)",
+      "[abs](/guide/x.md?v=1)",
+      `[doc](?doc=${encoded("guide/x")}#h)`,
+      "[ref]: ./guide/x.md",
+      "![img](./guide/x.md)",
+      "[other](./guide/y.md)",
+    ].join("\n");
+    assert.equal(
+      rewriteLinks(text, "home.md", map),
+      [
+        "[rel](./guide/renamed.md#top)",
+        "[bare](guide/renamed.md)",
+        "[abs](/guide/renamed.md?v=1)",
+        `[doc](?doc=guide%252Frenamed#h)`,
+        "[ref]: ./guide/renamed.md",
+        "![img](./guide/renamed.md)",
+        "[other](./guide/y.md)",
+      ].join("\n"),
+    );
+  });
+
+  test("external links, mailto, //host and a lone #anchor are never touched", () => {
+    const map = entryMapper("guide/x.md", "guide/z.md", false);
+    const text = "[a](https://e.org/guide/x.md) [b](mailto:x@e.org) [c](//e.org/guide/x.md) [d](#guide/x.md)";
+    assert.equal(rewriteLinks(text, "home.md", map), text);
+  });
+
+  test("links inside fenced code (``` or ~~~) are untouched", () => {
+    const map = entryMapper("x.md", "y.md", false);
+    const text = ["[a](x.md)", "```", "[b](x.md)", "```", "~~~", "[c](x.md)", "~~~", "[d](x.md)"].join("\n");
+    assert.equal(
+      rewriteLinks(text, "home.md", map),
+      ["[a](y.md)", "```", "[b](x.md)", "```", "~~~", "[c](x.md)", "~~~", "[d](y.md)"].join("\n"),
+    );
+  });
+
+  test("a renamed Folder keeps the shape of links through ..", () => {
+    const map = entryMapper("guide", "manual", true);
+    assert.equal(rewriteLinks("[a](../guide/x.md) [b](./x.md)", "guide/y.md", map), "[a](../manual/x.md) [b](./x.md)");
+    assert.equal(rewriteLinks("[f](notes/../guide/)", "home.md", map), "[f](notes/../manual/)");
+  });
+
+  test("a moved Document: incoming links follow and its own relative links, images included, are adjusted", () => {
+    const map = entryMapper("guide/x.md", "notes/deep/x.md", false);
+    assert.equal(rewriteLinks("[x](./guide/x.md)", "home.md", map), "[x](./notes/deep/x.md)");
+    assert.equal(rewriteLinks("[x](x.md)", "guide/z.md", map), "[x](../notes/deep/x.md)");
+    assert.equal(
+      rewriteLinks("[h](../home.md) [s](./z.md#a) ![i](../images/p.png) [w](https://w.org) [t](#top)", "guide/x.md", map),
+      "[h](../../home.md) [s](../../guide/z.md#a) ![i](../../images/p.png) [w](https://w.org) [t](#top)",
+    );
+    assert.equal(rewriteLinks("[h](/home.md)", "guide/x.md", map), "[h](/home.md)");
+  });
+
+  test("a Document moved up a level: a/doc.md to b/c/doc.md", () => {
+    const map = entryMapper("a/doc.md", "b/c/doc.md", false);
+    assert.equal(rewriteLinks("[x](../x.md)", "a/doc.md", map), "[x](../../x.md)");
+  });
+
+  test("links between Documents that moved together inside a Folder stay byte-identical", () => {
+    const map = entryMapper("guide", "archive/guide", true);
+    const text = "[s](./z.md) [p](../guide/z.md)";
+    assert.equal(rewriteLinks(text, "guide/x.md", map), text);
+    assert.equal(rewriteLinks("[h](../home.md)", "guide/x.md", map), "[h](../../home.md)");
+  });
+
+  test("encoded segments stay encoded", () => {
+    const map = entryMapper("my guide/x.md", "my guide/new name.md", false);
+    assert.equal(rewriteLinks("[x](./my%20guide/x.md)", "home.md", map), "[x](./my%20guide/new%20name.md)");
+  });
+
+  test("a link climbing above the Project root is left alone", () => {
+    const map = entryMapper("x.md", "y.md", false);
+    assert.equal(rewriteLinks("[a](../x.md)", "doc.md", map), "[a](../x.md)");
+  });
+
+  test("a text nothing affects is returned byte for byte", () => {
+    const text = "plain [a](./x.md) [b](../outside.md) text\r\n\n";
+    assert.equal(rewriteLinks(text, "doc.md", entryMapper("y.md", "z.md", false)), text);
+    assert.equal(rewriteLinks(text, "doc.md", () => null), text);
   });
 });

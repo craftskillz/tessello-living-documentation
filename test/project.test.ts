@@ -2,18 +2,18 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { connect } from "@tessello/sdk";
+import { type ConnectedModule, connect, TesselloError } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
 import { Conflict, NotFound, openProject, Refused, refusalOf, type TreeEntry } from "../src/lib/project.ts";
 
 /** A Project opened on a folder holding `files`, with the Test Host to change its disk as an agent would. */
-async function projectOf(files: Record<string, string | Uint8Array> = {}, options?: { now?: () => Date }) {
+async function projectOf(files: Record<string, string | Uint8Array> = {}, options?: { now?: () => Date; wrap?: (module: ConnectedModule) => ConnectedModule }) {
   const host = createTestHost({ module: { id: "@craftskillz/living-documentation", version: "0.0.1" }, permissions: { folders: true } });
   const disk = host.folders.create("docs", files);
   host.folders.choose(disk);
   const module = await connect({ transport: host.mount({ surface: "view" }).transport });
   const folder = (await module.folders.request())!;
-  return { host, disk, project: openProject(module, folder, options) };
+  return { host, disk, project: openProject(options?.wrap?.(module) ?? module, folder, options) };
 }
 
 /** The Tree as lines: "folder/" or "document", indented by depth. */
@@ -396,6 +396,461 @@ describe("a new entry and its Folder manifest", () => {
     await project.check();
 
     await project.createDocument("", "B");
+
+    assert.deepEqual((await project.check()).documents, []);
+  });
+});
+
+/** The Test Host's files with `move` replaced by `move`, which receives the real one. */
+const movingThrough = (move: (real: ConnectedModule["files"]["move"]) => ConnectedModule["files"]["move"]) => (module: ConnectedModule): ConnectedModule => ({
+  ...module,
+  files: { ...module.files, move: move(module.files.move) },
+});
+
+describe("renaming an entry", () => {
+  test("renames a Document: the Name gets .md, the content stays, the old file is gone", async () => {
+    const { host, disk, project } = await projectOf({ "guide/note.md": "# Note\n", "guide/other.md": "" });
+
+    const path = await project.rename("guide/note.md", "memo");
+
+    assert.equal(path, "guide/memo.md");
+    assert.equal(host.folders.read(disk, "guide/memo.md"), "# Note\n");
+    assert.equal(host.folders.read(disk, "guide/note.md"), null);
+  });
+
+  test("renames a Folder as typed, with everything in it", async () => {
+    const { host, disk, project } = await projectOf({ "guide/a.md": "A", "guide/sub/b.md": "B", "guide/liv-doc-main.md": EMPTY_MANIFEST });
+
+    assert.equal(await project.rename("guide", "Handbook v2"), "Handbook v2");
+
+    assert.deepEqual(outline(await project.tree()), ["Handbook v2/", "  sub/", "    b.md", "  a.md"]);
+    assert.equal(host.folders.read(disk, "Handbook v2/liv-doc-main.md"), EMPTY_MANIFEST);
+    assert.equal(host.folders.read(disk, "guide/a.md"), null);
+  });
+
+  test("a refused name writes nothing and rejects with its reason, the entry itself not counting as a sibling", async () => {
+    const { host, disk, project } = await projectOf({ "note.md": "n", "taken.md": "t", "guide/a.md": "a" });
+
+    for (const [name, reason] of [["", "empty"], ["a/b", "characters"], ["x.", "edges"], ["liv-doc-main", "reserved"], ["TAKEN", "taken"], ["x.md", "extension"]]) {
+      await assert.rejects(project.rename("note.md", name!), { reason }, name);
+    }
+    await assert.rejects(project.rename("guide", "Taken.md"), { reason: "taken" });
+    assert.deepEqual(outline(await project.tree()), ["guide/", "  a.md", "note.md", "taken.md"]);
+    assert.equal(host.folders.read(disk, "note.md"), "n");
+  });
+
+  test("the same name writes nothing and gives the same path", async () => {
+    const { host, disk, project } = await projectOf({ "note.md": "n", "liv-doc-main.md": "---\norder:\n  - note.md\n---\n" });
+    await project.check();
+
+    assert.equal(await project.rename("note.md", "note"), "note.md");
+
+    assert.equal(host.folders.read(disk, "note.md"), "n");
+    assert.deepEqual(await project.check(), { tree: false, documents: [] });
+  });
+
+  test("the Folder manifest cannot be renamed", async () => {
+    const { project } = await projectOf({ "liv-doc-main.md": EMPTY_MANIFEST, "guide/liv-doc-main.md": EMPTY_MANIFEST });
+
+    await assert.rejects(project.rename("liv-doc-main.md", "other"), { reason: "reserved" });
+    await assert.rejects(project.rename("guide/liv-doc-main.md", "other"), { reason: "reserved" });
+  });
+
+  test("a change of case only is allowed, even on a disk where Note.md and note.md are the same file", async () => {
+    const insensitive = movingThrough((real) => async (folder, from, to) => {
+      if (from.toLowerCase() === to.toLowerCase()) throw new TesselloError("conflict", "exists");
+      return real(folder, from, to);
+    });
+    const { host, disk, project } = await projectOf({ "guide/note.md": "n", "guide/Docs/x.md": "x" }, { wrap: insensitive });
+
+    assert.equal(await project.rename("guide/note.md", "Note"), "guide/Note.md");
+    assert.equal(await project.rename("guide/Docs", "docs"), "guide/docs");
+
+    assert.deepEqual(outline(await project.tree()), ["guide/", "  docs/", "    x.md", "  Note.md"]);
+    assert.equal(host.folders.read(disk, "guide/Note.md"), "n");
+  });
+
+  test("a name taken on disk meanwhile, which the naming check could not see, is refused as taken", async () => {
+    let race: (path: string) => void = () => {};
+    const racing = movingThrough((real) => async (folder, from, to) => {
+      race(to);
+      return real(folder, from, to);
+    });
+    const { host, disk, project } = await projectOf({ "note.md": "mine" }, { wrap: racing });
+    race = (path) => host.folders.write(disk, path, "an agent's");
+
+    await assert.rejects(project.rename("note.md", "memo"), { reason: "taken" });
+
+    assert.equal(host.folders.read(disk, "memo.md"), "an agent's");
+    assert.equal(host.folders.read(disk, "note.md"), "mine");
+  });
+});
+
+describe("renaming an entry and its Folder manifest", () => {
+  test("the old name is replaced in place in order and hidden, other fields and body kept", async () => {
+    const manifest = "---\ntitle: Guide\norder:\n  - b.md\n  - note.md\n  - c.md\nhidden:\n  - x.md\n  - note.md\n---\nThe guide.\n";
+    const { host, disk, project } = await projectOf({ "liv-doc-main.md": manifest, "note.md": "", "b.md": "", "c.md": "" });
+
+    await project.rename("note.md", "memo");
+
+    assert.equal(
+      host.folders.read(disk, "liv-doc-main.md"),
+      "---\ntitle: Guide\norder:\n  - b.md\n  - memo.md\n  - c.md\nhidden:\n  - x.md\n  - memo.md\n---\nThe guide.\n",
+    );
+  });
+
+  test("a manifest not listing the entry stays byte for byte; a missing one is not created", async () => {
+    const manifest = "---\norder: [b.md]\nhidden:   []\n---\nbody";
+    const { host, disk, project } = await projectOf({ "g/liv-doc-main.md": manifest, "g/note.md": "", "note.md": "" });
+
+    await project.rename("g/note.md", "memo");
+    await project.rename("note.md", "memo");
+
+    assert.equal(host.folders.read(disk, "g/liv-doc-main.md"), manifest);
+    assert.equal(host.folders.read(disk, "liv-doc-main.md"), null);
+  });
+
+  test("a renamed Folder is replaced by its name too", async () => {
+    const { host, disk, project } = await projectOf({ "liv-doc-main.md": "---\norder:\n  - guide\nhidden:\n  - guide\n---\n", "guide/a.md": "" });
+
+    await project.rename("guide", "manual");
+
+    assert.equal(host.folders.read(disk, "liv-doc-main.md"), "---\norder:\n  - manual\nhidden:\n  - manual\n---\n");
+  });
+
+  test("an invalid manifest refuses the rename and nothing is written", async () => {
+    for (const manifest of ["no frontmatter", "---\norder: [unclosed\n---\n", "---\n- a\n---\n"]) {
+      const { host, disk, project } = await projectOf({ "liv-doc-main.md": manifest, "note.md": "n" });
+
+      await assert.rejects(project.rename("note.md", "memo"), { reason: "invalidManifest" }, manifest);
+
+      assert.equal(host.folders.read(disk, "liv-doc-main.md"), manifest);
+      assert.equal(host.folders.read(disk, "note.md"), "n");
+      assert.equal(host.folders.read(disk, "memo.md"), null);
+    }
+  });
+
+  test("the Module's own rename is not reported as an agent's edit; the Tree change may be", async () => {
+    const { project } = await projectOf({ "liv-doc-main.md": "---\norder:\n  - note.md\n---\n", "note.md": "n", "guide/a.md": "[n](../note.md)" });
+    await project.check();
+
+    await project.rename("note.md", "memo");
+    await project.rename("guide", "manual");
+
+    assert.deepEqual((await project.check()).documents, []);
+  });
+});
+
+describe("moving an entry", () => {
+  test("moves a Document into a Folder, the root or a deeper Folder, content kept", async () => {
+    const { host, disk, project } = await projectOf({ "a.md": "A", "guide/liv-doc-main.md": EMPTY_MANIFEST, "guide/sub/b.md": "B" });
+
+    assert.equal(await project.move("a.md", "guide/sub"), "guide/sub/a.md");
+    assert.equal(await project.move("guide/sub/b.md", ""), "b.md");
+
+    assert.equal(host.folders.read(disk, "guide/sub/a.md"), "A");
+    assert.equal(host.folders.read(disk, "b.md"), "B");
+    assert.equal(host.folders.read(disk, "a.md"), null);
+    assert.equal(host.folders.read(disk, "guide/sub/b.md"), null);
+  });
+
+  test("moves a Folder with everything in it", async () => {
+    const { host, disk, project } = await projectOf({ "guide/a.md": "A", "guide/deep/b.md": "B", "archive/x.md": "X" });
+
+    assert.equal(await project.move("guide", "archive"), "archive/guide");
+
+    assert.deepEqual(outline(await project.tree()), ["archive/", "  guide/", "    deep/", "      b.md", "    a.md", "  x.md"]);
+    assert.equal(host.folders.read(disk, "guide/a.md"), null);
+  });
+
+  test("into the same Folder without a position is a no-op returning the same path", async () => {
+    const { project } = await projectOf({ "guide/a.md": "A" });
+    await project.check();
+
+    assert.equal(await project.move("guide/a.md", "guide"), "guide/a.md");
+
+    assert.deepEqual(await project.check(), { tree: false, documents: [] });
+  });
+
+  test("a Folder cannot go into itself or one of its descendants", async () => {
+    const { host, disk, project } = await projectOf({ "guide/sub/a.md": "A", "guidebook/b.md": "B" });
+
+    await assert.rejects(project.move("guide", "guide"), { reason: "intoItself" });
+    await assert.rejects(project.move("guide", "guide/sub"), { reason: "intoItself" });
+    await project.move("guide", "guidebook");
+
+    assert.equal(host.folders.read(disk, "guidebook/guide/sub/a.md"), "A");
+  });
+
+  test("a name already used in the destination, ignoring case, is taken; nothing is written", async () => {
+    const { host, disk, project } = await projectOf({ "a.md": "mine", "dest/A.md": "theirs", "x/dest": "a file", "Dest2/liv-doc-main.md": EMPTY_MANIFEST });
+
+    await assert.rejects(project.move("a.md", "dest"), { reason: "taken" });
+
+    assert.equal(host.folders.read(disk, "a.md"), "mine");
+    assert.equal(host.folders.read(disk, "dest/A.md"), "theirs");
+  });
+
+  test("a destination Folder that does not exist is refused as missing; so is a source that does not", async () => {
+    const { host, disk, project } = await projectOf({ "a.md": "A" });
+
+    await assert.rejects(project.move("a.md", "nowhere"), { reason: "missing" });
+    await assert.rejects(project.move("gone.md", ""), { reason: "missing" });
+
+    assert.equal(host.folders.read(disk, "a.md"), "A");
+  });
+
+  test("the Folder manifest cannot be moved", async () => {
+    const { project } = await projectOf({ "guide/liv-doc-main.md": EMPTY_MANIFEST, "other/a.md": "" });
+
+    await assert.rejects(project.move("guide/liv-doc-main.md", "other"), { reason: "reserved" });
+  });
+
+  test("an invalid manifest, in the source or the destination, refuses the move and nothing is written", async () => {
+    for (const [source, destination] of [["broken", EMPTY_MANIFEST], [EMPTY_MANIFEST, "broken"]]) {
+      const { host, disk, project } = await projectOf({ "from/liv-doc-main.md": source!, "from/a.md": "A", "to/liv-doc-main.md": destination! });
+
+      await assert.rejects(project.move("from/a.md", "to"), { reason: "invalidManifest" });
+      await assert.rejects(project.move("from/a.md", "to", { before: "x.md" }), { reason: "invalidManifest" });
+
+      assert.equal(host.folders.read(disk, "from/a.md"), "A");
+      assert.equal(host.folders.read(disk, "from/liv-doc-main.md"), source);
+      assert.equal(host.folders.read(disk, "to/liv-doc-main.md"), destination);
+    }
+  });
+
+  test("a name taken on disk meanwhile is refused as taken", async () => {
+    let race: (path: string) => void = () => {};
+    const racing = movingThrough((real) => async (folder, from, to) => {
+      race(to);
+      return real(folder, from, to);
+    });
+    const { host, disk, project } = await projectOf({ "a.md": "mine", "dest/liv-doc-main.md": EMPTY_MANIFEST }, { wrap: racing });
+    race = (path) => host.folders.write(disk, path, "an agent's");
+
+    await assert.rejects(project.move("a.md", "dest"), { reason: "taken" });
+
+    assert.equal(host.folders.read(disk, "dest/a.md"), "an agent's");
+  });
+
+  test("the Module's own move is not reported as an agent's edit", async () => {
+    const { project } = await projectOf({ "a.md": "A", "guide/b.md": "B", "dest/liv-doc-main.md": "---\norder:\n  - z.md\n---\n", "dest/z.md": "" });
+    await project.check();
+
+    await project.move("a.md", "dest");
+    await project.move("guide", "dest");
+
+    assert.deepEqual((await project.check()).documents, []);
+  });
+});
+
+describe("moving an entry and the Folder manifests", () => {
+  test("the source manifest loses the name from order and hidden; one without it stays byte for byte", async () => {
+    const manifest = "---\ntitle: T\norder:\n  - b.md\n  - a.md\nhidden:\n  - a.md\n---\nbody\n";
+    const other = "---\norder: [b.md]\nhidden:   []\n---\nbody";
+    const { host, disk, project } = await projectOf({ "g/liv-doc-main.md": manifest, "g/a.md": "", "h/liv-doc-main.md": other, "h/c.md": "", "dest/x.md": "" });
+
+    await project.move("g/a.md", "dest");
+    await project.move("h/c.md", "dest");
+
+    assert.equal(host.folders.read(disk, "g/liv-doc-main.md"), "---\ntitle: T\norder:\n  - b.md\nhidden: []\n---\nbody\n");
+    assert.equal(host.folders.read(disk, "h/liv-doc-main.md"), other);
+  });
+
+  test("without a position, the name is appended to a non-empty destination order", async () => {
+    const { host, disk, project } = await projectOf({ "a.md": "", "g/b.md": "", "dest/liv-doc-main.md": "---\norder:\n  - z.md\nhidden: []\n---\nbody\n", "dest/z.md": "" });
+
+    await project.move("a.md", "dest");
+    await project.move("g", "dest");
+
+    assert.equal(host.folders.read(disk, "dest/liv-doc-main.md"), "---\norder:\n  - z.md\n  - a.md\n  - g\nhidden: []\n---\nbody\n");
+  });
+
+  test("without a position, an empty order or a missing manifest is left alone and none is created", async () => {
+    const empty = "---\norder: []\nhidden: []\n---\n";
+    const { host, disk, project } = await projectOf({ "a.md": "", "b.md": "", "e/liv-doc-main.md": empty, "n/z.md": "" });
+
+    await project.move("a.md", "e");
+    await project.move("b.md", "n");
+
+    assert.equal(host.folders.read(disk, "e/liv-doc-main.md"), empty);
+    assert.equal(host.folders.read(disk, "n/liv-doc-main.md"), null);
+  });
+});
+
+describe("placing an entry among its new siblings", () => {
+  test("the destination's order becomes the whole Tree order, hidden entries counted, with the entry before the sibling", async () => {
+    const { host, disk, project } = await projectOf({
+      "a.md": "A",
+      "dest/liv-doc-main.md": "---\norder:\n  - z.md\nhidden:\n  - h.md\n---\n",
+      "dest/z.md": "",
+      "dest/h.md": "",
+      "dest/b.md": "",
+      "dest/Sub/s.md": "",
+      "dest/pic.png": "",
+    });
+
+    await project.move("a.md", "dest", { before: "b.md" });
+
+    assert.equal(
+      host.folders.read(disk, "dest/liv-doc-main.md"),
+      "---\norder:\n  - z.md\n  - Sub\n  - a.md\n  - b.md\n  - h.md\nhidden:\n  - h.md\n---\n",
+    );
+    assert.equal(host.folders.read(disk, "dest/a.md"), "A");
+  });
+
+  test("after a sibling; the default order is used when the destination has no custom one", async () => {
+    const { host, disk, project } = await projectOf({ "A.md": "", "dest/c.md": "", "dest/B.md": "", "dest/d/x.md": "" });
+
+    await project.move("A.md", "dest", { after: "d" });
+
+    assert.equal(host.folders.read(disk, "dest/liv-doc-main.md"), "---\norder:\n  - d\n  - A.md\n  - B.md\n  - c.md\nhidden: []\n---\n");
+  });
+
+  test("without a destination manifest, one is created", async () => {
+    const { host, disk, project } = await projectOf({ "a.md": "", "dest/b.md": "" });
+
+    await project.move("a.md", "dest", { before: "b.md" });
+
+    assert.equal(host.folders.read(disk, "dest/liv-doc-main.md"), "---\norder:\n  - a.md\n  - b.md\nhidden: []\n---\n");
+    assert.deepEqual(outline(await project.tree()), ["dest/", "  a.md", "  b.md"]);
+  });
+
+  test("a sibling that does not exist puts the entry at the end of the order", async () => {
+    const { host, disk, project } = await projectOf({ "a.md": "", "dest/b.md": "", "dest/c.md": "" });
+
+    await project.move("a.md", "dest", { before: "gone.md" });
+
+    assert.equal(host.folders.read(disk, "dest/liv-doc-main.md"), "---\norder:\n  - b.md\n  - c.md\n  - a.md\nhidden: []\n---\n");
+  });
+
+  test("within the same Folder it is a reorder: only the manifest is written, no file moves", async () => {
+    const { host, disk, project } = await projectOf({ "g/a.md": "A", "g/b.md": "B", "g/c.md": "C", "g/liv-doc-main.md": "---\norder: [c.md, a.md]\nhidden: [b.md]\n---\nbody\n" });
+    await project.check();
+
+    assert.equal(await project.move("g/b.md", "g", { before: "c.md" }), "g/b.md");
+
+    assert.equal(host.folders.read(disk, "g/liv-doc-main.md"), "---\norder:\n  - b.md\n  - c.md\n  - a.md\nhidden:\n  - b.md\n---\nbody\n");
+    assert.equal(host.folders.read(disk, "g/b.md"), "B");
+    assert.deepEqual(await project.check(), { tree: false, documents: [] });
+  });
+
+  test("a reorder that changes nothing writes nothing, even without a manifest", async () => {
+    const { host, disk, project } = await projectOf({ "g/a.md": "", "g/b.md": "", "h/liv-doc-main.md": "---\norder:   [x.md]\n---\n", "h/x.md": "", "h/y.md": "" });
+
+    await project.move("g/a.md", "g", { before: "b.md" });
+    await project.move("g/b.md", "g", { after: "a.md" });
+    await project.move("h/y.md", "h", { after: "x.md" });
+
+    assert.equal(host.folders.read(disk, "g/liv-doc-main.md"), null);
+    assert.equal(host.folders.read(disk, "h/liv-doc-main.md"), "---\norder:   [x.md]\n---\n");
+  });
+
+  test("a Folder can be placed too, and its source loses the name", async () => {
+    const { host, disk, project } = await projectOf({ "src/liv-doc-main.md": "---\norder: [sub]\n---\n", "src/sub/s.md": "", "dest/a.md": "" });
+
+    await project.move("src/sub", "dest", { after: "a.md" });
+
+    assert.equal(host.folders.read(disk, "dest/liv-doc-main.md"), "---\norder:\n  - a.md\n  - sub\nhidden: []\n---\n");
+    assert.equal(host.folders.read(disk, "src/liv-doc-main.md"), "---\norder: []\n---\n");
+    assert.equal(host.folders.read(disk, "dest/sub/s.md"), "");
+  });
+});
+
+describe("links follow a rename or a move", () => {
+  test("renaming a Document rewrites the links to it, anchors kept, in other Documents", async () => {
+    const { host, disk, project } = await projectOf({
+      "note.md": "# Note\n",
+      "other.md": "See [note](./note.md#top) and [again](note.md).\n",
+      "guide/deep.md": "[up](../note.md) and [elsewhere](../other.md)\n",
+    });
+
+    await project.rename("note.md", "memo");
+
+    assert.equal(host.folders.read(disk, "other.md"), "See [note](./memo.md#top) and [again](memo.md).\n");
+    assert.equal(host.folders.read(disk, "guide/deep.md"), "[up](../memo.md) and [elsewhere](../other.md)\n");
+  });
+
+  test("moving a Document adjusts the links pointing at it and its own relative links", async () => {
+    const { host, disk, project } = await projectOf({
+      "guide/a.md": "![x](../images/x.png) [b](./b.md) [out](../top.md)\n",
+      "guide/b.md": "[a](./a.md)\n",
+      "top.md": "[a](guide/a.md) [a again](./guide/a.md#s)\n",
+      "archive/liv-doc-main.md": EMPTY_MANIFEST,
+      "images/x.png": "png",
+    });
+
+    await project.move("guide/a.md", "archive");
+
+    assert.equal(host.folders.read(disk, "archive/a.md"), "![x](../images/x.png) [b](../guide/b.md) [out](../top.md)\n");
+    assert.equal(host.folders.read(disk, "guide/b.md"), "[a](../archive/a.md)\n");
+    assert.equal(host.folders.read(disk, "top.md"), "[a](archive/a.md) [a again](./archive/a.md#s)\n");
+  });
+
+  test("renaming a Folder rewrites the links into it; links between Documents that moved together stay byte for byte", async () => {
+    const inside = "[b](./b.md) [sub](sub/c.md) [home](../home.md)\n";
+    const { host, disk, project } = await projectOf({
+      "guide/a.md": inside,
+      "guide/b.md": "[a](a.md)\n",
+      "guide/sub/c.md": "[a](../a.md)\n",
+      "home.md": "[a](guide/a.md) [c](./guide/sub/c.md)\n",
+    });
+
+    await project.rename("guide", "manual");
+
+    assert.equal(host.folders.read(disk, "manual/a.md"), inside);
+    assert.equal(host.folders.read(disk, "manual/b.md"), "[a](a.md)\n");
+    assert.equal(host.folders.read(disk, "manual/sub/c.md"), "[a](../a.md)\n");
+    assert.equal(host.folders.read(disk, "home.md"), "[a](manual/a.md) [c](./manual/sub/c.md)\n");
+  });
+
+  test("the manifests are read and rewritten like any Markdown file", async () => {
+    const { host, disk, project } = await projectOf({ "liv-doc-main.md": "---\norder: []\n---\nStart at [the note](note.md).\n", "note.md": "" });
+
+    await project.rename("note.md", "memo");
+
+    assert.equal(host.folders.read(disk, "liv-doc-main.md"), "---\norder: []\n---\nStart at [the note](memo.md).\n");
+  });
+
+  /** A Project whose `other.md` is changed by an agent just before each of the first `times` writes to it. */
+  async function racedOn(times: number) {
+    let race: () => void = () => {};
+    let left = times;
+    const racing = (module: ConnectedModule): ConnectedModule => ({
+      ...module,
+      files: {
+        ...module.files,
+        write: async (folder, path, content, options) => {
+          if (path === "other.md" && left-- > 0) race();
+          return module.files.write(folder, path, content, options);
+        },
+      },
+    });
+    const made = await projectOf({ "note.md": "", "other.md": "[n](note.md)\n" }, { wrap: racing });
+    race = () => made.host.folders.write(made.disk, "other.md", `${made.host.folders.read(made.disk, "other.md")}An agent's line.\n`);
+    return made;
+  }
+
+  test("a file an agent writes meanwhile is read again and rewritten once", async () => {
+    const { host, disk, project } = await racedOn(1);
+
+    await project.rename("note.md", "memo");
+
+    assert.equal(host.folders.read(disk, "other.md"), "[n](memo.md)\nAn agent's line.\n");
+  });
+
+  test("a second conflict propagates", async () => {
+    const { project } = await racedOn(2);
+
+    await assert.rejects(project.rename("note.md", "memo"), { code: "conflict" });
+  });
+
+  test("the Module's own rewritten files are not reported as an agent's edit", async () => {
+    const { project } = await projectOf({ "note.md": "", "other.md": "[n](note.md)\n", "guide/a.md": "[n](../note.md)\n" });
+    await project.check();
+
+    await project.rename("note.md", "memo");
+    await project.move("guide/a.md", "");
 
     assert.deepEqual((await project.check()).documents, []);
   });

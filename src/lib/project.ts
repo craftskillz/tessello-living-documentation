@@ -3,6 +3,7 @@
 
 import { type ConnectedModule, type Folder, type FolderEntry, TesselloError } from "@tessello/sdk";
 import { parse, stringify } from "yaml";
+import { entryMapper, type PathMapper, rewriteLinks } from "./links.ts";
 
 /** The reserved file of each Folder: its order and its hidden entries (GLOSSARY.md, Folder manifest). */
 export const FOLDER_MANIFEST = "liv-doc-main.md";
@@ -64,7 +65,7 @@ export class NotFound extends Error {
 }
 
 /** Why a name or a change is refused; each reason has a translated message in the View. */
-export type RefusalReason = "empty" | "characters" | "edges" | "extension" | "reserved" | "taken" | "invalidManifest";
+export type RefusalReason = "empty" | "characters" | "edges" | "extension" | "reserved" | "taken" | "invalidManifest" | "intoItself" | "missing";
 
 /** A new entry refused: its name breaks the naming rule, or its Folder's manifest is invalid. */
 export class Refused extends Error {
@@ -116,6 +117,19 @@ export interface Project {
   createDocument(folder: string, name: string): Promise<string>;
   /** Creates the Folder `name` in `parent`, holding an empty Folder manifest. Resolves with its path. Rejects with Refused. */
   createFolder(parent: string, name: string): Promise<string>;
+  /**
+   * Renames the Document or Folder at `path`. For a Document `name` is the Name without `.md` (added, as for createDocument);
+   * a Folder's name is used as typed. Resolves with the new path (the same path when the name is unchanged: nothing is
+   * written). Rejects with Refused.
+   */
+  rename(path: string, name: string): Promise<string>;
+  /**
+   * Moves the Document or Folder at `path` into the Folder `folder` ("" = root). With `position`, the entry is placed just
+   * before or after its sibling named `position.before` / `position.after` (a name on disk, in `folder`), and the
+   * destination manifest's `order` is written with it there; without one it is appended to the destination's custom
+   * order, if it has one. Resolves with the new path. Rejects with Refused.
+   */
+  move(path: string, folder: string, position?: { before: string } | { after: string }): Promise<string>;
 }
 
 export interface Changes {
@@ -128,26 +142,24 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
   // What the last check saw, and what this Project wrote since: path → version ("" for a folder).
   let seen: Map<string, string> | null = null;
   const own = new Map<string, string>();
+  // The files this Project moved away or deleted since the last check.
+  const gone = new Set<string>();
 
   /** Creates the entry `entry` (a file, or a Folder holding its manifest) in `parent`, after the naming rule and its Folder's manifest. */
   async function create(kind: "document" | "folder", parent: string, name: string, entry: string, content: string): Promise<string> {
     const siblings = (await listChildren(parent)).map((entry) => nameOf(entry.path));
     const reason = refusalOf(kind, name, siblings);
     if (reason) throw new Refused(reason);
-    const manifestPath = parent === "" ? FOLDER_MANIFEST : `${parent}/${FOLDER_MANIFEST}`;
-    const manifest = await module.files.read(folder, manifestPath).catch((error: unknown) => {
-      if (error instanceof TesselloError && error.code === "not_found") return null;
-      throw error;
-    });
+    const manifestPath = manifestPathOf(parent);
+    const manifest = await readOrNull(manifestPath);
     const appended = manifest && appendedToOrder(manifest.content, entry);
     if (appended === undefined) throw new Refused("invalidManifest");
-    const path = parent === "" ? entry : `${parent}/${entry}`;
+    const path = join(parent, entry);
     const target = kind === "folder" ? `${path}/${FOLDER_MANIFEST}` : path;
     try {
       own.set(target, (await module.files.write(folder, target, content, { ifVersion: null })).version);
     } catch (error) {
-      if (error instanceof TesselloError && error.code === "conflict") throw new Refused("taken");
-      throw error;
+      throw isCode(error, "conflict") ? new Refused("taken") : error;
     }
     if (manifest && appended !== manifest.content) {
       try {
@@ -158,6 +170,99 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       }
     }
     return path;
+  }
+
+  /** A file's text and version, or null when it does not exist. */
+  async function readOrNull(path: string) {
+    return module.files.read(folder, path).catch((error: unknown) => {
+      if (isCode(error, "not_found")) return null;
+      throw error;
+    });
+  }
+
+  /**
+   * Rewrites the file at `path` with `edit` (given its text, null when it does not exist; returns null or the same text
+   * for no change), at the version it was read at. Another writer meanwhile: read again and retry once, then the conflict propagates.
+   */
+  async function update(path: string, edit: (text: string | null) => string | null): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      const current = await readOrNull(path);
+      const next = edit(current?.content ?? null);
+      if (next === null || next === current?.content) return;
+      try {
+        own.set(path, (await module.files.write(folder, path, next, { ifVersion: current?.version ?? null })).version);
+        return;
+      } catch (error) {
+        if (!isCode(error, "conflict") || attempt > 0) throw error;
+      }
+    }
+  }
+
+  /**
+   * The order of the Folder whose manifest is `manifestPath` and entries `siblings`, as the Tree orders it but counting
+   * hidden entries, and the same with `name` just before or after `position`'s sibling (at the end when it is not there).
+   */
+  async function orderWith(manifestPath: string, siblings: FolderEntry[], name: string, position: { before: string } | { after: string }) {
+    const manifest = manifestOf((await readOrNull(manifestPath))?.content ?? "");
+    const entries = siblings.flatMap((entry) => {
+      const each = nameOf(entry.path);
+      return entry.kind === "folder" || isDocument(each) ? [{ kind: entry.kind, name: each }] : [];
+    });
+    const current = ordered(entries, manifest.order).map((entry) => entry.name);
+    const others = current.filter((each) => each !== name);
+    const sibling = "before" in position ? position.before : position.after;
+    const at = others.indexOf(sibling);
+    const index = at === -1 ? others.length : "before" in position ? at : at + 1;
+    const next = [...others.slice(0, index), name, ...others.slice(index)];
+    return { next, changed: next.some((each, i) => each !== current[i]) || next.length !== current.length };
+  }
+
+  /** Refuses an entry whose Folder `parent` has a manifest that is present but invalid. */
+  async function requireValidManifest(parent: string): Promise<void> {
+    const manifest = await readOrNull(manifestPathOf(parent));
+    if (manifest && !frontmatterOf(manifest.content)) throw new Refused("invalidManifest");
+  }
+
+  /** Whether the entry at `path` is a Folder; Refused("missing") when there is nothing there. */
+  async function isFolderAt(path: string): Promise<boolean> {
+    const found = (await listChildren(parentOf(path))).find((entry) => entry.path === path);
+    if (!found) throw new Refused("missing");
+    return found.kind === "folder";
+  }
+
+  /**
+   * Moves `from` to `to` in the Host, then runs `afterwards` (the manifests), rewrites the Links of the Project's Markdown
+   * files, and records what this Project wrote or moved as its own. `viaTemp` goes through a temporary name (a change of
+   * case only, which a case-insensitive disk takes for an existing destination).
+   */
+  async function relocate(from: string, to: string, isFolder: boolean, viaTemp: boolean, afterwards: () => Promise<void>): Promise<void> {
+    const before = await module.files.list(folder);
+    try {
+      if (viaTemp) {
+        await module.files.move(folder, from, `${to}.liv-doc-renaming`);
+        await module.files.move(folder, `${to}.liv-doc-renaming`, to);
+      } else await module.files.move(folder, from, to);
+    } catch (error) {
+      throw isCode(error, "conflict") ? new Refused("taken") : error;
+    }
+    await afterwards();
+    const map = entryMapper(from, to, isFolder);
+    for (const entry of before) if (map(entry.path) !== null) gone.add(entry.path);
+    await followLinks(before, map);
+    const after = await module.files.list(folder);
+    // A Folder emptied by the move is gone with it.
+    for (const entry of before) if (entry.kind === "folder" && !after.some((each) => each.path === entry.path)) gone.add(entry.path);
+    for (const entry of after) {
+      if (entry.kind === "file" && (entry.path === to || entry.path.startsWith(`${to}/`))) own.set(entry.path, entry.version);
+    }
+  }
+
+  /** Rewrites the Links of every Markdown file listed in `before`, now at the path `map` gives. */
+  async function followLinks(before: FolderEntry[], map: PathMapper): Promise<void> {
+    for (const entry of before) {
+      if (entry.kind !== "file" || !entry.path.toLowerCase().endsWith(".md")) continue;
+      await update(map(entry.path) ?? entry.path, (text) => (text === null ? null : rewriteLinks(text, entry.path, map)));
+    }
   }
 
   /** The entries directly in `parent` ("" = the Project folder); none when it does not exist. */
@@ -176,6 +281,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       seen = now;
       if (!before) {
         own.clear();
+        gone.clear();
         return { tree: false, documents: [] };
       }
       const paths = new Set([...before.keys(), ...now.keys()]);
@@ -185,10 +291,11 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
           const version = now.get(path);
           if (version === "" || before.get(path) === version) return false;
           // A file this Project wrote, still at the version it wrote.
-          return version === undefined || own.get(path) !== version;
+          return version === undefined ? !gone.has(path) : own.get(path) !== version;
         })
         .sort();
       own.clear();
+      gone.clear();
       return { tree, documents };
     },
     async tree() {
@@ -232,6 +339,49 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
     async createFolder(parent, name) {
       return create("folder", parent, name, name, EMPTY_MANIFEST);
     },
+    async rename(path, name) {
+      if (nameOf(path).toLowerCase() === FOLDER_MANIFEST) throw new Refused("reserved");
+      const isFolder = await isFolderAt(path);
+      const parent = parentOf(path);
+      const old = nameOf(path);
+      const siblings = (await listChildren(parent)).map((entry) => nameOf(entry.path)).filter((each) => each !== old);
+      const reason = refusalOf(isFolder ? "folder" : "document", name, siblings);
+      if (reason) throw new Refused(reason);
+      const entry = isFolder ? name : documentFile(name);
+      if (entry === old) return path;
+      await requireValidManifest(parent);
+      const to = join(parent, entry);
+      const caseOnly = entry.toLowerCase() === old.toLowerCase();
+      await relocate(path, to, isFolder, caseOnly, () => update(manifestPathOf(parent), (text) => (text && renamedIn(text, old, entry)) ?? null));
+      return to;
+    },
+    async move(path, destination, position) {
+      if (nameOf(path).toLowerCase() === FOLDER_MANIFEST) throw new Refused("reserved");
+      const isFolder = await isFolderAt(path);
+      if (isFolder && (destination === path || destination.startsWith(`${path}/`))) throw new Refused("intoItself");
+      const source = parentOf(path);
+      const name = nameOf(path);
+      if (destination === source && !position) return path;
+      if (destination !== "" && !(await listChildren(parentOf(destination))).some((entry) => entry.kind === "folder" && entry.path === destination)) {
+        throw new Refused("missing");
+      }
+      const siblings = await listChildren(destination);
+      if (destination !== source && siblings.some((entry) => nameOf(entry.path).toLowerCase() === name.toLowerCase())) throw new Refused("taken");
+      await requireValidManifest(source);
+      await requireValidManifest(destination);
+      const destinationManifest = manifestPathOf(destination);
+      const order = position ? await orderWith(destinationManifest, siblings, name, position) : null;
+      if (destination === source) {
+        if (order && order.changed) await update(destinationManifest, (text) => withOrder(text, order.next));
+        return path;
+      }
+      const to = join(destination, name);
+      await relocate(path, to, isFolder, false, async () => {
+        await update(destinationManifest, (text) => (order ? withOrder(text, order.next) : text && appendedToOrder(text, name)) ?? null);
+        await update(manifestPathOf(source), (text) => (text && removedFrom(text, name)) ?? null);
+      });
+      return to;
+    },
     async save(path, text, version) {
       try {
         const saved = (await module.files.write(folder, path, text, { ifVersion: version })).version;
@@ -260,6 +410,9 @@ interface Manifest {
   hidden: string[];
 }
 
+const isCode = (error: unknown, code: string) => error instanceof TesselloError && error.code === code;
+const join = (parent: string, name: string) => (parent === "" ? name : `${parent}/${name}`);
+const manifestPathOf = (parent: string) => join(parent, FOLDER_MANIFEST);
 const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
@@ -289,18 +442,49 @@ function manifestOf(text: string): Manifest {
 }
 
 /**
- * The manifest `text` with `name` appended to its `order` unless already listed or `order` is empty or absent (then the
- * text itself, byte for byte); undefined when the manifest is invalid: no `---` fenced frontmatter, or one that is not
- * valid YAML or not a mapping. The other fields keep their order, the body is kept byte for byte.
+ * The manifest `text` with its fields changed by `change` (null: no change, the text itself, byte for byte); undefined
+ * when the manifest is invalid: no `---` fenced frontmatter, or one that is not valid YAML or not a mapping. The other
+ * fields keep their order, the body is kept byte for byte.
  */
-function appendedToOrder(text: string, name: string): string | undefined {
+function editedFields(text: string, change: (fields: Record<string, unknown>) => Record<string, unknown> | null): string | undefined {
   const frontmatter = frontmatterOf(text);
   if (!frontmatter) return undefined;
-  const { fields, end } = frontmatter;
-  if (!Array.isArray(fields.order) || fields.order.length === 0 || fields.order.includes(name)) return text;
-  const lineBreak = /\r?\n$/.exec(text.slice(0, end))?.[0] ?? "";
-  return `---\n${stringify({ ...fields, order: [...fields.order, name] }, { lineWidth: 0 })}---${lineBreak}${text.slice(end)}`;
+  const fields = change(frontmatter.fields);
+  if (!fields) return text;
+  const lineBreak = /\r?\n$/.exec(text.slice(0, frontmatter.end))?.[0] ?? "";
+  return `---\n${stringify(fields, { lineWidth: 0 })}---${lineBreak}${text.slice(frontmatter.end)}`;
 }
+
+/** The manifest `text` with `name` appended to its `order` unless already listed or `order` is empty or absent. */
+const appendedToOrder = (text: string, name: string) =>
+  editedFields(text, (fields) =>
+    !Array.isArray(fields.order) || fields.order.length === 0 || fields.order.includes(name) ? null : { ...fields, order: [...fields.order, name] },
+  );
+
+/** The manifest `text` with `change` applied to its `order` and `hidden` lists; the text itself when neither changes. */
+const withLists = (text: string, change: (list: unknown[]) => unknown[]) =>
+  editedFields(text, (fields) => {
+    const changed = { ...fields };
+    let any = false;
+    for (const key of ["order", "hidden"]) {
+      const list = fields[key];
+      if (!Array.isArray(list)) continue;
+      const next = change(list);
+      if (next.length !== list.length || next.some((item, i) => item !== list[i])) any = true;
+      changed[key] = next;
+    }
+    return any ? changed : null;
+  });
+
+/** `text` with `old` replaced by `name` in place in `order` and `hidden`; undefined when invalid. */
+const renamedIn = (text: string, old: string, name: string) => withLists(text, (list) => list.map((item) => (item === old ? name : item)));
+
+/** `text` with `name` removed from `order` and `hidden`; undefined when invalid. */
+const removedFrom = (text: string, name: string) => withLists(text, (list) => list.filter((item) => item !== name));
+
+/** `text` (null: no manifest yet, one is made) with `order` as its order; the text itself when it is invalid. */
+const withOrder = (text: string | null, order: string[]) =>
+  text === null ? `---\n${stringify({ order, hidden: [] }, { lineWidth: 0 })}---\n` : (editedFields(text, (fields) => ({ ...fields, order })) ?? text);
 
 /** A Document's frontmatter `timestamp`, to the day or the minute as written; null when it has none that reads as a date. */
 function createdOf(text: string): string | null {
@@ -309,7 +493,7 @@ function createdOf(text: string): string | null {
   return date ? (date[2] ? `${date[1]}T${date[2]}` : date[1]!) : null;
 }
 
-const byName = (a: TreeEntry, b: TreeEntry) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 
 /** The entries directly in the Folder at `path`: custom order first, then Folders, then Documents. */
 function treeOf(entries: FolderEntry[], path: string, manifests: Map<string, Manifest>, dates: Map<string, TreeDate>): TreeEntry[] {
@@ -322,7 +506,12 @@ function treeOf(entries: FolderEntry[], path: string, manifests: Map<string, Man
     if (entry.kind === "folder") children.push({ kind: "folder", name, path: entry.path, children: treeOf(entries, entry.path, manifests, dates) });
     else if (isDocument(name)) children.push({ kind: "document", name, path: entry.path, date: dates.get(entry.path) ?? { kind: "modified", at: entry.modified } });
   }
-  const sorted = [...children.filter((entry) => entry.kind === "folder").sort(byName), ...children.filter((entry) => entry.kind === "document").sort(byName)];
-  const listed = manifest.order.flatMap((name) => sorted.filter((entry) => entry.name === name));
+  return ordered(children, manifest.order);
+}
+
+/** `entries` as a Folder shows them: those named in `order` first, in that order, then Folders, then Documents, alphabetical ignoring case. */
+function ordered<T extends { kind: string; name: string }>(entries: T[], order: string[]): T[] {
+  const sorted = [...entries.filter((entry) => entry.kind === "folder").sort(byName), ...entries.filter((entry) => entry.kind !== "folder").sort(byName)];
+  const listed = order.flatMap((name) => sorted.filter((entry) => entry.name === name));
   return [...listed, ...sorted.filter((entry) => !listed.includes(entry))];
 }

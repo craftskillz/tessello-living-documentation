@@ -12,6 +12,7 @@
   import { loadImages } from "../lib/images.ts";
   import { t, type MessageKey } from "../lib/i18n.ts";
   import { Conflict, documentFile, FOLDER_MANIFEST, NotFound, Refused, refusalOf, type DocumentText, type Project, type RefusalReason, type TreeEntry } from "../lib/project.ts";
+  import { entryMapper } from "../lib/links.ts";
   import { createProjects, TOC_WIDTH, type DisplayPreferences, type ListedProject } from "../lib/projects.ts";
   import { renderDocument } from "../lib/render.ts";
   import ArticleTools from "./ArticleTools.svelte";
@@ -19,7 +20,7 @@
   import Editor from "./Editor.svelte";
   import Header from "./Header.svelte";
   import Toc, { type Heading } from "./Toc.svelte";
-  import Tree from "./Tree.svelte";
+  import Tree, { type Dragging, type DropPosition } from "./Tree.svelte";
 
   let { host }: { host: ConnectedModule } = $props();
 
@@ -495,8 +496,15 @@
     reserved: "refusedReserved",
     taken: "refusedTaken",
     invalidManifest: "refusedInvalidManifest",
+    intoItself: "refusedIntoItself",
+    missing: "refusedMissing",
   };
-  const refusalMessage = (reason: RefusalReason) => t(REFUSALS[reason]);
+  /** The message of a refusal; `change` for a rename or a move, whose invalid-manifest wording is not about adding entries. */
+  const refusalMessage = (reason: RefusalReason, change = false) =>
+    t(reason === "invalidManifest" && change ? "refusedInvalidManifestChange" : REFUSALS[reason]);
+  /** What a dialog shows for a failed request: a refusal's message, else the generic failure with the raw reason as detail. */
+  const failureText = (reason: unknown, change: boolean) =>
+    reason instanceof Refused ? refusalMessage(reason.reason, change) : `${t("failed")} ${t("detail", { reason: reason instanceof Error ? reason.message : String(reason) })}`;
   const refusal = $derived(creating ? refusalOf(creating.kind, creating.name, entriesOf(creating.folder).map((entry) => entry.name)) : null);
   /** The path the entry will have: a Name already ending in .md is the file name itself. */
   const createdPath = $derived.by(() => {
@@ -519,8 +527,230 @@
       if (kind === "document") await openFresh(made);
     } catch (reason) {
       if (!creating) return;
-      creating.failure = reason instanceof Refused ? refusalMessage(reason.reason) : `${t("failed")} ${t("detail", { reason: reason instanceof Error ? reason.message : String(reason) })}`;
+      creating.failure = failureText(reason, false);
     }
+  }
+
+  // Renaming and moving: from the entry menu, and by drag and drop.
+  const nameOf = (file: string) => file.slice(file.lastIndexOf("/") + 1);
+  /** The name the User types for an entry: a Document's without .md. */
+  const displayName = (entry: TreeEntry) => (entry.kind === "document" ? entry.name.replace(/\.md$/i, "") : entry.name);
+  function findEntry(target: string, entries: TreeEntry[] = tree): TreeEntry | null {
+    for (const entry of entries) {
+      if (entry.path === target) return entry;
+      if (entry.kind === "folder" && target.startsWith(`${entry.path}/`)) return findEntry(target, entry.children);
+    }
+    return null;
+  }
+
+  let menu = $state.raw<{ entry: TreeEntry; x: number; y: number } | null>(null);
+  let renaming = $state<{ entry: TreeEntry; name: string; failure: string | null } | null>(null);
+  let moving = $state<{ entry: TreeEntry; destination: string | null; failure: string | null } | null>(null);
+  /** The Folders the User closed; the others are open. */
+  let closed = $state.raw<ReadonlySet<string>>(new Set());
+  let dragSource = $state<string | null>(null);
+  let dropMark = $state.raw<{ path: string; position: DropPosition } | null>(null);
+  let hover: { path: string; timer: ReturnType<typeof setTimeout> } | null = null;
+  const HOVER_OPENS_MS = 600;
+
+  const renameRefusal = $derived(
+    renaming
+      ? refusalOf(
+          renaming.entry.kind,
+          renaming.name,
+          entriesOf(folderOf(renaming.entry.path))
+            .filter((entry) => entry.path !== renaming!.entry.path)
+            .map((entry) => entry.name),
+        )
+      : null,
+  );
+  /** The Folders an entry can move to: not its own, and for a Folder not itself nor one of its descendants. */
+  const moveOptions = $derived.by(() => {
+    if (!moving) return [];
+    const { entry } = moving;
+    return ["", ...folderPaths(tree)].filter(
+      (folder) => folder !== folderOf(entry.path) && !(entry.kind === "folder" && (folder === entry.path || folder.startsWith(`${entry.path}/`))),
+    );
+  });
+  const moveTaken = $derived(
+    moving !== null && moving.destination !== null && entriesOf(moving.destination).some((entry) => entry.name.toLowerCase() === moving!.entry.name.toLowerCase()),
+  );
+  const movedPath = $derived(moving && moving.destination !== null ? (moving.destination === "" ? moving.entry.name : `${moving.destination}/${moving.entry.name}`) : "");
+
+  /** Before a rename or a move, which may rewrite the open file: its autosave is flushed and its editing ended. */
+  async function beforeChange(): Promise<boolean> {
+    if (!(await leave())) return false;
+    stopEditing();
+    return true;
+  }
+
+  /** After an entry went from `from` to `to`: the Tree reloads and the open Document and the back trail follow it. */
+  async function afterChange(from: string, to: string, isFolder: boolean, reveal?: string) {
+    const map = entryMapper(from, to, isFolder);
+    try {
+      tree = await project!.tree();
+      trail = trail.map((entry) => ({ ...entry, path: map(entry.path) ?? entry.path }));
+      const folders = new Set([...closed].map((folder) => map(folder) ?? folder));
+      if (reveal !== undefined) folders.delete(reveal);
+      closed = folders;
+      if (!path) return;
+      const previous = path;
+      const next = map(previous) ?? previous;
+      path = next;
+      // Its links may have been rewritten: it is read again.
+      try {
+        current = await project!.read(next);
+        if (next !== previous) await projects.opened(active!, next);
+      } catch (reason) {
+        current = null;
+        if (reason instanceof NotFound) report(t("notFound"));
+        else throw reason;
+      }
+    } catch (reason) {
+      fail(reason);
+    }
+  }
+
+  function openMenu(entry: TreeEntry, x: number, y: number) {
+    menu = { entry, x: Math.max(0, Math.min(x, window.innerWidth - 200)), y: Math.max(0, Math.min(y, window.innerHeight - 90)) };
+  }
+
+  function startRenaming(entry: TreeEntry) {
+    menu = null;
+    renaming = { entry, name: displayName(entry), failure: null };
+  }
+
+  function startMoving(entry: TreeEntry) {
+    menu = null;
+    moving = { entry, destination: null, failure: null };
+    moving.destination = moveOptions[0] ?? null;
+  }
+
+  async function rename() {
+    if (!renaming || !project || renameRefusal) return;
+    const { entry, name } = renaming;
+    if (name === displayName(entry)) {
+      renaming = null;
+      return;
+    }
+    if (!(await beforeChange())) {
+      renaming = null;
+      return;
+    }
+    let to: string;
+    try {
+      to = await project.rename(entry.path, name);
+    } catch (reason) {
+      if (renaming) renaming.failure = failureText(reason, true);
+      return;
+    }
+    renaming = null;
+    await afterChange(entry.path, to, entry.kind === "folder");
+  }
+
+  async function moveFromDialog() {
+    if (!moving || !project || moving.destination === null || moveTaken) return;
+    const { entry, destination } = moving;
+    if (!(await beforeChange())) {
+      moving = null;
+      return;
+    }
+    let to: string;
+    try {
+      to = await project.move(entry.path, destination);
+    } catch (reason) {
+      if (moving) moving.failure = failureText(reason, true);
+      return;
+    }
+    moving = null;
+    await afterChange(entry.path, to, entry.kind === "folder", destination);
+  }
+
+  function cancelHover() {
+    if (hover) clearTimeout(hover.timer);
+    hover = null;
+  }
+
+  function endDrag() {
+    cancelHover();
+    dragSource = null;
+    dropMark = null;
+  }
+
+  async function dropped(target: TreeEntry, position: DropPosition) {
+    const sourcePath = dragSource;
+    endDrag();
+    const source = sourcePath ? findEntry(sourcePath) : null;
+    if (!source || !project) return;
+    if (source.path === target.path) return;
+    const folder = position === "inside" ? target.path : folderOf(target.path);
+    const place = position === "before" ? { before: target.name } : position === "after" ? { after: target.name } : undefined;
+    if (!(await beforeChange())) return;
+    let to: string;
+    try {
+      to = await project.move(source.path, folder, place);
+    } catch (reason) {
+      if (reason instanceof Refused) report(`${t("moveFailed", { name: source.name })} ${refusalMessage(reason.reason, true)}`);
+      else report(t("moveFailed", { name: source.name }), reason);
+      return;
+    }
+    await afterChange(source.path, to, source.kind === "folder", folder);
+  }
+
+  const drag: Dragging = {
+    get source() {
+      return dragSource;
+    },
+    get mark() {
+      return dropMark;
+    },
+    get closed() {
+      return closed;
+    },
+    start: (source) => (dragSource = source),
+    over(entry, position) {
+      if (dropMark?.path !== entry.path || dropMark.position !== position) dropMark = { path: entry.path, position };
+      if (entry.kind === "folder" && position === "inside" && closed.has(entry.path)) {
+        if (hover?.path === entry.path) return;
+        cancelHover();
+        hover = {
+          path: entry.path,
+          timer: setTimeout(() => {
+            hover = null;
+            closed = new Set([...closed].filter((folder) => folder !== entry.path));
+          }, HOVER_OPENS_MS),
+        };
+      } else cancelHover();
+    },
+    leave(entry) {
+      if (dropMark?.path === entry.path) dropMark = null;
+      cancelHover();
+    },
+    drop: (entry, position) => void dropped(entry, position),
+    end: endDrag,
+    toggle(folder, open) {
+      if (open === closed.has(folder)) closed = open ? new Set([...closed].filter((each) => each !== folder)) : new Set([...closed, folder]);
+    },
+    menu: openMenu,
+  };
+
+  /** Selects the text of a field when it appears. */
+  function selectAll(node: HTMLInputElement) {
+    void tick().then(() => node.select());
+  }
+
+  /** Arrow keys move through the items of the entry menu. */
+  function menuKey(event: KeyboardEvent) {
+    const items = [...(event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>("[role=menuitem]")];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    if (event.key === "ArrowDown") items[(at + 1) % items.length]?.focus();
+    else if (event.key === "ArrowUp") items[(at - 1 + items.length) % items.length]?.focus();
+    else return;
+    event.preventDefault();
+  }
+
+  function focusFirst(node: HTMLElement) {
+    node.querySelector<HTMLElement>("[role=menuitem]")?.focus();
   }
 
   /** Opens a `<dialog>` as a modal when it appears (the Host's frame blocks window.confirm). */
@@ -633,7 +863,7 @@
       {#if tree.length === 0}
         <p class="muted">{t("emptyProject")}</p>
       {:else}
-        <Tree entries={tree} current={path} open={(target) => void openFresh(target)} />
+        <Tree entries={tree} current={path} open={(target) => void openFresh(target)} {drag} />
       {/if}
     </nav>
     <main style:--header-height="{headerHeight}px">
@@ -746,10 +976,14 @@
   </dialog>
 {/if}
 
-<!-- Lucide's file-plus and folder-plus (ISC licence), drawn with the text's colour. -->
-{#snippet entryIcon(kind: "document" | "folder")}
+<!-- Lucide's file-plus, folder-plus, pencil and folder-input (ISC licence), drawn with the text's colour. -->
+{#snippet entryIcon(kind: "document" | "folder" | "rename" | "move")}
   <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-    {#if kind === "document"}
+    {#if kind === "rename"}
+      <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /><path d="m15 5 4 4" />
+    {:else if kind === "move"}
+      <path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1" /><path d="M2 13h10" /><path d="m9 16 3-3-3-3" />
+    {:else if kind === "document"}
       <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M12 12v6" /><path d="M9 15h6" />
     {:else}
       <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /><path d="M12 10v6" /><path d="M9 13h6" />
@@ -806,6 +1040,92 @@
     </form>
   </dialog>
 {/if}
+
+{#if renaming}
+  <dialog use:modal aria-labelledby="rename-title" class="create" oncancel={() => (renaming = null)}>
+    <form onsubmit={(event) => { event.preventDefault(); void rename(); }}>
+      <header>
+        <span class="badge-icon">{@render entryIcon("rename")}</span>
+        <h2 id="rename-title">{renaming.entry.kind === "document" ? t("renameDocument") : t("renameFolder")}</h2>
+      </header>
+      <div class="field">
+        <label for="rename-name">{t("newName")}</label>
+        <input
+          id="rename-name"
+          type="text"
+          use:selectAll
+          class:invalid={renaming.failure !== null || (renameRefusal !== null && renameRefusal !== "empty")}
+          bind:value={renaming.name}
+          oninput={() => renaming && (renaming.failure = null)}
+          aria-describedby="rename-problem"
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </div>
+      <p class="hint">{t("renameHint")}</p>
+      <div id="rename-problem">
+        {#if renaming.failure}
+          <p class="problem" role="alert">{renaming.failure}</p>
+        {:else if renameRefusal && renameRefusal !== "empty"}
+          <p class="problem" role="alert">{refusalMessage(renameRefusal, true)}</p>
+        {/if}
+      </div>
+      <div class="actions">
+        <button type="button" onclick={() => (renaming = null)}>{t("cancel")}</button>
+        <button type="submit" class="primary" disabled={renameRefusal !== null}>{t("rename")}</button>
+      </div>
+    </form>
+  </dialog>
+{/if}
+
+{#if moving}
+  <dialog use:modal aria-labelledby="move-title" class="create" oncancel={() => (moving = null)}>
+    <form onsubmit={(event) => { event.preventDefault(); void moveFromDialog(); }}>
+      <header>
+        <span class="badge-icon">{@render entryIcon("move")}</span>
+        <h2 id="move-title">{moving.entry.kind === "document" ? t("moveDocument") : t("moveFolder")}</h2>
+      </header>
+      <div class="field">
+        <label for="move-destination">{t("destination")}</label>
+        <div class="select">
+          <select id="move-destination" bind:value={moving.destination} onchange={() => moving && (moving.failure = null)}>
+            {#each moveOptions as folder (folder)}
+              <option value={folder}>{folder === "" ? t("rootLocation") : `/${folder}`}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+      <div class="preview-path">
+        <span>{t("willBeMovedTo")}</span>
+        <code>{movedPath}</code>
+      </div>
+      <div id="move-problem">
+        {#if moving.failure}
+          <p class="problem" role="alert">{moving.failure}</p>
+        {:else if moveTaken}
+          <p class="problem" role="alert">{refusalMessage("taken")}</p>
+        {/if}
+      </div>
+      <div class="actions">
+        <button type="button" onclick={() => (moving = null)}>{t("cancel")}</button>
+        <button type="submit" class="primary" disabled={moving.destination === null || moveTaken}>{t("move")}</button>
+      </div>
+    </form>
+  </dialog>
+{/if}
+
+{#if menu}
+  <!-- svelte-ignore a11y_interactive_supports_focus -->
+  <div class="menu" role="menu" aria-label={menu.entry.name} style:left="{menu.x}px" style:top="{menu.y}px" use:focusFirst onkeydown={menuKey}>
+    <button type="button" role="menuitem" onclick={() => startRenaming(menu!.entry)}>{t("rename")}</button>
+    <button type="button" role="menuitem" onclick={() => startMoving(menu!.entry)}>{t("moveTo")}</button>
+  </div>
+{/if}
+
+<svelte:window
+  onkeydown={(event) => { if (event.key === "Escape" && menu) menu = null; }}
+  onpointerdown={(event) => { if (menu && !(event.target as Element).closest("[role=menu]")) menu = null; }}
+/>
 
 {#if reverting}
   <dialog use:modal aria-labelledby="revert-title" oncancel={() => (reverting = false)}>
@@ -1117,6 +1437,36 @@
   dialog.create .actions button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  .hint {
+    margin: -0.5rem 0 1rem;
+    font-size: 0.8rem;
+    color: var(--muted, #777);
+  }
+  .menu {
+    position: fixed;
+    z-index: 20;
+    min-width: 10rem;
+    display: flex;
+    flex-direction: column;
+    padding: 0.25rem;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  }
+  .menu button {
+    text-align: left;
+    border: none;
+    background: transparent;
+    padding: 0.4rem 0.7rem;
+    border-radius: 5px;
+  }
+  .menu button:hover,
+  .menu button:focus-visible {
+    background: color-mix(in srgb, var(--ink) 8%, transparent);
+    outline: none;
   }
   dialog .actions {
     display: flex;
