@@ -12,7 +12,7 @@
 - [x] Source line numbers (Lines) and the table of contents are unchanged by the setting
 - [x] Settings cog: a checkbox "Treat every newline as a line break" with the help text, marked as a setting of the Project (shared, in `.living-doc.json`); a change writes only this key, version-checked, leaving the rest of `.living-doc.json` as written (the file is created if missing); a failed write shows a translated message and the checkbox goes back; the open Document re-renders at once
 - [x] A change to `.living-doc.json` made outside the Module (an agent, a teammate's commit) is picked up like any other agent edit
-- [ ] The HTML view and Download HTML follow the setting; if ticket 25 or 26 is already done, follow it there too, otherwise note it in the Comments for whichever comes later
+- [x] The HTML view and Download HTML follow the setting; if ticket 25 or 26 is already done, follow it there too, otherwise note it in the Comments for whichever comes later
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
