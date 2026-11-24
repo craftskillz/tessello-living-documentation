@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 (Tree: new Document and new Folder)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** done (0e40d23)
 
 - [x] Rename and move of Documents and Folders, from menus and drag and drop
 - [x] Links elsewhere and inside moved Documents rewritten
@@ -13,7 +13,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -28,4 +28,4 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - **Messages:** a collision shows the existing "taken" text, not the original's "…already exists there"; new: invalid manifest for a change, into itself, missing entry or destination. "Could not move “x.md”." names the entry as the Tree shows it.
 - **Links:** port of the original's rewriting (inline links, images, reference definitions, `?doc=`, absolute `/` links; fenced code untouched). As the original, a link written with a raw space or `<…>` is not rewritten.
 - **Not here:** `images`/`files` at the root are not protected yet (ticket 10); favorites and annotations follow with tickets 16 and 19/20.
-- **To try in the local Host:** rename and move a Document and a Folder by menu and by drag, on an old Living Documentation folder with custom orders; check the links that point at them.
+- **Tried in the local Host** by the User (2026-11-24): works.
