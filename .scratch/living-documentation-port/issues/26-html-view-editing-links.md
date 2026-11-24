@@ -15,3 +15,5 @@
 - [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
+
+**Note from ticket 31:** when the HTML view's edits are written back, a `<br>` becomes a bare newline if the Project's `softBreaks` is on and a hard break (two spaces, newline) if off, as the original's `blockMarkdown.ts` does.

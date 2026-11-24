@@ -4,18 +4,18 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** ready-for-human (built in a79d3cb; awaiting the trial in the local Host)
 
-- [ ] `markdownSoftBreaks` read from `.living-doc.json`: `true` or `false` as written; missing, malformed file or not a boolean gives `true`; unit-tested
-- [ ] On: a single newline inside a paragraph, list item, blockquote or table cell renders as `<br>`; never inside code blocks, inline code, Mermaid or front matter; unit-tested in `test/render.test.ts`
-- [ ] Off: plain CommonMark (today's rendering); two trailing spaces and `<br/>` still break the line
-- [ ] Source line numbers (Lines) and the table of contents are unchanged by the setting
-- [ ] Settings cog: a checkbox "Treat every newline as a line break" with the help text, marked as a setting of the Project (shared, in `.living-doc.json`); a change writes only this key, version-checked, leaving the rest of `.living-doc.json` as written (the file is created if missing); a failed write shows a translated message and the checkbox goes back; the open Document re-renders at once
-- [ ] A change to `.living-doc.json` made outside the Module (an agent, a teammate's commit) is picked up like any other agent edit
+- [x] `markdownSoftBreaks` read from `.living-doc.json`: `true` or `false` as written; missing, malformed file or not a boolean gives `true`; unit-tested
+- [x] On: a single newline inside a paragraph, list item, blockquote or table cell renders as `<br>`; never inside code blocks, inline code, Mermaid or front matter; unit-tested in `test/render.test.ts`
+- [x] Off: plain CommonMark (today's rendering); two trailing spaces and `<br/>` still break the line
+- [x] Source line numbers (Lines) and the table of contents are unchanged by the setting
+- [x] Settings cog: a checkbox "Treat every newline as a line break" with the help text, marked as a setting of the Project (shared, in `.living-doc.json`); a change writes only this key, version-checked, leaving the rest of `.living-doc.json` as written (the file is created if missing); a failed write shows a translated message and the checkbox goes back; the open Document re-renders at once
+- [x] A change to `.living-doc.json` made outside the Module (an agent, a teammate's commit) is picked up like any other agent edit
 - [ ] The HTML view and Download HTML follow the setting; if ticket 25 or 26 is already done, follow it there too, otherwise note it in the Comments for whichever comes later
-- [ ] The View's address never changes (the e2e assertion is kept for every new journey)
-- [ ] Every text in English and French
-- [ ] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
+- [x] The View's address never changes (the e2e assertion is kept for every new journey)
+- [x] Every text in English and French
+- [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
 - [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder), on a folder written with the original
 
 **From the original:**
@@ -32,3 +32,12 @@
 - Read aloud (ticket 27) already splits sentences at line breaks in the source; nothing to change there.
 
 Spec: `.scratch/living-documentation-port/spec.md` (stories 11 and 107). Read `GLOSSARY.md`, ADR 0003 (on-disk format compatible with the original) and `docs/spec/documents-reading-and-editing.md` first.
+
+## Comments
+
+- **Reading and writing:** `src/lib/projectSettings.ts`: `readSettings(project)` (`DEFAULT_SETTINGS`: on) and `changeSetting(project, key, value)`, the reusable step for ticket 12 (read with the version, change one key, write at that version; `null` creates the file, so `Project.save` now takes `string | null`). A file that is not a JSON object is refused (`Refused("invalidSettings")`, translated) and left untouched; a conflict says the settings changed on disk, and the checkbox shows the disk's value again. The file is written again with `JSON.stringify` at its own indentation (tab or spaces, else 2) and a trailing newline: keys, their order and values stay, but other formatting does not (an array on one line comes back one item per line).
+- **Rendering:** `renderDocument`'s `softBreaks` option is required, so a new caller cannot forget it. A small remark plugin (no new dependency) splits `text` nodes at newlines into `break` nodes and drops the spaces around them, as GitHub does; code, inline code, html, Mermaid and the frontmatter block are never touched. Blocks keep their `data-src`, so Lines and the table of contents are the same on and off.
+- **Settings cog:** a fieldset "This Project (shared in .living-doc.json)" with the checkbox and its help, after the Tree's labels and the label filter. The checkbox changes at once; a failed write puts it back.
+- **Outside changes:** the agent check reports `.living-doc.json` like any file, and the View reads the settings again.
+- **Not done here, for tickets 25 and 26:** the HTML view and Download HTML must pass `softBreaks` from `readSettings` (the option being required makes it hard to forget). For ticket 26: the original writes a `<br>` back as a bare newline when the setting is on and as a hard break when off (`frontend-svelte/src/lib/html-view/blockMarkdown.ts`).
+- **Left over:** when a Project with the setting off opens, its first Document can show with line breaks for a moment, until the settings are read. Also the trial in the local Host, on a folder written with the original.
