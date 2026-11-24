@@ -21,7 +21,7 @@ Atlas page: `features/documents/reading-and-editing.md` (business rules R1–R10
 12. **No in-document search box**: the Local search snippet is dropped; the browser's find is used.
 13. **No printing** in v1.
 14. **Folder manifest** opened read-only: frontmatter as a YAML block, Lines, table of contents and Copy path; no Edit, Delete or Favorite.
-17. **Every newline is a line break** (Project setting `markdownSoftBreaks` in `.living-doc.json`, the original's key): on, a single newline in a paragraph renders as a line break; off, plain CommonMark (adjacent lines merge; two trailing spaces or `<br/>` break). Missing or not a boolean: **on**, as the original's code (its help text says off). Applies to reading, the editor's preview and the HTML view. Added after the first rounds, hence its number.
+17. **Every newline is a line break** (Project setting `markdownSoftBreaks` in `.living-doc.json`, the original's key): on, a single newline in a paragraph renders as a line break; off, plain CommonMark (adjacent lines merge; two trailing spaces or `<br/>` break). Missing or not a boolean: **on**, as the original's code (its help text says off). Changed from the settings cog of the Document header. Applies to reading, the editor's preview and the HTML view. Added after the first rounds, hence its number.
 
 ## Deleting
 

@@ -37,7 +37,7 @@ What a Project records about its Documents beyond their text (order, hidden entr
 _Avoid_: Config, settings (these name the Module's own preferences)
 
 **Project settings**:
-The settings of one Project that the original kept in its Admin page (for example the suggested Tag marker names), stored in the Project's `.living-doc.json` and edited from the Project switcher.
+The settings of one Project that the original kept in its Admin page (for example the suggested Tag marker names), stored in the Project's `.living-doc.json` and edited from the Project switcher; the ones about how a Document reads (every newline as a line break) from the settings cog of the Document header.
 _Avoid_: Admin, configuration, preferences (the User's own view preferences, kept by the Module)
 
 ### Documents
