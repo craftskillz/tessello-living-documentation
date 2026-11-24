@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human (built in d997354; awaiting the trial in the local Host)
+**Status:** done (d997354, 37cd809)
 
 - [x] The open Document is unmistakable (background, left bar, bold), and `aria-current="page"` stays on it
 - [x] It is scrolled into view when it opens from outside the Tree (link, favorite, Widget, deep link)
@@ -15,7 +15,7 @@
 - [x] Drag and drop feedback (before/after/into) still reads clearly on the new rows
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); the User agrees with the look
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); the User agrees with the look
 
 **Titles or file names (decided by the User, 2026-11-24):** a settings cog (⚙) goes in the Document header, beside Copy path, Lines and the other display buttons. It opens a small menu where the User chooses what the Tree shows for each Document: its **file name** (the default, as in the original) or its **displayed title**. The choice is a display preference kept in the Module's storage (`DisplayPreferences`, for all Projects, like Show hidden items). With titles, the row's tooltip shows the file name. Folders, Folder manifests and other files always show their names. The Tree's order does not change.
 
