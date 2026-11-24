@@ -139,14 +139,14 @@ describe("display preferences", () => {
   test("are the defaults on a first visit", async () => {
     const projects = await projectsOf(hostOf());
 
-    assert.deepEqual(await projects.preferences(), { lines: false, whiteBackground: false, showHidden: false, toc: { open: false, width: 224 } });
+    assert.deepEqual(await projects.preferences(), { lines: false, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: 224 } });
   });
 
   test("a change is kept for the next visit", async () => {
     const host = hostOf();
-    const changed = await (await projectsOf(host)).setPreferences({ lines: true, whiteBackground: true, showHidden: false, toc: { open: true, width: 300 } });
+    const changed = await (await projectsOf(host)).setPreferences({ lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: true, width: 300 } });
 
-    assert.deepEqual(changed, { lines: true, whiteBackground: true, showHidden: false, toc: { open: true, width: 300 } });
+    assert.deepEqual(changed, { lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: true, width: 300 } });
     assert.deepEqual(await (await projectsOf(host)).preferences(), changed);
   });
 
@@ -154,9 +154,9 @@ describe("display preferences", () => {
     const projects = await projectsOf(hostOf());
     await projects.setPreferences({ lines: true, toc: { open: true, width: 300 } });
 
-    assert.deepEqual(await projects.setPreferences({ whiteBackground: true }), { lines: true, whiteBackground: true, showHidden: false, toc: { open: true, width: 300 } });
-    assert.deepEqual(await projects.setPreferences({ toc: { open: false } }), { lines: true, whiteBackground: true, showHidden: false, toc: { open: false, width: 300 } });
-    assert.deepEqual(await projects.setPreferences({ toc: { width: 180 } }), { lines: true, whiteBackground: true, showHidden: false, toc: { open: false, width: 180 } });
+    assert.deepEqual(await projects.setPreferences({ whiteBackground: true }), { lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: true, width: 300 } });
+    assert.deepEqual(await projects.setPreferences({ toc: { open: false } }), { lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: false, width: 300 } });
+    assert.deepEqual(await projects.setPreferences({ toc: { width: 180 } }), { lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: false, width: 180 } });
   });
 
   test("Show hidden items is kept, and changing it keeps the others", async () => {
@@ -164,10 +164,27 @@ describe("display preferences", () => {
     const projects = await projectsOf(host);
     await projects.setPreferences({ lines: true });
 
-    assert.deepEqual(await projects.setPreferences({ showHidden: true }), { lines: true, whiteBackground: false, showHidden: true, toc: { open: false, width: 224 } });
+    assert.deepEqual(await projects.setPreferences({ showHidden: true }), { lines: true, whiteBackground: false, showHidden: true, treeLabels: "name", toc: { open: false, width: 224 } });
     assert.equal((await (await projectsOf(host)).preferences()).showHidden, true);
     assert.equal((await projects.setPreferences({ whiteBackground: true })).showHidden, true);
     assert.equal((await (await projectsOf(hostOf({ storage: { display: { showHidden: "yes" } } }))).preferences()).showHidden, false);
+  });
+
+  test("Titles or file names is file names by default, is kept, and changing it keeps the others", async () => {
+    const host = hostOf();
+    const projects = await projectsOf(host);
+    assert.equal((await projects.preferences()).treeLabels, "name");
+    await projects.setPreferences({ lines: true });
+
+    assert.deepEqual(await projects.setPreferences({ treeLabels: "title" }), { lines: true, whiteBackground: false, showHidden: false, treeLabels: "title", toc: { open: false, width: 224 } });
+    assert.equal((await (await projectsOf(host)).preferences()).treeLabels, "title");
+    assert.equal((await projects.setPreferences({ whiteBackground: true })).treeLabels, "title");
+    assert.equal((await projects.setPreferences({ treeLabels: "name" })).treeLabels, "name");
+  });
+
+  test("a malformed kept Titles or file names is file names", async () => {
+    assert.equal((await (await projectsOf(hostOf({ storage: { display: { treeLabels: "both" } } }))).preferences()).treeLabels, "name");
+    assert.equal((await (await projectsOf(hostOf({ storage: { display: { treeLabels: 3 } } }))).preferences()).treeLabels, "name");
   });
 
   test("a TOC width is kept between 160 and 400 pixels, whole", async () => {
@@ -180,13 +197,13 @@ describe("display preferences", () => {
   });
 
   test("a malformed kept value gives the defaults, field by field", async () => {
-    const defaults = { lines: false, whiteBackground: false, showHidden: false, toc: { open: false, width: 224 } };
+    const defaults = { lines: false, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: 224 } };
 
     assert.deepEqual(await (await projectsOf(hostOf({ storage: { display: "nope" } }))).preferences(), defaults);
     assert.deepEqual(await (await projectsOf(hostOf({ storage: { display: [1] } }))).preferences(), defaults);
     assert.deepEqual(
       await (await projectsOf(hostOf({ storage: { display: { lines: true, whiteBackground: "yes", toc: { open: 1, width: 999 } } } }))).preferences(),
-      { lines: true, whiteBackground: false, showHidden: false, toc: { open: false, width: 400 } },
+      { lines: true, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: 400 } },
     );
   });
 
@@ -200,5 +217,57 @@ describe("display preferences", () => {
     assert.deepEqual(await projects.preferences(), kept);
     await projects.remove(project);
     assert.deepEqual(await (await projectsOf(host)).preferences(), kept);
+  });
+});
+
+describe("label filter", () => {
+  async function connected(host = hostOf()) {
+    const projects = await projectsOf(host);
+    host.folders.choose(host.folders.create("one", { "a.md": "a" }));
+    const one = (await projects.connect())!;
+    host.folders.choose(host.folders.create("two", { "b.md": "b" }));
+    const two = (await projects.connect())!;
+    return { host, projects, one, two };
+  }
+
+  test("is empty by default", async () => {
+    const { projects, one } = await connected();
+
+    assert.deepEqual(await projects.labelFilter(one), { pattern: "", replacement: "" });
+  });
+
+  test("is kept per Project for the next visit", async () => {
+    const { host, projects, one } = await connected();
+
+    assert.deepEqual(await projects.setLabelFilter(one, { pattern: "^\\d+-", replacement: "" }), { pattern: "^\\d+-", replacement: "" });
+    assert.deepEqual(await (await projectsOf(host)).labelFilter(one), { pattern: "^\\d+-", replacement: "" });
+  });
+
+  test("one Project's filter does not change another's", async () => {
+    const { projects, one, two } = await connected();
+    await projects.setLabelFilter(one, { pattern: "a", replacement: "b" });
+    await projects.setLabelFilter(two, { pattern: "c", replacement: "d" });
+
+    assert.deepEqual(await projects.labelFilter(one), { pattern: "a", replacement: "b" });
+    assert.deepEqual(await projects.labelFilter(two), { pattern: "c", replacement: "d" });
+  });
+
+  test("a malformed kept value is the empty filter", async () => {
+    const host = hostOf({ storage: { labelFilters: { p1: { pattern: 1, replacement: "x" }, p2: "nope" } } });
+    const projects = await projectsOf(host);
+
+    assert.deepEqual(await projects.labelFilter({ id: "p1", name: "one" }), { pattern: "", replacement: "" });
+    assert.deepEqual(await projects.labelFilter({ id: "p2", name: "two" }), { pattern: "", replacement: "" });
+  });
+
+  test("is forgotten when the Project is removed", async () => {
+    const { projects, one, two } = await connected();
+    await projects.setLabelFilter(one, { pattern: "a", replacement: "b" });
+    await projects.setLabelFilter(two, { pattern: "c", replacement: "d" });
+
+    await projects.remove(one);
+
+    assert.deepEqual(await projects.labelFilter(one), { pattern: "", replacement: "" });
+    assert.deepEqual(await projects.labelFilter(two), { pattern: "c", replacement: "d" });
   });
 });

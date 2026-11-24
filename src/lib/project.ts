@@ -3,6 +3,7 @@
 
 import { type ConnectedModule, type Folder, type FolderEntry, TesselloError } from "@tessello/sdk";
 import { parse, stringify } from "yaml";
+import { parseDocument } from "./document.ts";
 import { entryMapper, type PathMapper, rewriteLinks, unlinkDeletedLinks } from "./links.ts";
 import { isImageName } from "./otherFiles.ts";
 
@@ -43,6 +44,8 @@ export interface TreeDocument {
   path: string;
   /** Whether its Folder's manifest hides it (only in a Tree with hidden items shown). */
   hidden: boolean;
+  /** Its displayed title: frontmatter `title`, else its first heading, else its file name without `.md`. */
+  title: string;
   /**
    * The date the Tree shows: its frontmatter `timestamp` as written (`YYYY-MM-DD`, or `YYYY-MM-DDTHH:mm` to the minute,
    * never converted to another time zone, as the original), else when its file was last modified (ms since the epoch).
@@ -359,14 +362,17 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
         }
       }
       const dates = new Map<string, TreeDate>();
+      const titles = new Map<string, string>();
       await Promise.all(
         entries.map(async (entry) => {
           if (entry.kind !== "file" || !isDocument(nameOf(entry.path))) return;
-          const created = await module.files.read(folder, entry.path).then(({ content }) => createdOf(content), () => null);
+          const content = await module.files.read(folder, entry.path).then((file) => file.content, () => null);
+          const created = content === null ? null : createdOf(content);
+          titles.set(entry.path, parseDocument(content ?? "", entry.path).title);
           dates.set(entry.path, created ? { kind: "created", at: created } : { kind: "modified", at: entry.modified });
         }),
       );
-      return treeOf(entries, "", manifests, dates, options.hidden ?? false);
+      return treeOf(entries, "", manifests, dates, titles, options.hidden ?? false);
     },
     async read(path) {
       try {
@@ -613,7 +619,7 @@ const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompar
  * The entries directly in the Folder at `path`: custom order first, then Folders, then Documents. With `all`, hidden
  * entries are kept (flagged), the Folder manifest comes first and the other files last, alphabetical ignoring case.
  */
-function treeOf(entries: FolderEntry[], path: string, manifests: Map<string, Manifest>, dates: Map<string, TreeDate>, all: boolean): TreeEntry[] {
+function treeOf(entries: FolderEntry[], path: string, manifests: Map<string, Manifest>, dates: Map<string, TreeDate>, titles: Map<string, string>, all: boolean): TreeEntry[] {
   const manifest = manifests.get(path) ?? { order: [], hidden: [] };
   const children: TreeEntry[] = [];
   const manifestEntries: TreeEntry[] = [];
@@ -623,8 +629,8 @@ function treeOf(entries: FolderEntry[], path: string, manifests: Map<string, Man
     const name = nameOf(entry.path);
     const hidden = manifest.hidden.includes(name);
     if (name === ".DS_Store" || (hidden && !all)) continue;
-    if (entry.kind === "folder") children.push({ kind: "folder", name, path: entry.path, hidden, children: treeOf(entries, entry.path, manifests, dates, all) });
-    else if (isDocument(name)) children.push({ kind: "document", name, path: entry.path, hidden, date: dates.get(entry.path) ?? { kind: "modified", at: entry.modified } });
+    if (entry.kind === "folder") children.push({ kind: "folder", name, path: entry.path, hidden, children: treeOf(entries, entry.path, manifests, dates, titles, all) });
+    else if (isDocument(name)) children.push({ kind: "document", name, path: entry.path, hidden, title: titles.get(entry.path) ?? parseDocument("", entry.path).title, date: dates.get(entry.path) ?? { kind: "modified", at: entry.modified } });
     else if (all) (name === FOLDER_MANIFEST ? manifestEntries : files).push({ kind: name === FOLDER_MANIFEST ? "manifest" : "file", name, path: entry.path });
   }
   return [...manifestEntries, ...ordered(children, manifest.order), ...files.sort(byName)];

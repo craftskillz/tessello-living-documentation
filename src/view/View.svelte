@@ -14,6 +14,7 @@
   import { previewOf, type FilePreview } from "../lib/otherFiles.ts";
   import { Conflict, documentFile, FOLDER_MANIFEST, isInsideReserved, isReservedFolder, NotFound, Refused, refusalOf, type Deletion, type DocumentText, type Project, type RefusalReason, type TreeDocument, type TreeEntry, type TreeFolder } from "../lib/project.ts";
   import { entryMapper } from "../lib/links.ts";
+  import { compileLabelFilter, NO_LABEL_FILTER, type LabelFilter } from "../lib/labels.ts";
   import { createProjects, MAX_FAVORITES, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject } from "../lib/projects.ts";
   import { renderDocument } from "../lib/render.ts";
   import ArticleTools from "./ArticleTools.svelte";
@@ -48,11 +49,30 @@
   let tone = $state<"failure" | "success">("failure");
   let confirmation: ReturnType<typeof setTimeout> | undefined;
   /** The User's display preferences (Lines, White background, table of contents), kept in the Module's storage. */
-  let display = $state<DisplayPreferences>({ lines: false, whiteBackground: false, showHidden: false, toc: { open: false, width: TOC_WIDTH.default } });
+  let display = $state<DisplayPreferences>({ lines: false, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: TOC_WIDTH.default } });
   let headings = $state.raw<Heading[]>([]);
   /** The Project's favorites in the User's order (personal, ADR 0007), with the Documents' current titles. */
   let favorites = $state.raw<Favorite[]>([]);
   let favoritesSaving: Promise<void> = Promise.resolve();
+  /** The Project's label filter (kept per Project): only the Tree's display uses it. */
+  let labelFilter = $state<LabelFilter>({ ...NO_LABEL_FILTER });
+  let labelFilterSaving: Promise<void> = Promise.resolve();
+  let treeNav = $state<HTMLElement>();
+  const compiledFilter = $derived(compileLabelFilter(labelFilter));
+  /** What a Tree row shows: a Document's file name or title as chosen, a Folder's name, then the filter. */
+  const treeLabel = (entry: TreeFolder | TreeDocument) => {
+    const base = entry.kind === "document" && display.treeLabels === "title" ? entry.title : entry.name;
+    return compiledFilter.ok ? compiledFilter.apply(base) : base;
+  };
+
+  /** Applies a valid filter at once, then keeps it for the Project (one write after the other). */
+  function setLabelFilter(next: LabelFilter) {
+    labelFilter = next;
+    const asked = active!;
+    const turn = labelFilterSaving.then(() => projects.setLabelFilter(asked, next));
+    labelFilterSaving = turn.then(() => undefined, () => undefined);
+    turn.catch((reason) => report(t("labelFilterFailed"), reason));
+  }
   let favoriteEdits = 0;
   const starred = $derived(path !== null && favorites.some((each) => each.path === path));
 
@@ -211,6 +231,11 @@
 
   async function openActive(wantedPath: string | null) {
     project = projects.open(active!);
+    labelFilter = { ...NO_LABEL_FILTER };
+    const asked = active;
+    void projects.labelFilter(active!).then((kept) => {
+      if (active === asked) labelFilter = kept;
+    }, fail);
     tree = await loadTree();
     await project.check();
     void loadFavorites();
@@ -229,13 +254,28 @@
     error = null;
     detail = null;
     try {
-      current = loaded ?? (await project!.read(target));
+      const text = loaded ?? (await project!.read(target));
+      // Another Document was asked for while this one was read (a click while the start Document loads): it wins.
+      if (path !== target) return;
+      current = text;
       await projects.opened(active!, target);
     } catch (reason) {
+      if (path !== target) return;
       current = null;
       if (reason instanceof NotFound) report(t("notFound"));
       else fail(reason);
+      return;
     }
+    await revealInTree(target);
+  }
+
+  /** Opens the closed Folders around the Document and scrolls its row into view in the Tree. */
+  async function revealInTree(target: string) {
+    const folders: string[] = [];
+    for (let slash = target.indexOf("/"); slash !== -1; slash = target.indexOf("/", slash + 1)) folders.push(target.slice(0, slash));
+    if (folders.some((folder) => closed.has(folder))) closed = new Set([...closed].filter((folder) => !folders.includes(folder)));
+    await tick();
+    treeNav?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest" });
   }
 
   /** Opens a Document from the Tree (or the Host): a new reading, without a back trail. */
@@ -1072,7 +1112,7 @@
   </main>
 {:else}
   <div class="layout">
-    <nav aria-label={t("documents")}>
+    <nav aria-label={t("documents")} bind:this={treeNav}>
       <div class="nav-head">
         <p class="project">{active.name}</p>
         <Favorites
@@ -1097,7 +1137,7 @@
       {#if tree.length === 0}
         <p class="muted">{t("emptyProject")}</p>
       {:else}
-        <Tree entries={tree} current={path} open={(target) => void openFresh(target)} onfile={(target) => void openOther(target)} {drag} />
+        <Tree entries={tree} current={path} open={(target) => void openFresh(target)} onfile={(target) => void openOther(target)} {drag} label={treeLabel} />
       {/if}
     </nav>
     <main style:--header-height="{headerHeight}px">
@@ -1116,6 +1156,10 @@
           whiteBackground={display.whiteBackground}
           tocOpen={display.toc.open}
           favorite={starred}
+          treeLabels={display.treeLabels}
+          {labelFilter}
+          onlabels={(treeLabels) => void setDisplay({ treeLabels })}
+          onfilter={setLabelFilter}
           oncopypath={() => void copyPath()}
           onlines={() => void setDisplay({ lines: !display.lines })}
           onwhite={() => void setDisplay({ whiteBackground: !display.whiteBackground })}

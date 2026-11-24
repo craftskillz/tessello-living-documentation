@@ -139,6 +139,16 @@ const en = {
   favoritesFull: "At most {max} favorites.",
   favoritesFailed: "The favorites could not be saved. Try again.",
   widgetNoFavorites: "No favorites yet. Open Living Documentation and star a document.",
+  displaySettings: "Display settings",
+  treeShows: "Tree shows",
+  treeShowsNames: "File names",
+  treeShowsTitles: "Titles",
+  labelFilter: "Label filter",
+  labelPattern: "Pattern",
+  labelReplacement: "Replacement",
+  labelFilterHint: "A regular expression and its replacement, for the Tree only. Example: ^\\d{4}(_\\d{2}){4}_ with an empty replacement shows 2026_04_11_13_25_guide as guide.",
+  labelPatternInvalid: "This pattern is not a valid regular expression.",
+  labelFilterFailed: "The label filter could not be saved. Try again.",
 };
 
 type Messages = typeof en;
@@ -282,6 +292,16 @@ const fr: Messages = {
   favoritesFull: "Au plus {max} favoris.",
   favoritesFailed: "Les favoris n'ont pas pu être enregistrés. Réessayez.",
   widgetNoFavorites: "Aucun favori. Ouvrez Living Documentation et cliquez sur l'étoile d'un document.",
+  displaySettings: "Réglages d'affichage",
+  treeShows: "L'arborescence affiche",
+  treeShowsNames: "Noms de fichiers",
+  treeShowsTitles: "Titres",
+  labelFilter: "Filtre des libellés",
+  labelPattern: "Motif",
+  labelReplacement: "Remplacement",
+  labelFilterHint: "Une expression régulière et son remplacement, pour l'arborescence seulement. Exemple : ^\\d{4}(_\\d{2}){4}_ avec un remplacement vide affiche 2026_04_11_13_25_guide en guide.",
+  labelPatternInvalid: "Ce motif n'est pas une expression régulière valide.",
+  labelFilterFailed: "Le filtre des libellés n'a pas pu être enregistré. Réessayez.",
 };
 
 export type MessageKey = keyof Messages;

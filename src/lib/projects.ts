@@ -3,6 +3,7 @@
 
 import { type ConnectedModule, type Folder, type Json, TesselloError } from "@tessello/sdk";
 import { parseDocument } from "./document.ts";
+import { type LabelFilter, NO_LABEL_FILTER } from "./labels.ts";
 import { NotFound, openProject, type Project, type TreeEntry } from "./project.ts";
 
 export interface ProjectInfo {
@@ -17,6 +18,9 @@ export interface ListedProject extends ProjectInfo {
   state: "available" | "unavailable";
 }
 
+/** What the Tree shows for each Document: its file name or its displayed title. */
+export type TreeLabels = "name" | "title";
+
 export interface DisplayPreferences {
   /** Source line numbers next to each block. */
   lines: boolean;
@@ -24,6 +28,8 @@ export interface DisplayPreferences {
   whiteBackground: boolean;
   /** Hidden Folders and Documents, Folder manifests and other files shown in the Tree. */
   showHidden: boolean;
+  /** What the Tree shows for each Document: its file name or its displayed title. */
+  treeLabels: TreeLabels;
   /** The table of contents: open or closed, and its width in pixels (160–400). */
   toc: { open: boolean; width: number };
 }
@@ -62,12 +68,16 @@ export interface Projects {
   startDocument(project: ProjectInfo): Promise<string | null>;
   /** Asks the User to allow the folder again (call it from their click); true when it is available. */
   reconnect(project: ProjectInfo): Promise<boolean>;
-  /** Forgets the Project and its favorites, and gives its folder back; its files stay on disk. */
+  /** The Project's label filter; empty (no pattern, no replacement) when none was kept or the kept one is malformed. */
+  labelFilter(project: ProjectInfo): Promise<LabelFilter>;
+  /** Keeps `filter` as the Project's label filter (the caller validates the pattern); resolves with what is kept. */
+  setLabelFilter(project: ProjectInfo, filter: LabelFilter): Promise<LabelFilter>;
+  /** Forgets the Project, its favorites and its label filter, and gives its folder back; its files stay on disk. */
   remove(project: ProjectInfo): Promise<void>;
   /** The User's display preferences; defaults when none were kept or the kept value is malformed. */
   preferences(): Promise<DisplayPreferences>;
   /** Changes some preferences, keeps the others; resolves with all of them. A TOC width is clamped to 160–400 and rounded. */
-  setPreferences(changes: { lines?: boolean; whiteBackground?: boolean; showHidden?: boolean; toc?: { open?: boolean; width?: number } }): Promise<DisplayPreferences>;
+  setPreferences(changes: { lines?: boolean; whiteBackground?: boolean; showHidden?: boolean; treeLabels?: TreeLabels; toc?: { open?: boolean; width?: number } }): Promise<DisplayPreferences>;
 }
 
 const KEY = "projects";
@@ -75,6 +85,8 @@ const KEY = "projects";
 const DISPLAY_KEY = "display";
 // Personal, per Project (ADR 0007): projectId → entries.
 const FAVORITES_KEY = "favorites";
+// Personal, per Project: projectId → label filter.
+const LABEL_FILTERS_KEY = "labelFilters";
 
 interface Stored {
   projects: ProjectInfo[];
@@ -106,11 +118,22 @@ function readPreferences(value: Json): DisplayPreferences {
     lines: typeof raw.lines === "boolean" ? raw.lines : false,
     whiteBackground: typeof raw.whiteBackground === "boolean" ? raw.whiteBackground : false,
     showHidden: typeof raw.showHidden === "boolean" ? raw.showHidden : false,
+    treeLabels: raw.treeLabels === "title" ? "title" : "name",
     toc: {
       open: typeof toc.open === "boolean" ? toc.open : false,
       width: typeof toc.width === "number" && Number.isFinite(toc.width) ? clampTocWidth(toc.width) : TOC_WIDTH.default,
     },
   };
+}
+
+/** The kept label filters of every Project; what is malformed is dropped. */
+function readLabelFilters(value: Json): Record<string, LabelFilter> {
+  const all: Record<string, LabelFilter> = {};
+  if (!isObject(value)) return all;
+  for (const [id, each] of Object.entries(value)) {
+    if (isObject(each) && typeof each.pattern === "string" && typeof each.replacement === "string") all[id] = { pattern: each.pattern, replacement: each.replacement };
+  }
+  return all;
 }
 
 /** A table of contents width kept within 160–400 px, whole. */
@@ -184,6 +207,8 @@ export function createProjects(module: ConnectedModule): Projects {
 
   const readDisplay = async () => readPreferences(await module.storage.get(DISPLAY_KEY));
 
+  const writeLabelFilters = (all: Record<string, LabelFilter>) =>
+    module.storage.set(LABEL_FILTERS_KEY, Object.fromEntries(Object.entries(all).map(([id, each]) => [id, { pattern: each.pattern, replacement: each.replacement }])));
   const readAllFavorites = async () => readFavorites(await module.storage.get(FAVORITES_KEY));
   const writeFavorites = (all: Record<string, FavoriteEntry[]>) =>
     module.storage.set(FAVORITES_KEY, Object.fromEntries(Object.entries(all).map(([id, list]) => [id, list.map((each) => ({ ...each }))])));
@@ -224,12 +249,13 @@ export function createProjects(module: ConnectedModule): Projects {
         lines: changes.lines ?? kept.lines,
         whiteBackground: changes.whiteBackground ?? kept.whiteBackground,
         showHidden: changes.showHidden ?? kept.showHidden,
+        treeLabels: changes.treeLabels ?? kept.treeLabels,
         toc: {
           open: changes.toc?.open ?? kept.toc.open,
           width: changes.toc?.width !== undefined && Number.isFinite(changes.toc.width) ? clampTocWidth(changes.toc.width) : kept.toc.width,
         },
       };
-      await module.storage.set(DISPLAY_KEY, { lines: next.lines, whiteBackground: next.whiteBackground, showHidden: next.showHidden, toc: { ...next.toc } });
+      await module.storage.set(DISPLAY_KEY, { lines: next.lines, whiteBackground: next.whiteBackground, showHidden: next.showHidden, treeLabels: next.treeLabels, toc: { ...next.toc } });
       return next;
     },
     async connect() {
@@ -324,6 +350,18 @@ export function createProjects(module: ConnectedModule): Projects {
       const favorites = await readAllFavorites();
       delete favorites[project.id];
       await writeFavorites(favorites);
+      const filters = readLabelFilters(await module.storage.get(LABEL_FILTERS_KEY));
+      delete filters[project.id];
+      await writeLabelFilters(filters);
+    },
+    async labelFilter(project) {
+      return readLabelFilters(await module.storage.get(LABEL_FILTERS_KEY))[project.id] ?? { ...NO_LABEL_FILTER };
+    },
+    async setLabelFilter(project, filter) {
+      const filters = readLabelFilters(await module.storage.get(LABEL_FILTERS_KEY));
+      filters[project.id] = { pattern: filter.pattern, replacement: filter.replacement };
+      await writeLabelFilters(filters);
+      return filters[project.id];
     },
   };
 }

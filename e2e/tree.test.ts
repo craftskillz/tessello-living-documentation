@@ -698,3 +698,158 @@ describe("other files", () => {
     await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
   });
 });
+
+describe("the Tree's look and labels", () => {
+  const nav = (page: Page) => page.getByRole("navigation", { name: "Documents" });
+  const settings = (page: Page, name = "Display settings") => page.getByRole("button", { name });
+
+  test("the open Document's row stands out; another row does not", async () => {
+    const { page } = await withProject({ "a.md": "# A\n", "b.md": "# B\n" });
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+    const open = row(page, "a.md");
+    const other = row(page, "b.md");
+    assert.equal(await open.getByRole("link").getAttribute("aria-current"), "page");
+    assert.equal(await other.getByRole("link").getAttribute("aria-current"), null);
+    const look = (locator: ReturnType<typeof row>) =>
+      locator.evaluate((element) => ({
+        background: getComputedStyle(element).backgroundColor,
+        weight: Number(getComputedStyle(element.querySelector(".label")!).fontWeight),
+      }));
+    const mine = await look(open);
+    const theirs = await look(other);
+    assert.notEqual(mine.background, "rgba(0, 0, 0, 0)");
+    assert.ok(mine.weight >= 600, `weight ${mine.weight}`);
+    assert.equal(theirs.background, "rgba(0, 0, 0, 0)");
+    assert.ok(theirs.weight < 600);
+  });
+
+  test("a Document opened from a link is scrolled into view in the Tree, even in a closed Folder", async () => {
+    const files: Record<string, string> = { "doc-00.md": "# D0\n\n[go](doc-59.md)\n" };
+    for (let index = 1; index < 60; index++) files[`doc-${String(index).padStart(2, "0")}.md`] = `# D${index}\n`;
+    files["deep/zz/last.md"] = "# Last\n";
+    files["doc-01.md"] = "# D1\n\n[deep](deep/zz/last.md)\n";
+    const { page } = await withProject(files);
+    // The first Document of the Tree opens first.
+    await page.getByRole("heading", { level: 1, name: "Last" }).waitFor();
+    await row(page, "doc-00.md").getByRole("link").click();
+    await page.getByRole("heading", { level: 1, name: "D0" }).waitFor();
+
+    const visible = async (path: string) =>
+      page.evaluate((entry) => {
+        const box = document.querySelector(`[data-entry="${entry}"] [role="link"], [data-entry="${entry}"] a`)!.getBoundingClientRect();
+        const view = document.querySelector("nav")!.getBoundingClientRect();
+        return box.top >= view.top - 1 && box.bottom <= view.bottom + 1;
+      }, path);
+    assert.equal(await visible("doc-59.md"), false);
+
+    await page.locator("article").getByRole("link", { name: "go" }).click();
+    await page.getByRole("heading", { level: 1, name: "D59" }).waitFor();
+    await until(() => visible("doc-59.md"));
+
+    // The Folders around a Document opened by a link are opened first.
+    await row(page, "deep/zz").click();
+    await row(page, "deep").click();
+    assert.equal(await row(page, "deep/zz/last.md").count() === 1 && !(await row(page, "deep/zz/last.md").isVisible()), true);
+    await page.getByRole("link", { name: "doc-01.md" }).click();
+    await page.getByRole("heading", { level: 1, name: "D1" }).waitFor();
+    await page.locator("article").getByRole("link", { name: "deep" }).click();
+    await page.getByRole("heading", { level: 1, name: "Last" }).waitFor();
+    await row(page, "deep/zz/last.md").waitFor({ state: "visible" });
+    await until(() => visible("deep/zz/last.md"));
+  });
+
+  test("the cog shows titles in the Tree, the file name as tooltip; kept after a reload", async () => {
+    const { page } = await withProject({ "a.md": "# Alpha Guide\n", "dir/b.md": "---\ntitle: Beta Title\n---\n# Other\n" });
+    await row(page, "a.md").getByRole("link").click();
+    await page.getByRole("heading", { level: 1, name: "Alpha Guide" }).waitFor();
+    assert.ok((await links(page).allInnerTexts()).includes("a.md"));
+
+    await settings(page).click();
+    assert.equal(await settings(page).getAttribute("aria-expanded"), "true");
+    const panel = page.getByRole("dialog", { name: "Display settings" });
+    await panel.getByRole("radio", { name: "Titles" }).check();
+    await until(async () => (await links(page).allInnerTexts()).includes("Alpha Guide"));
+    const texts = await links(page).allInnerTexts();
+    assert.ok(texts.includes("Beta Title"), texts.join("|"));
+    assert.equal(await row(page, "a.md").getAttribute("title"), "a.md");
+    assert.equal(await row(page, "dir/b.md").getAttribute("title"), "b.md");
+    // Folders keep their names.
+    assert.equal(await row(page, "dir").innerText(), "dir");
+
+    await page.reload();
+    await page.getByRole("navigation", { name: "Documents" }).waitFor();
+    await until(async () => (await links(page).allInnerTexts()).includes("Alpha Guide"));
+    await page.getByRole("heading", { level: 1, name: "Alpha Guide" }).waitFor();
+    await settings(page).click();
+    assert.equal(await page.getByRole("radio", { name: "Titles" }).isChecked(), true);
+    await page.getByRole("radio", { name: "File names" }).check();
+    await until(async () => (await links(page).allInnerTexts()).includes("a.md"));
+  });
+
+  test("the label filter rewrites Documents and Folders, keeps the full name as tooltip, and is kept per Project", async () => {
+    const { page, host } = await withProject({
+      "2026_04_11_13_25_crer_vos_dossiers.md": "# Créer\n",
+      "2026_01_02_03_04_guides/inside.md": "# Inside\n",
+    });
+    await row(page, "2026_04_11_13_25_crer_vos_dossiers.md").getByRole("link").click();
+    await page.getByRole("heading", { level: 1, name: "Créer" }).waitFor();
+    await settings(page).click();
+    const panel = page.getByRole("dialog", { name: "Display settings" });
+    await panel.getByRole("textbox", { name: "Pattern" }).fill("^\\d{4}(_\\d{2}){4}_");
+
+    await until(async () => (await links(page).allInnerTexts()).includes("crer_vos_dossiers.md"));
+    assert.equal(await row(page, "2026_04_11_13_25_crer_vos_dossiers.md").getAttribute("title"), "2026_04_11_13_25_crer_vos_dossiers.md");
+    assert.equal(await row(page, "2026_01_02_03_04_guides").innerText(), "guides");
+    assert.equal(await row(page, "2026_01_02_03_04_guides").getAttribute("title"), "2026_01_02_03_04_guides");
+
+    // Never reload in the middle of a save.
+    await until(async () => JSON.stringify(await host.storage.get("labelFilters")).includes("d{4}"));
+    await page.reload();
+    await page.getByRole("navigation", { name: "Documents" }).waitFor();
+    await until(async () => (await links(page).allInnerTexts()).includes("crer_vos_dossiers.md"));
+    await page.getByRole("heading", { level: 1, name: "Créer" }).waitFor();
+    await settings(page).click();
+    assert.equal(await page.getByRole("textbox", { name: "Pattern" }).inputValue(), "^\\d{4}(_\\d{2}){4}_");
+  });
+
+  test("an invalid pattern shows a message and changes nothing", async () => {
+    const { page } = await withProject({ "a.md": "# A\n", "b.md": "# B\n" });
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+    await settings(page).click();
+    const pattern = page.getByRole("dialog", { name: "Display settings" }).getByRole("textbox", { name: "Pattern" });
+    await pattern.fill("(");
+    const message = page.getByText("This pattern is not a valid regular expression.");
+    await message.waitFor();
+    assert.equal(await pattern.getAttribute("aria-invalid"), "true");
+    assert.ok((await pattern.getAttribute("aria-describedby")) !== null);
+    assert.deepEqual(await links(page).allInnerTexts(), ["a.md", "b.md"]);
+    await pattern.fill("\\.md$");
+    await message.waitFor({ state: "detached" });
+    assert.deepEqual(await links(page).allInnerTexts(), ["a", "b"]);
+  });
+
+  test("Escape closes the panel and gives the focus back to the cog", async () => {
+    const { page } = await withProject({ "a.md": "# A\n" });
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+    await settings(page).click();
+    const panel = page.getByRole("dialog", { name: "Display settings" });
+    await panel.waitFor();
+    await page.keyboard.press("Escape");
+    await panel.waitFor({ state: "detached" });
+    assert.equal(await settings(page).evaluate((element) => element === document.activeElement), true);
+  });
+
+  test("the cog and its texts in French", async () => {
+    const { page } = await withProject({ "a.md": "# Alpha\n" }, { locale: "fr" });
+    await page.getByRole("heading", { level: 1, name: "Alpha" }).waitFor();
+    await settings(page, "Réglages d'affichage").click();
+    const panel = page.getByRole("dialog", { name: "Réglages d'affichage" });
+    await panel.getByRole("radio", { name: "Noms de fichiers" }).waitFor();
+    await panel.getByRole("radio", { name: "Titres" }).check();
+    await until(async () => (await links(page).allInnerTexts()).includes("Alpha"));
+    await panel.getByRole("textbox", { name: "Remplacement" }).waitFor();
+    await panel.getByRole("textbox", { name: "Motif" }).fill("(");
+    await page.getByText("Ce motif n'est pas une expression régulière valide.").waitFor();
+    assert.ok(nav(page));
+  });
+});

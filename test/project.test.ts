@@ -60,6 +60,36 @@ describe("the Tree's dates", () => {
   });
 });
 
+describe("the Tree's titles", () => {
+  const titleOf = (entries: TreeEntry[], name: string) => {
+    const entry = entries.find((each) => each.name === name);
+    assert.ok(entry?.kind === "document", name);
+    return entry.title;
+  };
+
+  test("a Document shows its frontmatter title, else its first heading, else its file name without .md", async () => {
+    const { project } = await projectOf({
+      "a.md": "---\ntitle: From frontmatter\n---\n# Heading\n",
+      "b.md": "Intro\n\n# From heading\n",
+      "c.md": "nothing to see",
+    });
+    const tree = await project.tree();
+
+    assert.equal(titleOf(tree, "a.md"), "From frontmatter");
+    assert.equal(titleOf(tree, "b.md"), "From heading");
+    assert.equal(titleOf(tree, "c.md"), "c");
+  });
+
+  test("also in a sub-folder", async () => {
+    const { project } = await projectOf({ "sub/x.md": "# Deep\n", "sub/y.md": "" });
+    const sub = (await project.tree()).find((each) => each.name === "sub");
+    assert.ok(sub?.kind === "folder");
+
+    assert.equal(titleOf(sub.children, "x.md"), "Deep");
+    assert.equal(titleOf(sub.children, "y.md"), "y");
+  });
+});
+
 describe("the Tree", () => {
   test("Folders, then Documents, each alphabetical ignoring case; only Markdown Documents", async () => {
     const { project } = await projectOf({
