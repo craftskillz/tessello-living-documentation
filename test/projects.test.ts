@@ -139,24 +139,24 @@ describe("display preferences", () => {
   test("are the defaults on a first visit", async () => {
     const projects = await projectsOf(hostOf());
 
-    assert.deepEqual(await projects.preferences(), { lines: false, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: 224 } });
+    assert.deepEqual(await projects.preferences(), { lines: false, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: 224 }, sidebar: { width: 256 } });
   });
 
   test("a change is kept for the next visit", async () => {
     const host = hostOf();
-    const changed = await (await projectsOf(host)).setPreferences({ lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: true, width: 300 } });
+    const changed = await (await projectsOf(host)).setPreferences({ lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: true, width: 300 }, sidebar: { width: 256 } });
 
-    assert.deepEqual(changed, { lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: true, width: 300 } });
+    assert.deepEqual(changed, { lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: true, width: 300 }, sidebar: { width: 256 } });
     assert.deepEqual(await (await projectsOf(host)).preferences(), changed);
   });
 
   test("changing one keeps the others", async () => {
     const projects = await projectsOf(hostOf());
-    await projects.setPreferences({ lines: true, toc: { open: true, width: 300 } });
+    await projects.setPreferences({ lines: true, toc: { open: true, width: 300 }, sidebar: { width: 256 } });
 
-    assert.deepEqual(await projects.setPreferences({ whiteBackground: true }), { lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: true, width: 300 } });
-    assert.deepEqual(await projects.setPreferences({ toc: { open: false } }), { lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: false, width: 300 } });
-    assert.deepEqual(await projects.setPreferences({ toc: { width: 180 } }), { lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: false, width: 180 } });
+    assert.deepEqual(await projects.setPreferences({ whiteBackground: true }), { lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: true, width: 300 }, sidebar: { width: 256 } });
+    assert.deepEqual(await projects.setPreferences({ toc: { open: false } }), { lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: false, width: 300 }, sidebar: { width: 256 } });
+    assert.deepEqual(await projects.setPreferences({ toc: { width: 180 } }), { lines: true, whiteBackground: true, showHidden: false, treeLabels: "name", toc: { open: false, width: 180 }, sidebar: { width: 256 } });
   });
 
   test("Show hidden items is kept, and changing it keeps the others", async () => {
@@ -164,7 +164,7 @@ describe("display preferences", () => {
     const projects = await projectsOf(host);
     await projects.setPreferences({ lines: true });
 
-    assert.deepEqual(await projects.setPreferences({ showHidden: true }), { lines: true, whiteBackground: false, showHidden: true, treeLabels: "name", toc: { open: false, width: 224 } });
+    assert.deepEqual(await projects.setPreferences({ showHidden: true }), { lines: true, whiteBackground: false, showHidden: true, treeLabels: "name", toc: { open: false, width: 224 }, sidebar: { width: 256 } });
     assert.equal((await (await projectsOf(host)).preferences()).showHidden, true);
     assert.equal((await projects.setPreferences({ whiteBackground: true })).showHidden, true);
     assert.equal((await (await projectsOf(hostOf({ storage: { display: { showHidden: "yes" } } }))).preferences()).showHidden, false);
@@ -176,7 +176,7 @@ describe("display preferences", () => {
     assert.equal((await projects.preferences()).treeLabels, "name");
     await projects.setPreferences({ lines: true });
 
-    assert.deepEqual(await projects.setPreferences({ treeLabels: "title" }), { lines: true, whiteBackground: false, showHidden: false, treeLabels: "title", toc: { open: false, width: 224 } });
+    assert.deepEqual(await projects.setPreferences({ treeLabels: "title" }), { lines: true, whiteBackground: false, showHidden: false, treeLabels: "title", toc: { open: false, width: 224 }, sidebar: { width: 256 } });
     assert.equal((await (await projectsOf(host)).preferences()).treeLabels, "title");
     assert.equal((await projects.setPreferences({ whiteBackground: true })).treeLabels, "title");
     assert.equal((await projects.setPreferences({ treeLabels: "name" })).treeLabels, "name");
@@ -196,14 +196,40 @@ describe("display preferences", () => {
     assert.equal((await projects.setPreferences({ toc: { width: Number.NaN } })).toc.width, 251);
   });
 
+  test("a sidebar width is kept between 200 and 600 pixels, whole", async () => {
+    const host = hostOf();
+    const projects = await projectsOf(host);
+
+    assert.equal((await projects.preferences()).sidebar.width, 256);
+    assert.equal((await projects.setPreferences({ sidebar: { width: 100 } })).sidebar.width, 200);
+    assert.equal((await projects.setPreferences({ sidebar: { width: 900 } })).sidebar.width, 600);
+    assert.equal((await projects.setPreferences({ sidebar: { width: 300.6 } })).sidebar.width, 301);
+    assert.equal((await projects.setPreferences({ sidebar: { width: Number.NaN } })).sidebar.width, 301);
+    assert.equal((await projects.setPreferences({ lines: true, toc: { open: true } })).sidebar.width, 301);
+    assert.equal((await (await projectsOf(host)).preferences()).sidebar.width, 301);
+    assert.equal((await projects.setPreferences({ sidebar: { width: 320 } })).lines, true);
+  });
+
+  test("a malformed or out of range kept sidebar width gives 256 or the nearest bound", async () => {
+    const widthOf = async (sidebar: unknown) => (await (await projectsOf(hostOf({ storage: { display: { sidebar } } as never }))).preferences()).sidebar.width;
+
+    assert.equal(await widthOf("wide"), 256);
+    assert.equal(await widthOf({ width: "x" }), 256);
+    assert.equal(await widthOf({}), 256);
+    assert.equal(await widthOf([1]), 256);
+    assert.equal(await widthOf({ width: 999 }), 600);
+    assert.equal(await widthOf({ width: 50 }), 200);
+    assert.equal(await widthOf({ width: 300.4 }), 300);
+  });
+
   test("a malformed kept value gives the defaults, field by field", async () => {
-    const defaults = { lines: false, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: 224 } };
+    const defaults = { lines: false, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: 224 }, sidebar: { width: 256 } };
 
     assert.deepEqual(await (await projectsOf(hostOf({ storage: { display: "nope" } }))).preferences(), defaults);
     assert.deepEqual(await (await projectsOf(hostOf({ storage: { display: [1] } }))).preferences(), defaults);
     assert.deepEqual(
       await (await projectsOf(hostOf({ storage: { display: { lines: true, whiteBackground: "yes", toc: { open: 1, width: 999 } } } }))).preferences(),
-      { lines: true, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: 400 } },
+      { lines: true, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: 400 }, sidebar: { width: 256 } },
     );
   });
 
@@ -211,7 +237,7 @@ describe("display preferences", () => {
     const host = hostOf();
     host.folders.choose(host.folders.create("docs", { "a.md": "a" }));
     const projects = await projectsOf(host);
-    const kept = await projects.setPreferences({ lines: true, toc: { open: true, width: 300 } });
+    const kept = await projects.setPreferences({ lines: true, toc: { open: true, width: 300 }, sidebar: { width: 256 } });
 
     const project = (await projects.connect())!;
     assert.deepEqual(await projects.preferences(), kept);

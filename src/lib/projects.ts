@@ -32,6 +32,8 @@ export interface DisplayPreferences {
   treeLabels: TreeLabels;
   /** The table of contents: open or closed, and its width in pixels (160–400). */
   toc: { open: boolean; width: number };
+  /** The sidebar: its width in pixels (200–600). */
+  sidebar: { width: number };
 }
 
 /** What is kept of a favorite. `path` is the Document's path in the Project folder, with `.md`. */
@@ -49,6 +51,7 @@ export const MAX_FAVORITES = 200;
 const MAX_TITLE = 200;
 
 export const TOC_WIDTH = { min: 160, max: 400, default: 224 };
+export const SIDEBAR_WIDTH = { min: 200, max: 600, default: 256 };
 
 export interface Projects {
   /** Asks the User for a folder (call it from their click) and adds it as the Active Project; null if they cancel. */
@@ -76,8 +79,8 @@ export interface Projects {
   remove(project: ProjectInfo): Promise<void>;
   /** The User's display preferences; defaults when none were kept or the kept value is malformed. */
   preferences(): Promise<DisplayPreferences>;
-  /** Changes some preferences, keeps the others; resolves with all of them. A TOC width is clamped to 160–400 and rounded. */
-  setPreferences(changes: { lines?: boolean; whiteBackground?: boolean; showHidden?: boolean; treeLabels?: TreeLabels; toc?: { open?: boolean; width?: number } }): Promise<DisplayPreferences>;
+  /** Changes some preferences, keeps the others; resolves with all of them. A TOC width is clamped to 160–400 and a sidebar width to 200–600, both rounded; a non-finite width keeps the kept one. */
+  setPreferences(changes: { lines?: boolean; whiteBackground?: boolean; showHidden?: boolean; treeLabels?: TreeLabels; toc?: { open?: boolean; width?: number }; sidebar?: { width?: number } }): Promise<DisplayPreferences>;
 }
 
 const KEY = "projects";
@@ -114,6 +117,7 @@ function readPreferences(value: Json): DisplayPreferences {
   const object = (each: Json | undefined) => (typeof each === "object" && each !== null && !Array.isArray(each) ? each : {});
   const raw = object(value);
   const toc = object(raw.toc);
+  const sidebar = object(raw.sidebar);
   return {
     lines: typeof raw.lines === "boolean" ? raw.lines : false,
     whiteBackground: typeof raw.whiteBackground === "boolean" ? raw.whiteBackground : false,
@@ -123,6 +127,7 @@ function readPreferences(value: Json): DisplayPreferences {
       open: typeof toc.open === "boolean" ? toc.open : false,
       width: typeof toc.width === "number" && Number.isFinite(toc.width) ? clampTocWidth(toc.width) : TOC_WIDTH.default,
     },
+    sidebar: { width: typeof sidebar.width === "number" && Number.isFinite(sidebar.width) ? clampSidebarWidth(sidebar.width) : SIDEBAR_WIDTH.default },
   };
 }
 
@@ -137,7 +142,13 @@ function readLabelFilters(value: Json): Record<string, LabelFilter> {
 }
 
 /** A table of contents width kept within 160–400 px, whole. */
-export const clampTocWidth = (width: number) => Math.min(TOC_WIDTH.max, Math.max(TOC_WIDTH.min, Math.round(width)));
+export const clampTocWidth = (width: number) => clampWidth(width, TOC_WIDTH);
+
+/** A sidebar width kept within 200–600 px, whole. */
+export const clampSidebarWidth = (width: number) => clampWidth(width, SIDEBAR_WIDTH);
+
+/** A width kept within its bounds, in whole pixels. */
+export const clampWidth = (width: number, bounds: { min: number; max: number }) => Math.min(bounds.max, Math.max(bounds.min, Math.round(width)));
 
 const folderOf = (project: ProjectInfo): Folder => ({ id: project.id, name: project.name });
 
@@ -254,8 +265,11 @@ export function createProjects(module: ConnectedModule): Projects {
           open: changes.toc?.open ?? kept.toc.open,
           width: changes.toc?.width !== undefined && Number.isFinite(changes.toc.width) ? clampTocWidth(changes.toc.width) : kept.toc.width,
         },
+        sidebar: {
+          width: changes.sidebar?.width !== undefined && Number.isFinite(changes.sidebar.width) ? clampSidebarWidth(changes.sidebar.width) : kept.sidebar.width,
+        },
       };
-      await module.storage.set(DISPLAY_KEY, { lines: next.lines, whiteBackground: next.whiteBackground, showHidden: next.showHidden, treeLabels: next.treeLabels, toc: { ...next.toc } });
+      await module.storage.set(DISPLAY_KEY, { lines: next.lines, whiteBackground: next.whiteBackground, showHidden: next.showHidden, treeLabels: next.treeLabels, toc: { ...next.toc }, sidebar: { ...next.sidebar } });
       return next;
     },
     async connect() {

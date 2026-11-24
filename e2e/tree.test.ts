@@ -853,3 +853,78 @@ describe("the Tree's look and labels", () => {
     assert.ok(nav(page));
   });
 });
+
+describe("the sidebar's width", () => {
+  const files = { "a.md": "# Alpha\n\nSome text to select.\n", "b.md": "# Beta\n" };
+  const separator = (page: Page, name = "Resize the sidebar") => page.getByRole("separator", { name });
+  const sidebar = async (page: Page) => Math.round((await page.getByRole("navigation", { name: "Documents" }).boundingBox())!.width);
+  const documentArea = async (page: Page) => Math.round((await page.locator("main").boundingBox())!.width);
+  const dragBy = async (page: Page, dx: number) => {
+    const box = (await separator(page).boundingBox())!;
+    const [x, y] = [box.x + box.width / 2, box.y + 100];
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx, y, { steps: 5 });
+    await page.mouse.up();
+  };
+
+  test("it is 256 px by default; dragging the handle resizes it and the Document area takes the rest", async () => {
+    const { page } = await withProject(files);
+    await separator(page).waitFor();
+    assert.equal(await sidebar(page), 256);
+    const area = await documentArea(page);
+
+    await dragBy(page, 60);
+    assert.equal(await sidebar(page), 316);
+    assert.equal(await documentArea(page), area - 60);
+  });
+
+  test("it stays within 200-600 px and is the same after a reload", async () => {
+    const { page } = await withProject(files);
+    await separator(page).waitFor();
+    await dragBy(page, 2000);
+    assert.equal(await sidebar(page), 600);
+    await dragBy(page, -2000);
+    assert.equal(await sidebar(page), 200);
+    await dragBy(page, 100);
+    assert.equal(await sidebar(page), 300);
+
+    await page.reload();
+    await separator(page).waitFor();
+    assert.equal(await sidebar(page), 300);
+  });
+
+  test("a drag released over the Tree selects no text and opens nothing", async () => {
+    const { page } = await withProject(files);
+    await page.getByRole("heading", { level: 1, name: "Alpha" }).waitFor();
+    const box = (await separator(page).boundingBox())!;
+    const link = (await page.getByRole("link", { name: "b.md" }).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(link.x + 10, link.y + link.height / 2, { steps: 5 });
+    await page.mouse.up();
+    assert.equal(await page.evaluate(() => window.getSelection()?.toString()), "");
+    assert.equal(await page.getByRole("heading", { level: 1 }).innerText(), "Alpha");
+  });
+
+  test("arrow keys on the focused handle move it by 16 px, and the width is kept", async () => {
+    const { page, host } = await withProject(files);
+    await separator(page).focus();
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await sidebar(page), 288);
+    await page.keyboard.press("ArrowLeft");
+    assert.equal(await sidebar(page), 272);
+    assert.equal(await separator(page).getAttribute("aria-valuenow"), "272");
+    await until(async () => ((await host.storage.get("display")) as { sidebar: { width: number } } | null)?.sidebar.width === 272);
+
+    await page.reload();
+    await separator(page).waitFor();
+    assert.equal(await sidebar(page), 272);
+  });
+
+  test("the handle is named in French", async () => {
+    const { page } = await withProject(files, { locale: "fr" });
+    await separator(page, "Redimensionner la barre latérale").waitFor();
+  });
+});

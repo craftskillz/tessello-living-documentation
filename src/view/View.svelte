@@ -15,13 +15,14 @@
   import { Conflict, documentFile, FOLDER_MANIFEST, isInsideReserved, isReservedFolder, NotFound, Refused, refusalOf, type Deletion, type DocumentText, type Project, type RefusalReason, type TreeDocument, type TreeEntry, type TreeFolder } from "../lib/project.ts";
   import { entryMapper } from "../lib/links.ts";
   import { compileLabelFilter, NO_LABEL_FILTER, type LabelFilter } from "../lib/labels.ts";
-  import { createProjects, MAX_FAVORITES, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject } from "../lib/projects.ts";
+  import { createProjects, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject } from "../lib/projects.ts";
   import { renderDocument } from "../lib/render.ts";
   import ArticleTools from "./ArticleTools.svelte";
   import { applyLineLabels } from "./lines.ts";
   import Editor from "./Editor.svelte";
   import Favorites from "./Favorites.svelte";
   import Header from "./Header.svelte";
+  import ResizeHandle from "./ResizeHandle.svelte";
   import Toc, { type Heading } from "./Toc.svelte";
   import Tree, { type Dragging, type DropPosition } from "./Tree.svelte";
 
@@ -49,7 +50,7 @@
   let tone = $state<"failure" | "success">("failure");
   let confirmation: ReturnType<typeof setTimeout> | undefined;
   /** The User's display preferences (Lines, White background, table of contents), kept in the Module's storage. */
-  let display = $state<DisplayPreferences>({ lines: false, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: TOC_WIDTH.default } });
+  let display = $state<DisplayPreferences>({ lines: false, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: TOC_WIDTH.default }, sidebar: { width: SIDEBAR_WIDTH.default } });
   let headings = $state.raw<Heading[]>([]);
   /** The Project's favorites in the User's order (personal, ADR 0007), with the Documents' current titles. */
   let favorites = $state.raw<Favorite[]>([]);
@@ -144,12 +145,41 @@
     }
   }
 
-  async function setDisplay(changes: Parameters<typeof projects.setPreferences>[0]) {
-    try {
-      display = await projects.setPreferences(changes);
-    } catch (reason) {
-      fail(reason);
-    }
+  /**
+   * Widths not yet kept: the pointer or the keys change them at once, the write comes after, and a later write may land
+   * before an earlier one is answered. Null when nothing is pending, and the kept width shows.
+   */
+  let pendingSidebar = $state<number | null>(null);
+  let pendingToc = $state<number | null>(null);
+  /** The sidebar's width while its handle is dragged, before it is written. */
+  let draggedWidth = $state<number | null>(null);
+  const sidebarWidth = $derived(draggedWidth ?? pendingSidebar ?? display.sidebar.width);
+  const tocWidth = $derived(pendingToc ?? display.toc.width);
+
+  async function keepSidebar(width: number) {
+    pendingSidebar = width;
+    await setDisplay({ sidebar: { width } });
+    if (pendingSidebar === width) pendingSidebar = null;
+  }
+
+  async function keepToc(width: number) {
+    pendingToc = width;
+    await setDisplay({ toc: { width } });
+    if (pendingToc === width) pendingToc = null;
+  }
+
+  /** Writes follow one another, so that key presses in a row are kept in order. */
+  let writing: Promise<void> = Promise.resolve();
+
+  function setDisplay(changes: Parameters<typeof projects.setPreferences>[0]) {
+    writing = writing.then(async () => {
+      try {
+        display = await projects.setPreferences(changes);
+      } catch (reason) {
+        fail(reason);
+      }
+    });
+    return writing;
   }
 
   /** Scrolls to a heading of the table of contents, opening the folded sections around it first. */
@@ -1111,7 +1141,7 @@
     <button class="primary" onclick={reconnect}>{t("reconnect")}</button>
   </main>
 {:else}
-  <div class="layout">
+  <div class="layout" style:--sidebar-width="{sidebarWidth}px">
     <nav aria-label={t("documents")} bind:this={treeNav}>
       <div class="nav-head">
         <p class="project">{active.name}</p>
@@ -1140,6 +1170,18 @@
         <Tree entries={tree} current={path} open={(target) => void openFresh(target)} onfile={(target) => void openOther(target)} {drag} label={treeLabel} />
       {/if}
     </nav>
+    <ResizeHandle
+      label={t("resizeSidebar")}
+      width={sidebarWidth}
+      bounds={SIDEBAR_WIDTH}
+      widens="right"
+      left="calc(var(--sidebar-width) - 3px)"
+      onmove={(moved) => (draggedWidth = moved)}
+      onkept={(kept) => {
+        void keepSidebar(kept);
+        draggedWidth = null;
+      }}
+    />
     <main style:--header-height="{headerHeight}px">
       {#if openFile}
         {@render filePanel(openFile)}
@@ -1203,9 +1245,9 @@
             {#if display.toc.open && headings.length > 0}
               <Toc
                 {headings}
-                width={display.toc.width}
+                width={tocWidth}
                 onselect={goToHeading}
-                onresized={(width) => void setDisplay({ toc: { width } })}
+                onresized={(width) => void keepToc(width)}
               />
             {/if}
           </div>
@@ -1479,8 +1521,9 @@
   }
   .layout {
     display: grid;
-    grid-template-columns: 16rem 1fr;
+    grid-template-columns: var(--sidebar-width) 1fr;
     height: 100%;
+    position: relative;
   }
   nav {
     border-right: 1px solid var(--line);

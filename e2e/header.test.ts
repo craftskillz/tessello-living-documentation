@@ -194,6 +194,27 @@ describe("the table of contents", () => {
     await page.getByRole("complementary", { name: "On this page" }).waitFor();
     assert.equal(await width(), 400);
   });
+
+  test("arrow keys on its focused handle move the width by 16 px (Left widens), and keep it", async () => {
+    const { page, host } = await project({ "a.md": guide });
+    await page.getByRole("button", { name: "Table of contents" }).click();
+    const toc = page.getByRole("complementary", { name: "On this page" });
+    await toc.waitFor();
+    const width = async () => Math.round((await toc.boundingBox())!.width);
+    const initial = await width();
+
+    await toc.getByRole("separator").focus();
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowLeft");
+    assert.equal(await width(), initial + 32);
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await width(), initial + 16);
+    await until(async () => ((await host.storage.get("display")) as { toc: { width: number } } | null)?.toc.width === initial + 16);
+
+    await page.reload();
+    await page.getByRole("complementary", { name: "On this page" }).waitFor();
+    assert.equal(await width(), initial + 16);
+  });
 });
 
 describe("images and tables", () => {
