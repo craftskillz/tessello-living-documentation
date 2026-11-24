@@ -4,7 +4,7 @@
 
 **Blocked by:** 09 (Tree: rename and move), 10 (Tree: delete, hide and show, reserved folders, other files)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** ready-for-human (built in 8dc51e8; awaiting the trial in the local Host)
 
 - [x] Favorite toggle (not on the Folder manifest); seeding once
 - [x] Menu with titles, Missing, reorder, Escape
