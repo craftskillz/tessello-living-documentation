@@ -4,7 +4,7 @@
 
 **Blocked by:** 09 (Tree: rename and move)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** done (7ba73e6)
 
 - [x] Delete Document and Folder with the counts; incoming links become plain text
 - [x] Hide and Show through the manifest; hidden entries keep their menu
@@ -13,7 +13,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -26,3 +26,4 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - **Show hidden items** (eye toggle, kept in the Module's storage for all Projects) shows hidden entries greyed and italic, each Folder's manifest first (🔒, opens read-only, no menu, no drag) and other files last.
 - **Other files:** image and video from a blob URL, text in a plain `<pre>` without syntax colors or line numbers (the original had both), "⚠ Truncated at 1 MB" above files over 1 MiB, anything else "This file cannot be shown here." with **Download** (an `<a download>` made in script with a blob URL, never in the markup: check it in the Host's sandbox). A later click wins; opening a Document or turning Show hidden items off closes the panel.
 - `Project.readImage` is now `readBytes`. Plurals go through `tn()` (`Intl.PluralRules`).
+- **Tried in the local Host** by the User (2026-11-24): works.
