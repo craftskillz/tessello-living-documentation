@@ -48,7 +48,6 @@ const en = {
   onThisPage: "On this page",
   resizeToc: "Resize the table of contents",
   delete: "Delete",
-  deleteLater: "Deleting a document comes in a later version.",
   readOnly: "Read-only",
   copyImage: "Copy image",
   copyTable: "Copy table",
@@ -87,6 +86,7 @@ const en = {
   refusedInvalidManifest: "This folder's liv-doc-main.md has an invalid frontmatter: fix it before adding entries here.",
   refusedInvalidManifestChange: "A folder's liv-doc-main.md has an invalid frontmatter: fix it before changing its entries.",
   refusedIntoItself: "A folder cannot be moved into itself or one of its folders.",
+  refusedReservedFolder: "“images” and “files” at the Project root are reserved for pasted images and attachments.",
   refusedMissing: "This entry or its destination no longer exists.",
   rename: "Rename",
   moveTo: "Move to…",
@@ -100,6 +100,35 @@ const en = {
   willBeMovedTo: "Will be moved to",
   move: "Move",
   moveFailed: "Could not move “{name}”.",
+  showHidden: "Show hidden items",
+  hide: "Hide",
+  show: "Show",
+  hideFailed: "Could not hide “{name}”.",
+  showFailed: "Could not show “{name}”.",
+  deleteDocument: "Delete document",
+  deleteFolder: "Delete folder",
+  deleteDocumentText: "Permanently delete “{name}”?",
+  deleteFolderText: "Permanently delete the folder “{name}” and everything it contains?",
+  folderHolds: "It holds {list}.",
+  folderEmpty: "It is empty.",
+  countDocuments_one: "{count} document",
+  countDocuments_other: "{count} documents",
+  countImages_one: "{count} image",
+  countImages_other: "{count} images",
+  countOthers_one: "{count} other file",
+  countOthers_other: "{count} other files",
+  linkingDocument_one: "{count} document links to it: that link will become plain text.",
+  linkingDocument_other: "{count} documents link to it: those links will become plain text.",
+  linkingFolder_one: "{count} document links into it: that link will become plain text.",
+  linkingFolder_other: "{count} documents link into it: those links will become plain text.",
+  cannotUndo: "This action cannot be undone.",
+  deleting: "Deleting…",
+  deleteFailed: "Could not delete “{name}”.",
+  cannotShowFile: "This file cannot be shown here.",
+  download: "Download",
+  truncated: "⚠ Truncated at 1 MB",
+  openFileFailed: "Could not open “{name}”.",
+  chooseDocument: "Choose a document in the Tree.",
 };
 
 type Messages = typeof en;
@@ -152,7 +181,6 @@ const fr: Messages = {
   onThisPage: "Sur cette page",
   resizeToc: "Redimensionner la table des matières",
   delete: "Supprimer",
-  deleteLater: "La suppression d'un document arrive dans une prochaine version.",
   readOnly: "Lecture seule",
   copyImage: "Copier l'image",
   copyTable: "Copier le tableau",
@@ -191,6 +219,7 @@ const fr: Messages = {
   refusedInvalidManifest: "Le liv-doc-main.md de ce dossier a un frontmatter invalide : corrigez-le avant d'y ajouter des entrées.",
   refusedInvalidManifestChange: "Le liv-doc-main.md d'un dossier a un frontmatter invalide : corrigez-le avant de modifier ses entrées.",
   refusedIntoItself: "Un dossier ne peut pas être déplacé dans lui-même ni dans l'un de ses dossiers.",
+  refusedReservedFolder: "« images » et « files » à la racine du projet sont réservés aux images collées et aux pièces jointes.",
   refusedMissing: "Cette entrée ou sa destination n'existe plus.",
   rename: "Renommer",
   moveTo: "Déplacer vers…",
@@ -204,6 +233,35 @@ const fr: Messages = {
   willBeMovedTo: "Sera déplacé vers",
   move: "Déplacer",
   moveFailed: "« {name} » n'a pas pu être déplacé.",
+  showHidden: "Afficher les éléments masqués",
+  hide: "Masquer",
+  show: "Afficher",
+  hideFailed: "« {name} » n'a pas pu être masqué.",
+  showFailed: "« {name} » n'a pas pu être affiché.",
+  deleteDocument: "Supprimer le document",
+  deleteFolder: "Supprimer le dossier",
+  deleteDocumentText: "Supprimer définitivement « {name} » ?",
+  deleteFolderText: "Supprimer définitivement le dossier « {name} » et tout son contenu ?",
+  folderHolds: "Il contient {list}.",
+  folderEmpty: "Il est vide.",
+  countDocuments_one: "{count} document",
+  countDocuments_other: "{count} documents",
+  countImages_one: "{count} image",
+  countImages_other: "{count} images",
+  countOthers_one: "{count} autre fichier",
+  countOthers_other: "{count} autres fichiers",
+  linkingDocument_one: "{count} document y renvoie : ce lien deviendra du texte simple.",
+  linkingDocument_other: "{count} documents y renvoient : ces liens deviendront du texte simple.",
+  linkingFolder_one: "{count} document renvoie vers son contenu : ce lien deviendra du texte simple.",
+  linkingFolder_other: "{count} documents renvoient vers son contenu : ces liens deviendront du texte simple.",
+  cannotUndo: "Cette action est irréversible.",
+  deleting: "Suppression…",
+  deleteFailed: "« {name} » n'a pas pu être supprimé.",
+  cannotShowFile: "Ce fichier ne peut pas être affiché ici.",
+  download: "Télécharger",
+  truncated: "⚠ Tronqué à 1 Mo",
+  openFileFailed: "« {name} » n'a pas pu être ouvert.",
+  chooseDocument: "Choisissez un document dans l'arborescence.",
 };
 
 export type MessageKey = keyof Messages;
@@ -223,4 +281,12 @@ export const currentLocale = (): string => language;
 /** The message in the current language, with each `{name}` replaced by its value. */
 export function t(key: MessageKey, values: Record<string, string | number> = {}): string {
   return messages[key].replace(/\{(\w+)\}/g, (match, name: string) => (name in values ? String(values[name]) : match));
+}
+
+type PluralKey = MessageKey extends infer K ? (K extends `${infer Base}_one` ? Base : never) : never;
+
+/** A message with a plural form (`<key>_one`, `<key>_other`) chosen by the current language's plural rules for `count`. */
+export function tn(key: PluralKey, count: number, values: Record<string, string | number> = {}): string {
+  const form = new Intl.PluralRules(language).select(count) === "one" ? "one" : "other";
+  return t(`${key}_${form}` as MessageKey, { ...values, count });
 }

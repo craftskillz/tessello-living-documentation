@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { entryMapper, headingId, resolveImage, resolveLink, rewriteLinks } from "../src/lib/links.ts";
+import { entryMapper, headingId, resolveImage, resolveLink, rewriteLinks, unlinkDeletedLinks } from "../src/lib/links.ts";
 
 describe("?doc= links", () => {
   test("open the Document named by the id, with its anchor", () => {
@@ -197,5 +197,45 @@ describe("rewriting links after a rename or move", () => {
     const text = "plain [a](./x.md) [b](../outside.md) text\r\n\n";
     assert.equal(rewriteLinks(text, "doc.md", entryMapper("y.md", "z.md", false)), text);
     assert.equal(rewriteLinks(text, "doc.md", () => null), text);
+  });
+});
+
+describe("unlinkDeletedLinks", () => {
+  const folderGone = (rel: string) => rel === "guide" || rel.startsWith("guide/");
+  const docGone = (rel: string) => rel === "old.md";
+
+  test("a link to a deleted Document becomes its text; other links and images stay", () => {
+    const text = "See [the old one](old.md) and [new](new.md), ![pic](old.md) and [site](https://x.org/old.md).\n";
+    assert.equal(
+      unlinkDeletedLinks(text, "a.md", docGone),
+      "See the old one and [new](new.md), ![pic](old.md) and [site](https://x.org/old.md).\n",
+    );
+  });
+
+  test("targets resolve from the file: relative, absolute, encoded, with an anchor or a title, or as ?doc= ids", () => {
+    const text = [
+      "[a](../old.md#top)",
+      "[b](/old.md)",
+      "[c](../%6Fld.md)",
+      '[d](../old.md "Title")',
+      "[e](/?doc=old)",
+      "[f](x.md)",
+      "",
+    ].join("\n");
+    assert.equal(unlinkDeletedLinks(text, "sub/a.md", docGone), ["a", "b", "c", "d", "e", "[f](x.md)", ""].join("\n"));
+  });
+
+  test("a link to anything inside a deleted Folder goes too", () => {
+    assert.equal(unlinkDeletedLinks("[x](guide/intro.md) [y](guide) [z](guides/a.md)", "a.md", folderGone), "x y [z](guides/a.md)");
+  });
+
+  test("reference definitions to a deleted entry are dropped, others kept", () => {
+    const text = "Text [a][1].\n\n[1]: old.md\n[2]: new.md\n";
+    assert.equal(unlinkDeletedLinks(text, "a.md", docGone), "Text [a][1].\n\n[2]: new.md\n");
+  });
+
+  test("fenced code is left untouched and a text without such links is returned as is", () => {
+    const text = "```\n[a](old.md)\n[1]: old.md\n```\n[b](new.md)\n";
+    assert.equal(unlinkDeletedLinks(text, "a.md", docGone), text);
   });
 });

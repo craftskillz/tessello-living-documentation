@@ -10,8 +10,9 @@
   import { decorateCollapsible } from "./collapsible.ts";
   import { drawDiagrams } from "./mermaid.ts";
   import { loadImages } from "../lib/images.ts";
-  import { t, type MessageKey } from "../lib/i18n.ts";
-  import { Conflict, documentFile, FOLDER_MANIFEST, NotFound, Refused, refusalOf, type DocumentText, type Project, type RefusalReason, type TreeEntry } from "../lib/project.ts";
+  import { t, tn, type MessageKey } from "../lib/i18n.ts";
+  import { previewOf, type FilePreview } from "../lib/otherFiles.ts";
+  import { Conflict, documentFile, FOLDER_MANIFEST, isInsideReserved, isReservedFolder, NotFound, Refused, refusalOf, type Deletion, type DocumentText, type Project, type RefusalReason, type TreeDocument, type TreeEntry, type TreeFolder } from "../lib/project.ts";
   import { entryMapper } from "../lib/links.ts";
   import { createProjects, TOC_WIDTH, type DisplayPreferences, type ListedProject } from "../lib/projects.ts";
   import { renderDocument } from "../lib/render.ts";
@@ -46,7 +47,7 @@
   let tone = $state<"failure" | "success">("failure");
   let confirmation: ReturnType<typeof setTimeout> | undefined;
   /** The User's display preferences (Lines, White background, table of contents), kept in the Module's storage. */
-  let display = $state<DisplayPreferences>({ lines: false, whiteBackground: false, toc: { open: false, width: TOC_WIDTH.default } });
+  let display = $state<DisplayPreferences>({ lines: false, whiteBackground: false, showHidden: false, toc: { open: false, width: TOC_WIDTH.default } });
   let headings = $state.raw<Heading[]>([]);
 
   type Session = { kind: "document" } | { kind: "section"; range: TextRange };
@@ -154,9 +155,12 @@
     if (active?.state === "available") await openActive(wanted?.path ?? null);
   }
 
+  /** The Tree as the display preferences want it: with the hidden items when Show hidden items is on. */
+  const loadTree = () => project!.tree({ hidden: display.showHidden });
+
   async function openActive(wantedPath: string | null) {
     project = projects.open(active!);
-    tree = await project.tree();
+    tree = await loadTree();
     await project.check();
     const target = wantedPath ?? (await projects.startDocument(active!));
     if (target) await show(target);
@@ -168,6 +172,7 @@
     // The text typed is saved before another Document opens; on a conflict or a failure, the open one stays.
     if (!(await leave())) return;
     stopEditing();
+    closeFile();
     path = target;
     error = null;
     detail = null;
@@ -238,7 +243,7 @@
   $effect(() => {
     html;
     if (!article || !project) return;
-    return loadImages(article, (imagePath) => project!.readImage(imagePath), (imagePath) => t("imageNotFound", { path: imagePath }));
+    return loadImages(article, (imagePath) => project!.readBytes(imagePath), (imagePath) => t("imageNotFound", { path: imagePath }));
   });
 
   // The preview of the section editor shows its Images like the reading; each is read once while the editor is open
@@ -251,7 +256,7 @@
     const read = (imagePath: string) => {
       if (!previewImages.has(imagePath)) {
         // A failed read is tried again at the next render: the Image may have been added meanwhile.
-        const reading = project!.readImage(imagePath);
+        const reading = project!.readBytes(imagePath);
         reading.catch(() => previewImages.delete(imagePath));
         previewImages.set(imagePath, reading);
       }
@@ -332,7 +337,7 @@
     const checked = path;
     try {
       const changes = await project.check();
-      if (changes.tree) tree = await project.tree();
+      if (changes.tree) tree = await loadTree();
       // A save of ours still running shows as a change: it is not an agent's edit (theirs would fail that save instead).
       if (!checked || !changes.documents.includes(checked) || autosave?.saving) return;
       const theirs = await project.read(checked).catch(() => null);
@@ -498,6 +503,7 @@
     invalidManifest: "refusedInvalidManifest",
     intoItself: "refusedIntoItself",
     missing: "refusedMissing",
+    reservedFolder: "refusedReservedFolder",
   };
   /** The message of a refusal; `change` for a rename or a move, whose invalid-manifest wording is not about adding entries. */
   const refusalMessage = (reason: RefusalReason, change = false) =>
@@ -505,7 +511,7 @@
   /** What a dialog shows for a failed request: a refusal's message, else the generic failure with the raw reason as detail. */
   const failureText = (reason: unknown, change: boolean) =>
     reason instanceof Refused ? refusalMessage(reason.reason, change) : `${t("failed")} ${t("detail", { reason: reason instanceof Error ? reason.message : String(reason) })}`;
-  const refusal = $derived(creating ? refusalOf(creating.kind, creating.name, entriesOf(creating.folder).map((entry) => entry.name)) : null);
+  const refusal = $derived(creating ? refusalOf(creating.kind, creating.name, entriesOf(creating.folder).map((entry) => entry.name), creating.folder) : null);
   /** The path the entry will have: a Name already ending in .md is the file name itself. */
   const createdPath = $derived.by(() => {
     if (!creating) return "";
@@ -522,7 +528,7 @@
     const { kind, name, folder } = creating;
     try {
       const made = kind === "document" ? await project.createDocument(folder, name) : await project.createFolder(folder, name);
-      tree = await project.tree();
+      tree = await loadTree();
       creating = null;
       if (kind === "document") await openFresh(made);
     } catch (reason) {
@@ -532,6 +538,8 @@
   }
 
   // Renaming and moving: from the entry menu, and by drag and drop.
+  type Movable = TreeFolder | TreeDocument;
+  const isMovable = (entry: TreeEntry | null): entry is Movable => entry?.kind === "folder" || entry?.kind === "document";
   const nameOf = (file: string) => file.slice(file.lastIndexOf("/") + 1);
   /** The name the User types for an entry: a Document's without .md. */
   const displayName = (entry: TreeEntry) => (entry.kind === "document" ? entry.name.replace(/\.md$/i, "") : entry.name);
@@ -543,9 +551,9 @@
     return null;
   }
 
-  let menu = $state.raw<{ entry: TreeEntry; x: number; y: number } | null>(null);
-  let renaming = $state<{ entry: TreeEntry; name: string; failure: string | null } | null>(null);
-  let moving = $state<{ entry: TreeEntry; destination: string | null; failure: string | null } | null>(null);
+  let menu = $state.raw<{ entry: Movable; x: number; y: number } | null>(null);
+  let renaming = $state<{ entry: Movable; name: string; failure: string | null } | null>(null);
+  let moving = $state<{ entry: Movable; destination: string | null; failure: string | null } | null>(null);
   /** The Folders the User closed; the others are open. */
   let closed = $state.raw<ReadonlySet<string>>(new Set());
   let dragSource = $state<string | null>(null);
@@ -561,6 +569,7 @@
           entriesOf(folderOf(renaming.entry.path))
             .filter((entry) => entry.path !== renaming!.entry.path)
             .map((entry) => entry.name),
+          folderOf(renaming.entry.path),
         )
       : null,
   );
@@ -568,7 +577,7 @@
   const moveOptions = $derived.by(() => {
     if (!moving) return [];
     const { entry } = moving;
-    return ["", ...folderPaths(tree)].filter(
+    return ["", ...folderPaths(tree).filter((folder) => !isInsideReserved(folder))].filter(
       (folder) => folder !== folderOf(entry.path) && !(entry.kind === "folder" && (folder === entry.path || folder.startsWith(`${entry.path}/`))),
     );
   });
@@ -588,7 +597,7 @@
   async function afterChange(from: string, to: string, isFolder: boolean, reveal?: string) {
     const map = entryMapper(from, to, isFolder);
     try {
-      tree = await project!.tree();
+      tree = await loadTree();
       trail = trail.map((entry) => ({ ...entry, path: map(entry.path) ?? entry.path }));
       const folders = new Set([...closed].map((folder) => map(folder) ?? folder));
       if (reveal !== undefined) folders.delete(reveal);
@@ -611,8 +620,8 @@
     }
   }
 
-  function openMenu(entry: TreeEntry, x: number, y: number) {
-    menu = { entry, x: Math.max(0, Math.min(x, window.innerWidth - 200)), y: Math.max(0, Math.min(y, window.innerHeight - 90)) };
+  function openMenu(entry: Movable, x: number, y: number) {
+    menu = { entry, x: Math.max(0, Math.min(x, window.innerWidth - 200)), y: Math.max(0, Math.min(y, window.innerHeight - 160)) };
   }
 
   function startRenaming(entry: TreeEntry) {
@@ -677,11 +686,11 @@
     dropMark = null;
   }
 
-  async function dropped(target: TreeEntry, position: DropPosition) {
+  async function dropped(target: Movable, position: DropPosition) {
     const sourcePath = dragSource;
     endDrag();
     const source = sourcePath ? findEntry(sourcePath) : null;
-    if (!source || !project) return;
+    if (!isMovable(source) || !project) return;
     if (source.path === target.path) return;
     const folder = position === "inside" ? target.path : folderOf(target.path);
     const place = position === "before" ? { before: target.name } : position === "after" ? { after: target.name } : undefined;
@@ -695,6 +704,147 @@
       return;
     }
     await afterChange(source.path, to, source.kind === "folder", folder);
+  }
+
+  /** Reports a failure: a refusal's message after `message`, else `message` with the raw reason as detail. */
+  function reportFailure(message: string, reason: unknown) {
+    if (reason instanceof Refused) report(`${message} ${refusalMessage(reason.reason, true)}`);
+    else report(message, reason);
+  }
+
+  async function setHidden(entry: Movable) {
+    menu = null;
+    if (!project) return;
+    try {
+      await project.setHidden(entry.path, !entry.hidden);
+      tree = await loadTree();
+    } catch (reason) {
+      reportFailure(t(entry.hidden ? "showFailed" : "hideFailed", { name: entry.name }), reason);
+    }
+  }
+
+  /** Show hidden items: the Tree reloads with or without them; the panel of an other file goes when they are hidden. */
+  async function toggleHidden() {
+    await setDisplay({ showHidden: !display.showHidden });
+    if (!display.showHidden) closeFile();
+    try {
+      if (project) tree = await loadTree();
+    } catch (reason) {
+      fail(reason);
+    }
+  }
+
+  // Deleting a Document or a Folder, after a confirmation that says what goes with it.
+  let deleting = $state<{ entry: { kind: "document" | "folder"; name: string; path: string }; counts: Deletion; running: boolean; failure: string | null } | null>(null);
+
+  async function askDeletion(entry: { kind: "document" | "folder"; name: string; path: string }) {
+    menu = null;
+    if (!project) return;
+    try {
+      deleting = { entry, counts: await project.deletion(entry.path), running: false, failure: null };
+    } catch (reason) {
+      reportFailure(t("deleteFailed", { name: entry.name }), reason);
+    }
+  }
+
+  /** What a deletion removes, as a sentence: only the kinds that are there. */
+  const holds = (counts: Deletion) =>
+    [
+      counts.documents > 0 ? tn("countDocuments", counts.documents) : "",
+      counts.images > 0 ? tn("countImages", counts.images) : "",
+      counts.others > 0 ? tn("countOthers", counts.others) : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+  /** The Documents of the Tree, in the order it shows them. */
+  function documentPaths(entries: TreeEntry[]): string[] {
+    return entries.flatMap((entry) => (entry.kind === "document" ? [entry.path] : entry.kind === "folder" ? documentPaths(entry.children) : []));
+  }
+
+  async function confirmDeletion() {
+    const asked = deleting;
+    if (!asked || asked.running || !project) return;
+    const { entry } = asked;
+    asked.running = true;
+    asked.failure = null;
+    if (!(await beforeChange())) {
+      deleting = null;
+      return;
+    }
+    const gone = (each: string) => each === entry.path || each.startsWith(`${entry.path}/`);
+    // The Document to open next, chosen in the Tree as it was: the one after, else the one before.
+    const documents = documentPaths(tree);
+    const at = path === null ? -1 : documents.indexOf(path);
+    const next = at < 0 ? null : (documents.slice(at + 1).find((each) => !gone(each)) ?? documents.slice(0, at).reverse().find((each) => !gone(each)) ?? null);
+    try {
+      await project.remove(entry.path);
+    } catch (reason) {
+      asked.running = false;
+      asked.failure = `${t("deleteFailed", { name: entry.name })} ${failureText(reason, true)}`;
+      return;
+    }
+    deleting = null;
+    try {
+      tree = await loadTree();
+      trail = trail.filter((each) => !gone(each.path));
+      closed = new Set([...closed].filter((folder) => !gone(folder)));
+      if (openFile && gone(openFile.path)) closeFile();
+      if (path !== null && gone(path)) {
+        if (next) await show(next);
+        else {
+          path = null;
+          current = null;
+        }
+      } else if (path !== null) {
+        // Links to what went are text now.
+        current = await project.read(path);
+      }
+    } catch (reason) {
+      fail(reason);
+    }
+  }
+
+  // The panel of an other file, in place of the Document, which stays loaded behind it.
+  let openFile = $state.raw<{ name: string; path: string; preview: FilePreview; url: string | null; bytes: Uint8Array | null } | null>(null);
+  let fileRead = 0;
+
+  function closeFile() {
+    fileRead++;
+    if (openFile?.url) URL.revokeObjectURL(openFile.url);
+    openFile = null;
+  }
+
+  async function openOther(file: string) {
+    if (!project) return;
+    const reading = ++fileRead;
+    const name = nameOf(file);
+    if (!(await beforeChange()) || reading !== fileRead) return;
+    try {
+      const bytes = await project.readBytes(file);
+      // A later click wins over this slower one.
+      if (reading !== fileRead) return;
+      const preview = previewOf(name, bytes);
+      const url = preview.kind === "image" || preview.kind === "video" ? URL.createObjectURL(new Blob([bytes as BlobPart], { type: preview.mime })) : null;
+      closeFile();
+      fileRead = reading;
+      openFile = { name, path: file, preview, url, bytes: preview.kind === "binary" ? bytes : null };
+    } catch (reason) {
+      if (reading === fileRead) report(t("openFileFailed", { name }), reason);
+    }
+  }
+
+  /** The file is handed to the browser through a link made here, never one in the markup (the View has no address). */
+  function download() {
+    if (!openFile?.bytes) return;
+    const url = URL.createObjectURL(new Blob([openFile.bytes as BlobPart]));
+    const link = document.createElement("a");
+    link.download = openFile.name;
+    link.href = url;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   const drag: Dragging = {
@@ -808,10 +958,29 @@
   onDestroy(() => {
     clearInterval(checking);
     clearTimeout(confirmation);
+    closeFile();
     stopParams?.();
     document.removeEventListener("visibilitychange", onVisibility);
   });
 </script>
+
+{#snippet filePanel(file: NonNullable<typeof openFile>)}
+  <section class="file" aria-labelledby="file-title">
+    <h2 id="file-title">{file.name}</h2>
+    {#if file.preview.kind === "image"}
+      <img src={file.url} alt={file.name} />
+    {:else if file.preview.kind === "video"}
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video src={file.url} controls></video>
+    {:else if file.preview.kind === "text"}
+      {#if file.preview.truncated}<p class="muted">{t("truncated")}</p>{/if}
+      <pre>{file.preview.text}</pre>
+    {:else}
+      <p>{t("cannotShowFile")}</p>
+      <button type="button" class="primary" onclick={download}>{t("download")}</button>
+    {/if}
+  </section>
+{/snippet}
 
 {#snippet compareTable(mine: string, theirs: string)}
   <section class="compare" aria-label={t("compare")}>
@@ -858,16 +1027,23 @@
           <button type="button" class="icon" aria-label={t("newFolder")} title={t("newFolder")} onclick={() => startCreating("folder")}>
             {@render entryIcon("folder")}
           </button>
+          <button type="button" class="icon" aria-label={t("showHidden")} title={t("showHidden")} aria-pressed={display.showHidden} onclick={() => void toggleHidden()}>
+            {@render entryIcon(display.showHidden ? "eye" : "eyeOff")}
+          </button>
         </div>
       </div>
       {#if tree.length === 0}
         <p class="muted">{t("emptyProject")}</p>
       {:else}
-        <Tree entries={tree} current={path} open={(target) => void openFresh(target)} {drag} />
+        <Tree entries={tree} current={path} open={(target) => void openFresh(target)} onfile={(target) => void openOther(target)} {drag} />
       {/if}
     </nav>
     <main style:--header-height="{headerHeight}px">
-      {#if current && model}
+      {#if openFile}
+        {@render filePanel(openFile)}
+      {:else if path === null}
+        <p class="muted choose">{t("chooseDocument")}</p>
+      {:else if current && model}
         <!-- The header stays on top while the Document scrolls, while reading and while editing. -->
         <div class="sticky" bind:offsetHeight={headerHeight}>
         <Header
@@ -882,6 +1058,7 @@
           onwhite={() => void setDisplay({ whiteBackground: !display.whiteBackground })}
           ontoc={() => void setDisplay({ toc: { open: !display.toc.open } })}
           onedit={startEditing}
+          ondelete={() => void askDeletion({ kind: "document", name: nameOf(path!), path: path! })}
           ondone={() => void done()}
           onrevert={() => void revert()}
         />
@@ -977,9 +1154,15 @@
 {/if}
 
 <!-- Lucide's file-plus, folder-plus, pencil and folder-input (ISC licence), drawn with the text's colour. -->
-{#snippet entryIcon(kind: "document" | "folder" | "rename" | "move")}
+{#snippet entryIcon(kind: "document" | "folder" | "rename" | "move" | "delete" | "eye" | "eyeOff")}
   <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-    {#if kind === "rename"}
+    {#if kind === "delete"}
+      <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /><path d="M10 11v6" /><path d="M14 11v6" />
+    {:else if kind === "eye"}
+      <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /><circle cx="12" cy="12" r="3" />
+    {:else if kind === "eyeOff"}
+      <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" /><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" /><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" /><path d="m2 2 20 20" />
+    {:else if kind === "rename"}
       <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /><path d="m15 5 4 4" />
     {:else if kind === "move"}
       <path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1" /><path d="M2 13h10" /><path d="m9 16 3-3-3-3" />
@@ -1016,7 +1199,7 @@
         <div class="select">
           <select id="create-location" bind:value={creating.folder} onchange={() => creating && (creating.failure = null)}>
             <option value="">{t("rootLocation")}</option>
-            {#each folderPaths(tree) as folder (folder)}
+            {#each folderPaths(tree).filter((each) => !isInsideReserved(each)) as folder (folder)}
               <option value={folder}>/{folder}</option>
             {/each}
           </select>
@@ -1114,11 +1297,40 @@
   </dialog>
 {/if}
 
+{#if deleting}
+  {@const { entry, counts } = deleting}
+  <dialog use:modal aria-labelledby="delete-title" class="create" oncancel={(event) => { event.preventDefault(); if (!deleting?.running) deleting = null; }}>
+    <form onsubmit={(event) => { event.preventDefault(); void confirmDeletion(); }}>
+      <header>
+        <span class="badge-icon danger">{@render entryIcon("delete")}</span>
+        <h2 id="delete-title">{entry.kind === "document" ? t("deleteDocument") : t("deleteFolder")}</h2>
+      </header>
+      <p>{entry.kind === "document" ? t("deleteDocumentText", { name: entry.name }) : t("deleteFolderText", { name: entry.name })}</p>
+      {#if entry.kind === "folder"}
+        <p>{holds(counts) ? t("folderHolds", { list: holds(counts) }) : t("folderEmpty")}</p>
+      {/if}
+      {#if counts.linking > 0}
+        <p>{tn(entry.kind === "document" ? "linkingDocument" : "linkingFolder", counts.linking)}</p>
+      {/if}
+      <p>{t("cannotUndo")}</p>
+      {#if deleting.failure}<p class="problem" role="alert">{deleting.failure}</p>{/if}
+      <div class="actions">
+        <button type="button" disabled={deleting.running} onclick={() => (deleting = null)}>{t("cancel")}</button>
+        <button type="submit" class="danger" disabled={deleting.running}>{deleting.running ? t("deleting") : t("delete")}</button>
+      </div>
+    </form>
+  </dialog>
+{/if}
+
 {#if menu}
   <!-- svelte-ignore a11y_interactive_supports_focus -->
   <div class="menu" role="menu" aria-label={menu.entry.name} style:left="{menu.x}px" style:top="{menu.y}px" use:focusFirst onkeydown={menuKey}>
-    <button type="button" role="menuitem" onclick={() => startRenaming(menu!.entry)}>{t("rename")}</button>
-    <button type="button" role="menuitem" onclick={() => startMoving(menu!.entry)}>{t("moveTo")}</button>
+    <button type="button" role="menuitem" onclick={() => void setHidden(menu!.entry)}>{menu.entry.hidden ? t("show") : t("hide")}</button>
+    {#if !(menu.entry.kind === "folder" && isReservedFolder(menu.entry.path))}
+      <button type="button" role="menuitem" onclick={() => startRenaming(menu!.entry)}>{t("rename")}</button>
+      <button type="button" role="menuitem" onclick={() => startMoving(menu!.entry)}>{t("moveTo")}</button>
+      <button type="button" role="menuitem" onclick={() => void askDeletion(menu!.entry)}>{t("delete")}</button>
+    {/if}
   </div>
 {/if}
 
@@ -1437,6 +1649,41 @@
   dialog.create .actions button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  .choose {
+    margin-top: 2rem;
+  }
+  .file {
+    padding-top: 1rem;
+  }
+  .file h2 {
+    margin-top: 0;
+    overflow-wrap: anywhere;
+  }
+  .file img,
+  .file video {
+    max-width: 100%;
+    max-height: 80vh;
+  }
+  .file pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .badge-icon.danger {
+    color: #e53935;
+    background: color-mix(in srgb, #e53935 14%, transparent);
+  }
+  button.danger {
+    background: #e53935;
+    border-color: #e53935;
+    color: #fff;
+  }
+  button.danger:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  button[aria-pressed="true"].icon {
+    color: var(--accent);
   }
   .hint {
     margin: -0.5rem 0 1rem;

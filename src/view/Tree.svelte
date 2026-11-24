@@ -17,7 +17,7 @@
   // about:srcdoc page, and a link with an address would leave it.
   import { formatTreeDate } from "../lib/dates.ts";
   import { currentLocale, t } from "../lib/i18n.ts";
-  import type { TreeEntry } from "../lib/project.ts";
+  import type { TreeDocument, TreeEntry, TreeFolder } from "../lib/project.ts";
   import Tree from "./Tree.svelte";
 
   export interface Dragging {
@@ -28,22 +28,24 @@
     /** Folders the User closed (all the others are open). */
     closed: ReadonlySet<string>;
     start(path: string): void;
-    over(entry: TreeEntry, position: DropPosition): void;
-    leave(entry: TreeEntry): void;
-    drop(entry: TreeEntry, position: DropPosition): void;
+    over(entry: TreeFolder | TreeDocument, position: DropPosition): void;
+    leave(entry: TreeFolder | TreeDocument): void;
+    drop(entry: TreeFolder | TreeDocument, position: DropPosition): void;
     end(): void;
     toggle(path: string, open: boolean): void;
-    menu(entry: TreeEntry, x: number, y: number): void;
+    menu(entry: TreeFolder | TreeDocument, x: number, y: number): void;
   }
 
-  let { entries, current, open, drag }: { entries: TreeEntry[]; current: string | null; open: (path: string) => void; drag: Dragging } = $props();
+  type Movable = TreeFolder | TreeDocument;
+
+  let { entries, current, open, onfile, drag }: { entries: TreeEntry[]; current: string | null; open: (path: string) => void; onfile: (path: string) => void; drag: Dragging } = $props();
 
   function onKey(event: KeyboardEvent, path: string) {
     if (event.key === "Enter") open(path);
   }
 
   /** The ContextMenu key and Shift+F10 open the entry menu at the focused entry (not every platform sends a contextmenu event). */
-  function onMenuKey(event: KeyboardEvent, entry: TreeEntry) {
+  function onMenuKey(event: KeyboardEvent, entry: Movable) {
     if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -54,12 +56,12 @@
   /** A dragged entry does not land on itself; a drop inside itself is refused by the Project, with its message. */
   const droppable = (target: string) => drag.source !== null && target !== drag.source;
 
-  function positionOf(event: DragEvent, entry: TreeEntry): DropPosition {
+  function positionOf(event: DragEvent, entry: Movable): DropPosition {
     const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
     return dropPositionAt(entry.kind, event.clientY - box.top, box.height);
   }
 
-  function onDragStart(event: DragEvent, entry: TreeEntry) {
+  function onDragStart(event: DragEvent, entry: Movable) {
     event.stopPropagation();
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = "move";
@@ -68,24 +70,24 @@
     drag.start(entry.path);
   }
 
-  function onDragOver(event: DragEvent, entry: TreeEntry) {
+  function onDragOver(event: DragEvent, entry: Movable) {
     if (!droppable(entry.path)) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
     drag.over(entry, positionOf(event, entry));
   }
 
-  function onDrop(event: DragEvent, entry: TreeEntry) {
+  function onDrop(event: DragEvent, entry: Movable) {
     if (!droppable(entry.path)) return;
     event.preventDefault();
     drag.drop(entry, positionOf(event, entry));
   }
 
-  function onDragLeave(event: DragEvent, entry: TreeEntry) {
+  function onDragLeave(event: DragEvent, entry: Movable) {
     if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) drag.leave(entry);
   }
 
-  function onContextMenu(event: MouseEvent, entry: TreeEntry) {
+  function onContextMenu(event: MouseEvent, entry: Movable) {
     event.preventDefault();
     event.stopPropagation();
     drag.menu(entry, event.clientX, event.clientY);
@@ -103,6 +105,7 @@
           <summary
             class="row"
             data-entry={entry.path}
+            class:hidden={entry.hidden}
             class:before={markOf(entry.path) === "before"}
             class:after={markOf(entry.path) === "after"}
             class:inside={markOf(entry.path) === "inside"}
@@ -115,12 +118,35 @@
             onkeydown={(event) => onMenuKey(event, entry)}
             oncontextmenu={(event) => onContextMenu(event, entry)}>{entry.name}</summary
           >
-          <Tree entries={entry.children} {current} {open} {drag} />
+          <Tree entries={entry.children} {current} {open} {onfile} {drag} />
         </details>
+      {:else if entry.kind === "manifest"}
+        <div class="row hidden" data-entry={entry.path}>
+          <span class="lock" aria-hidden="true">🔒</span>
+          <span
+            class="entry"
+            role="link"
+            tabindex="0"
+            aria-current={entry.path === current ? "page" : undefined}
+            onclick={() => open(entry.path)}
+            onkeydown={(event) => onKey(event, entry.path)}>{entry.name}</span
+          >
+        </div>
+      {:else if entry.kind === "file"}
+        <div class="row hidden" data-entry={entry.path}>
+          <span
+            class="entry"
+            role="link"
+            tabindex="0"
+            onclick={() => onfile(entry.path)}
+            onkeydown={(event) => { if (event.key === "Enter") onfile(entry.path); }}>{entry.name}</span
+          >
+        </div>
       {:else}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="row"
+          class:hidden={entry.hidden}
           data-entry={entry.path}
           class:before={markOf(entry.path) === "before"}
           class:after={markOf(entry.path) === "after"}
@@ -188,6 +214,14 @@
     display: block;
     color: var(--ink-muted, #777);
     font-size: 0.75rem;
+  }
+  /* Hidden Folders and Documents, Folder manifests and other files, shown with Show hidden items. */
+  .row.hidden {
+    color: var(--muted, #777);
+    font-style: italic;
+  }
+  .lock {
+    font-style: normal;
   }
   .entry[aria-current="page"] {
     font-weight: 600;

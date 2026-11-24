@@ -15,6 +15,7 @@
     onwhite,
     ontoc,
     onedit,
+    ondelete,
     ondone,
     onrevert,
   }: {
@@ -29,6 +30,7 @@
     onwhite: () => void;
     ontoc: () => void;
     onedit: () => void;
+    ondelete: () => void;
     ondone: () => void;
     onrevert: () => void;
   } = $props();
@@ -47,7 +49,7 @@
     <button aria-pressed={tocOpen} onclick={ontoc}>{t("toc")}</button>
     {#if !readOnly}
       <button onclick={onedit}>{t("edit")}</button>
-      <button disabled title={t("deleteLater")}>{t("delete")}</button>
+      <button onclick={ondelete}>{t("delete")}</button>
     {/if}
   {/if}
 </header>
@@ -75,9 +77,5 @@
   button[aria-pressed="true"] {
     background: color-mix(in srgb, var(--accent) 18%, var(--panel));
     border-color: var(--accent);
-  }
-  button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 </style>

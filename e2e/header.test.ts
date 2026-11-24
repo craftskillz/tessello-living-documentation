@@ -32,12 +32,11 @@ describe("the reading header", () => {
     assert.equal(page.url(), address);
   });
 
-  test("Delete is shown disabled, telling that it comes later; Edit still edits", async () => {
+  test("Delete is enabled; Edit still edits", async () => {
     const { page } = await project({ "a.md": "# A\n" });
     const remove = page.getByRole("button", { name: "Delete" });
     await remove.waitFor();
-    assert.equal(await remove.isDisabled(), true);
-    assert.match((await remove.getAttribute("title")) ?? "", /later version/);
+    assert.equal(await remove.isDisabled(), false);
     await page.getByRole("button", { name: "Edit" }).click();
     await page.getByRole("textbox", { name: "Markdown" }).waitFor();
   });

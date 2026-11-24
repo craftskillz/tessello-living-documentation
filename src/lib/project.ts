@@ -3,12 +3,13 @@
 
 import { type ConnectedModule, type Folder, type FolderEntry, TesselloError } from "@tessello/sdk";
 import { parse, stringify } from "yaml";
-import { entryMapper, type PathMapper, rewriteLinks } from "./links.ts";
+import { entryMapper, type PathMapper, rewriteLinks, unlinkDeletedLinks } from "./links.ts";
+import { isImageName } from "./otherFiles.ts";
 
 /** The reserved file of each Folder: its order and its hidden entries (GLOSSARY.md, Folder manifest). */
 export const FOLDER_MANIFEST = "liv-doc-main.md";
 
-export type TreeEntry = TreeFolder | TreeDocument;
+export type TreeEntry = TreeFolder | TreeDocument | TreeManifest | TreeFile;
 
 export interface TreeFolder {
   kind: "folder";
@@ -16,7 +17,23 @@ export interface TreeFolder {
   name: string;
   /** Its path from the Project folder. */
   path: string;
+  /** Whether its own Folder's manifest hides it (only in a Tree with hidden items shown). */
+  hidden: boolean;
   children: TreeEntry[];
+}
+
+/** A Folder's manifest, `liv-doc-main.md` (only in a Tree with hidden items shown). */
+export interface TreeManifest {
+  kind: "manifest";
+  name: string;
+  path: string;
+}
+
+/** A file that is not a Document: an image, an attachment, any other (only in a Tree with hidden items shown). */
+export interface TreeFile {
+  kind: "file";
+  name: string;
+  path: string;
 }
 
 export interface TreeDocument {
@@ -24,6 +41,8 @@ export interface TreeDocument {
   /** Its file name on disk, with `.md`. */
   name: string;
   path: string;
+  /** Whether its Folder's manifest hides it (only in a Tree with hidden items shown). */
+  hidden: boolean;
   /**
    * The date the Tree shows: its frontmatter `timestamp` as written (`YYYY-MM-DD`, or `YYYY-MM-DDTHH:mm` to the minute,
    * never converted to another time zone, as the original), else when its file was last modified (ms since the epoch).
@@ -65,7 +84,7 @@ export class NotFound extends Error {
 }
 
 /** Why a name or a change is refused; each reason has a translated message in the View. */
-export type RefusalReason = "empty" | "characters" | "edges" | "extension" | "reserved" | "taken" | "invalidManifest" | "intoItself" | "missing";
+export type RefusalReason = "empty" | "characters" | "edges" | "extension" | "reserved" | "taken" | "invalidManifest" | "intoItself" | "missing" | "reservedFolder";
 
 /** A new entry refused: its name breaks the naming rule, or its Folder's manifest is invalid. */
 export class Refused extends Error {
@@ -87,24 +106,44 @@ export const documentFile = (name: string) => `${name}.md`;
  * For a Document, `name` is the Name the User typed and the entry's name is `<name>.md`; a Name ending in `.md` (any
  * case) is refused, so no file is ever named `x.md.md`.
  */
-export function refusalOf(kind: "document" | "folder", name: string, siblings: string[]): RefusalReason | null {
+export function refusalOf(kind: "document" | "folder", name: string, siblings: string[], parent?: string): RefusalReason | null {
   if (name === "") return "empty";
   if (/[/\\:*?"<>|]/.test(name)) return "characters";
   if (/^[ .]|[ .]$/.test(name)) return "edges";
   if (kind === "document" && name.toLowerCase().endsWith(".md")) return "extension";
+  if (parent !== undefined && (isInsideReserved(parent) || (kind === "folder" && parent === "" && isReservedFolder(name)))) return "reservedFolder";
   const entry = (kind === "document" ? documentFile(name) : name).toLowerCase();
   if (entry === FOLDER_MANIFEST) return "reserved";
   if (siblings.some((sibling) => sibling.toLowerCase() === entry)) return "taken";
   return null;
 }
 
+/** `images/` and `files/` at the Project root hold pasted images and attachments: they cannot be renamed, moved or deleted, nor receive new entries. */
+export const isReservedFolder = (path: string) => path === "images" || path === "files";
+
+/** Whether `path` is a reserved Folder or inside one. */
+export const isInsideReserved = (path: string) => isReservedFolder(path) || path.startsWith("images/") || path.startsWith("files/");
+
+/** What deleting an entry would remove, to confirm with the User. */
+export interface Deletion {
+  /** What goes with it: for a Document 1/0/0; for a Folder, at any depth, its Documents (manifests excepted), its images and its other files. */
+  documents: number;
+  images: number;
+  others: number;
+  /** The Documents outside it with at least one Link (an Image does not count) to it or, for a Folder, to anything inside it. */
+  linking: number;
+}
+
 export interface Project {
-  /** The Folders and Documents, ordered as their Folder manifests say, hidden entries left out. */
-  tree(): Promise<TreeEntry[]>;
+  /**
+   * The Folders and Documents, ordered as their Folder manifests say, hidden entries left out. With `hidden`, the hidden
+   * entries are there too (flagged, at their place), each Folder's manifest comes first and its other files last.
+   */
+  tree(options?: { hidden?: boolean }): Promise<TreeEntry[]>;
   /** A Document's text and version; rejects with NotFound when it does not exist. Other failures propagate unchanged. */
   read(path: string): Promise<DocumentText>;
-  /** An image's bytes, exactly as on disk; rejects with NotFound when it does not exist. */
-  readImage(path: string): Promise<Uint8Array>;
+  /** Any file's bytes, exactly as on disk (an image, an attachment); rejects with NotFound when it does not exist. */
+  readBytes(path: string): Promise<Uint8Array>;
   /** Writes a Document read at `version`; resolves with its new version, or rejects with a Conflict. */
   save(path: string, text: string, version: string): Promise<string>;
   /**
@@ -130,6 +169,19 @@ export interface Project {
    * order, if it has one. Resolves with the new path. Rejects with Refused.
    */
   move(path: string, folder: string, position?: { before: string } | { after: string }): Promise<string>;
+  /**
+   * Hides or shows the entry at `path`: its name is added to, or taken out of, its Folder manifest's `hidden` list (a
+   * Folder without a manifest gets one). Rejects with Refused ("reserved" for a manifest, "missing", "invalidManifest").
+   */
+  setHidden(path: string, hidden: boolean): Promise<void>;
+  /** What deleting the entry at `path` removes, and how many Documents link to it. Rejects with Refused("missing"). */
+  deletion(path: string): Promise<Deletion>;
+  /**
+   * Deletes the Document, or the Folder with everything in it, for good. Its name leaves its Folder manifest, and the
+   * Links to it in the other Documents become their text. Rejects with Refused ("reserved", "reservedFolder", "missing",
+   * "invalidManifest").
+   */
+  remove(path: string): Promise<void>;
 }
 
 export interface Changes {
@@ -148,7 +200,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
   /** Creates the entry `entry` (a file, or a Folder holding its manifest) in `parent`, after the naming rule and its Folder's manifest. */
   async function create(kind: "document" | "folder", parent: string, name: string, entry: string, content: string): Promise<string> {
     const siblings = (await listChildren(parent)).map((entry) => nameOf(entry.path));
-    const reason = refusalOf(kind, name, siblings);
+    const reason = refusalOf(kind, name, siblings, parent);
     if (reason) throw new Refused(reason);
     const manifestPath = manifestPathOf(parent);
     const manifest = await readOrNull(manifestPath);
@@ -298,7 +350,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       gone.clear();
       return { tree, documents };
     },
-    async tree() {
+    async tree(options = {}) {
       const entries = await module.files.list(folder);
       const manifests = new Map<string, Manifest>();
       for (const entry of entries) {
@@ -314,7 +366,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
           dates.set(entry.path, created ? { kind: "created", at: created } : { kind: "modified", at: entry.modified });
         }),
       );
-      return treeOf(entries, "", manifests, dates);
+      return treeOf(entries, "", manifests, dates, options.hidden ?? false);
     },
     async read(path) {
       try {
@@ -324,7 +376,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
         throw missing(error, path);
       }
     },
-    async readImage(path) {
+    async readBytes(path) {
       try {
         const { content } = await module.files.read(folder, path, { as: "bytes" });
         // The Test Host hands the bytes over as a JSON object ({"0": 137, ...}); a browser Host as a Uint8Array.
@@ -341,11 +393,12 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
     },
     async rename(path, name) {
       if (nameOf(path).toLowerCase() === FOLDER_MANIFEST) throw new Refused("reserved");
+      if (isReservedFolder(path)) throw new Refused("reservedFolder");
       const isFolder = await isFolderAt(path);
       const parent = parentOf(path);
       const old = nameOf(path);
       const siblings = (await listChildren(parent)).map((entry) => nameOf(entry.path)).filter((each) => each !== old);
-      const reason = refusalOf(isFolder ? "folder" : "document", name, siblings);
+      const reason = refusalOf(isFolder ? "folder" : "document", name, siblings, parent);
       if (reason) throw new Refused(reason);
       const entry = isFolder ? name : documentFile(name);
       if (entry === old) return path;
@@ -357,7 +410,9 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
     },
     async move(path, destination, position) {
       if (nameOf(path).toLowerCase() === FOLDER_MANIFEST) throw new Refused("reserved");
+      if (isReservedFolder(path) || isInsideReserved(destination)) throw new Refused("reservedFolder");
       const isFolder = await isFolderAt(path);
+      if (isFolder && destination === "" && isReservedFolder(nameOf(path))) throw new Refused("reservedFolder");
       if (isFolder && (destination === path || destination.startsWith(`${path}/`))) throw new Refused("intoItself");
       const source = parentOf(path);
       const name = nameOf(path);
@@ -381,6 +436,62 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
         await update(manifestPathOf(source), (text) => (text && removedFrom(text, name)) ?? null);
       });
       return to;
+    },
+    async setHidden(path, hidden) {
+      const name = nameOf(path);
+      if (name.toLowerCase() === FOLDER_MANIFEST) throw new Refused("reserved");
+      await isFolderAt(path);
+      const parent = parentOf(path);
+      await requireValidManifest(parent);
+      await update(manifestPathOf(parent), (text) => {
+        if (text === null) return hidden ? `---\n${stringify({ order: [], hidden: [name] }, { lineWidth: 0 })}---\n` : null;
+        return (
+          editedFields(text, (fields) => {
+            const listed = Array.isArray(fields.hidden) ? fields.hidden : [];
+            if (listed.includes(name) === hidden) return null;
+            return { ...fields, hidden: hidden ? [...listed, name] : listed.filter((item) => item !== name) };
+          }) ?? null
+        );
+      });
+    },
+    async deletion(path) {
+      const isFolder = await isFolderAt(path);
+      const before = await module.files.list(folder);
+      const goes = deletedBy(path, isFolder);
+      const counts = { documents: 0, images: 0, others: 0 };
+      for (const entry of before) {
+        const name = nameOf(entry.path);
+        if (entry.kind !== "file" || !goes(entry.path) || name === FOLDER_MANIFEST || name === ".DS_Store") continue;
+        if (isDocument(name)) counts.documents++;
+        else if (isImageName(name)) counts.images++;
+        else counts.others++;
+      }
+      let linking = 0;
+      for (const entry of before) {
+        if (entry.kind !== "file" || goes(entry.path) || !isDocument(nameOf(entry.path))) continue;
+        const text = (await readOrNull(entry.path))?.content;
+        if (text !== undefined && unlinkDeletedLinks(text, entry.path, goes) !== text) linking++;
+      }
+      return { ...counts, linking };
+    },
+    async remove(path) {
+      const name = nameOf(path);
+      if (name.toLowerCase() === FOLDER_MANIFEST) throw new Refused("reserved");
+      if (isReservedFolder(path)) throw new Refused("reservedFolder");
+      const isFolder = await isFolderAt(path);
+      const parent = parentOf(path);
+      await requireValidManifest(parent);
+      const before = await module.files.list(folder);
+      const goes = deletedBy(path, isFolder);
+      await module.files.delete(folder, path);
+      await update(manifestPathOf(parent), (text) => (text && removedFrom(text, name)) ?? null);
+      for (const entry of before) {
+        if (entry.kind !== "file" || goes(entry.path) || !isDocument(nameOf(entry.path))) continue;
+        await update(entry.path, (text) => (text === null ? null : unlinkDeletedLinks(text, entry.path, goes)));
+      }
+      const after = await module.files.list(folder);
+      // A Folder emptied by the deletion is gone with it.
+      for (const entry of before) if (goes(entry.path) || (entry.kind === "folder" && !after.some((each) => each.path === entry.path))) gone.add(entry.path);
     },
     async save(path, text, version) {
       try {
@@ -415,6 +526,9 @@ const join = (parent: string, name: string) => (parent === "" ? name : `${parent
 const manifestPathOf = (parent: string) => join(parent, FOLDER_MANIFEST);
 const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+
+/** Whether a Project path is the entry at `path` or, for a Folder, inside it. */
+const deletedBy = (path: string, isFolder: boolean) => (each: string) => each === path || (isFolder && each.startsWith(`${path}/`));
 
 const isDocument = (name: string) => name.toLowerCase().endsWith(".md") && name !== FOLDER_MANIFEST;
 
@@ -495,18 +609,25 @@ function createdOf(text: string): string | null {
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 
-/** The entries directly in the Folder at `path`: custom order first, then Folders, then Documents. */
-function treeOf(entries: FolderEntry[], path: string, manifests: Map<string, Manifest>, dates: Map<string, TreeDate>): TreeEntry[] {
+/**
+ * The entries directly in the Folder at `path`: custom order first, then Folders, then Documents. With `all`, hidden
+ * entries are kept (flagged), the Folder manifest comes first and the other files last, alphabetical ignoring case.
+ */
+function treeOf(entries: FolderEntry[], path: string, manifests: Map<string, Manifest>, dates: Map<string, TreeDate>, all: boolean): TreeEntry[] {
   const manifest = manifests.get(path) ?? { order: [], hidden: [] };
   const children: TreeEntry[] = [];
+  const manifestEntries: TreeEntry[] = [];
+  const files: TreeEntry[] = [];
   for (const entry of entries) {
     if (parentOf(entry.path) !== path) continue;
     const name = nameOf(entry.path);
-    if (manifest.hidden.includes(name)) continue;
-    if (entry.kind === "folder") children.push({ kind: "folder", name, path: entry.path, children: treeOf(entries, entry.path, manifests, dates) });
-    else if (isDocument(name)) children.push({ kind: "document", name, path: entry.path, date: dates.get(entry.path) ?? { kind: "modified", at: entry.modified } });
+    const hidden = manifest.hidden.includes(name);
+    if (name === ".DS_Store" || (hidden && !all)) continue;
+    if (entry.kind === "folder") children.push({ kind: "folder", name, path: entry.path, hidden, children: treeOf(entries, entry.path, manifests, dates, all) });
+    else if (isDocument(name)) children.push({ kind: "document", name, path: entry.path, hidden, date: dates.get(entry.path) ?? { kind: "modified", at: entry.modified } });
+    else if (all) (name === FOLDER_MANIFEST ? manifestEntries : files).push({ kind: name === FOLDER_MANIFEST ? "manifest" : "file", name, path: entry.path });
   }
-  return ordered(children, manifest.order);
+  return [...manifestEntries, ...ordered(children, manifest.order), ...files.sort(byName)];
 }
 
 /** `entries` as a Folder shows them: those named in `order` first, in that order, then Folders, then Documents, alphabetical ignoring case. */

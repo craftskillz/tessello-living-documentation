@@ -163,19 +163,51 @@ function rewriteTarget(target: string, fileOldPath: string, fileNewPath: string,
   return relative + trailing + suffix;
 }
 
-/** Applies `edit` to every line outside fenced code (``` or ~~~). */
-function editOutsideFences(text: string, edit: (line: string) => string): string {
+/** Applies `edit` to every line outside fenced code (``` or ~~~); a line for which it returns null is dropped. */
+function editOutsideFences(text: string, edit: (line: string) => string | null): string {
   let fence: string | null = null;
   return text
     .split("\n")
-    .map((line) => {
+    .flatMap((line) => {
       const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
       if (marker) {
         if (fence === null) fence = marker[1]![0]!;
         else if (marker[1]![0] === fence) fence = null;
-        return line;
+        return [line];
       }
-      return fence === null ? edit(line) : line;
+      if (fence !== null) return [line];
+      const edited = edit(line);
+      return edited === null ? [] : [edited];
     })
     .join("\n");
+}
+
+/** The Project path a link target written in the file at `fileRel` points at; null for an external target, an anchor or nothing. */
+function targetPath(target: string, fileRel: string): string | null {
+  if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(target)) return null;
+  const doc = /[?&]doc=([^&#]+)/.exec(target);
+  if (doc) return `${decode(decode(doc[1]!))}.md`;
+  const cut = target.search(/[?#]/);
+  const pathPart = cut === -1 ? target : target.slice(0, cut);
+  if (!pathPart) return null;
+  return resolveFrom(pathPart.startsWith("/") ? [] : dirOf(fileRel), pathPart)?.join("/") ?? null;
+}
+
+/**
+ * The Markdown `text` of the file at `fileRel` with its Links to a deleted entry (`isDeleted`, given a Project path)
+ * replaced by their text, and the reference definitions pointing to one dropped; Images are kept. Byte for byte `text`
+ * when nothing changes.
+ */
+export function unlinkDeletedLinks(text: string, fileRel: string, isDeleted: (path: string) => boolean): string {
+  const deleted = (target: string) => {
+    const path = targetPath(target, fileRel);
+    return path !== null && isDeleted(path);
+  };
+  return editOutsideFences(text, (line) => {
+    const definition = /^(\s{0,3}\[[^\]]+\]:\s*)(\S+)/.exec(line);
+    if (definition && deleted(definition[2]!)) return null;
+    return line.replace(/(!?)\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (link, bang: string, label: string, target: string) =>
+      !bang && deleted(target) ? label : link,
+    );
+  });
 }

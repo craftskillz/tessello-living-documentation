@@ -21,6 +21,8 @@ export interface DisplayPreferences {
   lines: boolean;
   /** A pure white page, for screen captures. */
   whiteBackground: boolean;
+  /** Hidden Folders and Documents, Folder manifests and other files shown in the Tree. */
+  showHidden: boolean;
   /** The table of contents: open or closed, and its width in pixels (160–400). */
   toc: { open: boolean; width: number };
 }
@@ -45,7 +47,7 @@ export interface Projects {
   /** The User's display preferences; defaults when none were kept or the kept value is malformed. */
   preferences(): Promise<DisplayPreferences>;
   /** Changes some preferences, keeps the others; resolves with all of them. A TOC width is clamped to 160–400 and rounded. */
-  setPreferences(changes: { lines?: boolean; whiteBackground?: boolean; toc?: { open?: boolean; width?: number } }): Promise<DisplayPreferences>;
+  setPreferences(changes: { lines?: boolean; whiteBackground?: boolean; showHidden?: boolean; toc?: { open?: boolean; width?: number } }): Promise<DisplayPreferences>;
 }
 
 const KEY = "projects";
@@ -81,6 +83,7 @@ function readPreferences(value: Json): DisplayPreferences {
   return {
     lines: typeof raw.lines === "boolean" ? raw.lines : false,
     whiteBackground: typeof raw.whiteBackground === "boolean" ? raw.whiteBackground : false,
+    showHidden: typeof raw.showHidden === "boolean" ? raw.showHidden : false,
     toc: {
       open: typeof toc.open === "boolean" ? toc.open : false,
       width: typeof toc.width === "number" && Number.isFinite(toc.width) ? clampTocWidth(toc.width) : TOC_WIDTH.default,
@@ -97,6 +100,7 @@ const folderOf = (project: ProjectInfo): Folder => ({ id: project.id, name: proj
 function firstDocument(entries: TreeEntry[]): string | null {
   for (const entry of entries) {
     if (entry.kind === "document") return entry.path;
+    if (entry.kind !== "folder") continue;
     const inside = firstDocument(entry.children);
     if (inside) return inside;
   }
@@ -118,12 +122,13 @@ export function createProjects(module: ConnectedModule): Projects {
       const next: DisplayPreferences = {
         lines: changes.lines ?? kept.lines,
         whiteBackground: changes.whiteBackground ?? kept.whiteBackground,
+        showHidden: changes.showHidden ?? kept.showHidden,
         toc: {
           open: changes.toc?.open ?? kept.toc.open,
           width: changes.toc?.width !== undefined && Number.isFinite(changes.toc.width) ? clampTocWidth(changes.toc.width) : kept.toc.width,
         },
       };
-      await module.storage.set(DISPLAY_KEY, { lines: next.lines, whiteBackground: next.whiteBackground, toc: { ...next.toc } });
+      await module.storage.set(DISPLAY_KEY, { lines: next.lines, whiteBackground: next.whiteBackground, showHidden: next.showHidden, toc: { ...next.toc } });
       return next;
     },
     async connect() {
@@ -159,7 +164,7 @@ export function createProjects(module: ConnectedModule): Projects {
       const tree = await openProject(module, folderOf(project)).tree();
       const last = (await read()).lastOpened[project.id];
       const exists = (entries: TreeEntry[]): boolean =>
-        entries.some((entry) => (entry.kind === "document" ? entry.path === last : exists(entry.children)));
+        entries.some((entry) => (entry.kind === "document" ? entry.path === last : entry.kind === "folder" && exists(entry.children)));
       return last !== undefined && exists(tree) ? last : firstDocument(tree);
     },
     async reconnect(project) {

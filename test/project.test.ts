@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { type ConnectedModule, connect, TesselloError } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
-import { Conflict, NotFound, openProject, Refused, refusalOf, type TreeEntry } from "../src/lib/project.ts";
+import { Conflict, NotFound, openProject, Refused, refusalOf, isReservedFolder, type TreeEntry } from "../src/lib/project.ts";
 
 /** A Project opened on a folder holding `files`, with the Test Host to change its disk as an agent would. */
 async function projectOf(files: Record<string, string | Uint8Array> = {}, options?: { now?: () => Date; wrap?: (module: ConnectedModule) => ConnectedModule }) {
@@ -156,13 +156,13 @@ describe("reading a missing file or an image", () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00, 0xc3, 0x28]);
     const { project } = await projectOf({ "images/a.png": png });
 
-    assert.deepEqual(await project.readImage("images/a.png"), png);
+    assert.deepEqual(await project.readBytes("images/a.png"), png);
   });
 
   test("reading an image that does not exist rejects with NotFound carrying its path", async () => {
     const { project } = await projectOf();
 
-    const refused = await project.readImage("images/gone.png").catch((error: unknown) => error);
+    const refused = await project.readBytes("images/gone.png").catch((error: unknown) => error);
 
     assert.ok(refused instanceof NotFound);
     assert.equal(refused.path, "images/gone.png");
@@ -853,5 +853,300 @@ describe("links follow a rename or a move", () => {
     await project.move("guide/a.md", "");
 
     assert.deepEqual((await project.check()).documents, []);
+  });
+});
+
+/** The Tree as lines with `{ hidden: true }`: "(h)" marks a hidden entry, "[manifest]" and "[file]" the other kinds. */
+const everything = (entries: TreeEntry[], depth = 0): string[] =>
+  entries.flatMap((entry) => {
+    const indent = "  ".repeat(depth);
+    if (entry.kind === "manifest") return [`${indent}${entry.name} [manifest]`];
+    if (entry.kind === "file") return [`${indent}${entry.name} [file]`];
+    const mark = entry.hidden ? " (h)" : "";
+    return entry.kind === "folder" ? [`${indent}${entry.name}/${mark}`, ...everything(entry.children, depth + 1)] : [`${indent}${entry.name}${mark}`];
+  });
+
+describe("the Tree with hidden items shown", () => {
+  const files = {
+    "liv-doc-main.md": "---\norder:\n  - zeta.md\nhidden:\n  - drafts\n  - secret.md\n  - images\n---\n",
+    "alpha.md": "",
+    "zeta.md": "",
+    "secret.md": "",
+    "drafts/d.md": "",
+    "drafts/liv-doc-main.md": "---\norder: []\nhidden: []\n---\n",
+    "images/b.png": "x",
+    "Notes.txt": "x",
+    "archive/x.md": "",
+    ".DS_Store": "x",
+    "archive/.DS_Store": "x",
+    "archive/Data.csv": "x",
+    "archive/a.csv": "x",
+  };
+
+  test("hidden entries come back flagged at their place, the manifest first and the other files last", async () => {
+    const { project } = await projectOf(files);
+
+    assert.deepEqual(everything(await project.tree({ hidden: true })), [
+      "liv-doc-main.md [manifest]",
+      "zeta.md",
+      "archive/",
+      "  x.md",
+      "  a.csv [file]",
+      "  Data.csv [file]",
+      "drafts/ (h)",
+      "  liv-doc-main.md [manifest]",
+      "  d.md",
+      "images/ (h)",
+      "  b.png [file]",
+      "alpha.md",
+      "secret.md (h)",
+      "Notes.txt [file]",
+    ]);
+  });
+
+  test("without the option the Tree is as before: no hidden entry, no manifest, no other file", async () => {
+    const { project } = await projectOf(files);
+
+    assert.deepEqual(outline(await project.tree()), ["zeta.md", "archive/", "  x.md", "alpha.md"]);
+  });
+
+  test("a hidden entry listed in the custom order keeps its place there", async () => {
+    const { project } = await projectOf({ "liv-doc-main.md": "---\norder:\n  - b.md\n  - a.md\nhidden:\n  - b.md\n---\n", "a.md": "", "b.md": "", "c.md": "" });
+
+    assert.deepEqual(everything(await project.tree({ hidden: true })), ["liv-doc-main.md [manifest]", "b.md (h)", "a.md", "c.md"]);
+  });
+});
+
+describe("hiding and showing", () => {
+  const manifestOf = (host: { folders: { read(d: never, p: string): string | null } }, disk: unknown, path: string) => host.folders.read(disk as never, path);
+
+  test("hiding adds the name to the Folder manifest's hidden list, keeping the rest; showing takes it out", async () => {
+    const { host, disk, project } = await projectOf({
+      "guide/liv-doc-main.md": "---\ntitle: Guide\norder:\n  - a.md\nhidden:\n  - old.md\n---\nBody.\n",
+      "guide/a.md": "",
+    });
+
+    await project.setHidden("guide/a.md", true);
+    assert.equal(manifestOf(host, disk, "guide/liv-doc-main.md"), "---\ntitle: Guide\norder:\n  - a.md\nhidden:\n  - old.md\n  - a.md\n---\nBody.\n");
+    assert.deepEqual(outline(await project.tree()), ["guide/"]);
+
+    await project.setHidden("guide/a.md", false);
+    assert.equal(manifestOf(host, disk, "guide/liv-doc-main.md"), "---\ntitle: Guide\norder:\n  - a.md\nhidden:\n  - old.md\n---\nBody.\n");
+    assert.deepEqual(outline(await project.tree()), ["guide/", "  a.md"]);
+  });
+
+  test("a Folder without a manifest gets one; a Folder can be hidden too", async () => {
+    const { host, disk, project } = await projectOf({ "guide/a.md": "", "b.md": "" });
+
+    await project.setHidden("guide", true);
+
+    assert.equal(manifestOf(host, disk, "liv-doc-main.md"), "---\norder: []\nhidden:\n  - guide\n---\n");
+    assert.deepEqual(outline(await project.tree()), ["b.md"]);
+  });
+
+  test("showing what is not hidden writes nothing; hiding twice lists it once", async () => {
+    const { host, disk, project } = await projectOf({ "a.md": "" });
+
+    await project.setHidden("a.md", false);
+    assert.equal(manifestOf(host, disk, "liv-doc-main.md"), null);
+    await project.setHidden("a.md", true);
+    await project.setHidden("a.md", true);
+    assert.equal(manifestOf(host, disk, "liv-doc-main.md"), "---\norder: []\nhidden:\n  - a.md\n---\n");
+  });
+
+  test("images and files at the root can be hidden", async () => {
+    const { project } = await projectOf({ "images/a.png": "x", "files/b.zip": "x" });
+
+    await project.setHidden("images", true);
+    await project.setHidden("files", true);
+
+    assert.deepEqual(everything(await project.tree({ hidden: true })), ["liv-doc-main.md [manifest]", "files/ (h)", "  b.zip [file]", "images/ (h)", "  a.png [file]"]);
+  });
+
+  test("is refused for a manifest, for a missing entry and in a Folder whose manifest is invalid", async () => {
+    const { host, disk, project } = await projectOf({ "a.md": "", "bad/liv-doc-main.md": "no frontmatter", "bad/x.md": "" });
+
+    await assert.rejects(project.setHidden("liv-doc-main.md", true), { reason: "reserved" });
+    await assert.rejects(project.setHidden("gone.md", true), { reason: "missing" });
+    await assert.rejects(project.setHidden("bad/x.md", true), { reason: "invalidManifest" });
+    assert.equal(manifestOf(host, disk, "bad/liv-doc-main.md"), "no frontmatter");
+  });
+
+  test("the Module's own manifest write is not reported as an agent's edit", async () => {
+    const { project } = await projectOf({ "a.md": "" });
+    await project.check();
+
+    await project.setHidden("a.md", true);
+
+    assert.deepEqual((await project.check()).documents, []);
+  });
+});
+
+describe("what deleting would remove", () => {
+  test("a Document counts as one Document", async () => {
+    const { project } = await projectOf({ "a.md": "" });
+
+    assert.deepEqual(await project.deletion("a.md"), { documents: 1, images: 0, others: 0, linking: 0 });
+  });
+
+  test("a Folder counts its Documents, images and other files at any depth, manifests excepted", async () => {
+    const { project } = await projectOf({
+      "guide/liv-doc-main.md": "---\norder: []\n---\n",
+      "guide/a.md": "",
+      "guide/b.MD": "",
+      "guide/sub/liv-doc-main.md": "---\norder: []\n---\n",
+      "guide/sub/c.md": "",
+      "guide/sub/d.md": "",
+      "guide/p.png": "x",
+      "guide/sub/q.JPG": "x",
+      "guide/sub/r.svg": "x",
+      "guide/notes.txt": "x",
+      "other.md": "",
+    });
+
+    assert.deepEqual(await project.deletion("guide"), { documents: 4, images: 3, others: 1, linking: 0 });
+  });
+
+  test("linking counts the Documents outside with a Link to the Document or to anything inside the Folder, once each", async () => {
+    const { project } = await projectOf({
+      "guide/a.md": "[self](b.md) [out](../x.md)",
+      "guide/b.md": "",
+      "one.md": "[a](guide/a.md) and [b](guide/b.md) and [dir](guide)",
+      "two.md": "![img](guide/a.md) only an image",
+      "deep/three.md": "[a](../guide/b.md)",
+      "four.md": "[x](x.md)",
+      "x.md": "",
+    });
+
+    assert.deepEqual(await project.deletion("guide"), { documents: 2, images: 0, others: 0, linking: 2 });
+    assert.equal((await project.deletion("guide/b.md")).linking, 3); // guide/a.md is outside b.md
+    assert.equal((await project.deletion("x.md")).linking, 2);
+  });
+
+  test("is refused when nothing is there", async () => {
+    const { project } = await projectOf();
+
+    await assert.rejects(project.deletion("gone.md"), { reason: "missing" });
+  });
+});
+
+describe("deleting", () => {
+  test("a Document goes; its links elsewhere become plain text, its reference definitions are dropped, images and code stay", async () => {
+    const { host, disk, project } = await projectOf({
+      "guide/old.md": "# Old\n",
+      "other.md": "See [the old](guide/old.md#top) and [site](https://x.org).\n\n[ref]: guide/old.md\n[keep]: new.md\n![pic](guide/old.md)\n```\n[code](guide/old.md)\n```\n",
+      "guide/sibling.md": "[o](old.md) [d](/?doc=guide%252Fold)",
+      "new.md": "",
+    });
+
+    await project.remove("guide/old.md");
+
+    assert.equal(host.folders.read(disk, "guide/old.md"), null);
+    assert.equal(
+      host.folders.read(disk, "other.md"),
+      "See the old and [site](https://x.org).\n\n[keep]: new.md\n![pic](guide/old.md)\n```\n[code](guide/old.md)\n```\n",
+    );
+    assert.equal(host.folders.read(disk, "guide/sibling.md"), "o d");
+  });
+
+  test("a Folder goes with everything in it; links to anything inside become text, links inside it are not rewritten", async () => {
+    const { host, disk, project } = await projectOf({
+      "guide/a.md": "[b](b.md)",
+      "guide/sub/b.md": "",
+      "guide/pic.png": "x",
+      "keep.md": "[a](guide/a.md) [b](guide/sub/b.md) [g](guide) [p](guide/pic.png)",
+    });
+
+    await project.remove("guide");
+
+    assert.deepEqual(outline(await project.tree()), ["keep.md"]);
+    assert.equal(host.folders.read(disk, "guide/a.md"), null);
+    assert.equal(host.folders.read(disk, "guide/pic.png"), null);
+    assert.equal(host.folders.read(disk, "keep.md"), "a b g p");
+  });
+
+  test("its name leaves the parent manifest's order and hidden lists, and a hidden entry can be deleted", async () => {
+    const { host, disk, project } = await projectOf({
+      "liv-doc-main.md": "---\norder:\n  - a.md\n  - b.md\nhidden:\n  - a.md\n---\nBody\n",
+      "a.md": "",
+      "b.md": "",
+    });
+
+    await project.remove("a.md");
+
+    assert.equal(host.folders.read(disk, "a.md"), null);
+    assert.equal(host.folders.read(disk, "liv-doc-main.md"), "---\norder:\n  - b.md\nhidden: []\n---\nBody\n");
+  });
+
+  test("the Module's own deletions and rewrites are not reported as an agent's edit", async () => {
+    const { project } = await projectOf({ "old.md": "", "guide/a.md": "", "other.md": "[o](old.md) [a](guide/a.md)", "liv-doc-main.md": "---\norder:\n  - old.md\n---\n" });
+    await project.check();
+
+    await project.remove("old.md");
+    await project.remove("guide");
+
+    assert.deepEqual(await project.check(), { tree: true, documents: [] });
+  });
+
+  test("a file an agent writes meanwhile is read again and rewritten once", async () => {
+    const { host, disk, project } = await projectOf({ "old.md": "", "other.md": "[o](old.md)\n" });
+    host.folders.write(disk, "other.md", "[o](old.md)\nAn agent's line.\n");
+
+    await project.remove("old.md");
+
+    assert.equal(host.folders.read(disk, "other.md"), "o\nAn agent's line.\n");
+  });
+
+  test("is refused for a manifest, a reserved Folder, a missing entry and an invalid parent manifest", async () => {
+    const { host, disk, project } = await projectOf({ "liv-doc-main.md": "---\norder: []\n---\n", "images/a.png": "x", "files/b.zip": "x", "bad/liv-doc-main.md": "no", "bad/x.md": "" });
+
+    await assert.rejects(project.remove("liv-doc-main.md"), { reason: "reserved" });
+    await assert.rejects(project.remove("images"), { reason: "reservedFolder" });
+    await assert.rejects(project.remove("files"), { reason: "reservedFolder" });
+    await assert.rejects(project.remove("gone.md"), { reason: "missing" });
+    await assert.rejects(project.remove("bad/x.md"), { reason: "invalidManifest" });
+    assert.notEqual(host.folders.read(disk, "bad/x.md"), null);
+    assert.notEqual(host.folders.read(disk, "images/a.png"), null);
+  });
+
+  test("a file inside images can still be deleted", async () => {
+    const { host, disk, project } = await projectOf({ "images/a.png": "x" });
+
+    await project.remove("images/a.png");
+
+    assert.equal(host.folders.read(disk, "images/a.png"), null);
+  });
+});
+
+describe("the reserved folders images and files", () => {
+  test("are exactly images and files at the Project root", () => {
+    assert.equal(isReservedFolder("images"), true);
+    assert.equal(isReservedFolder("files"), true);
+    assert.equal(isReservedFolder("Images"), false);
+    assert.equal(isReservedFolder("guide/images"), false);
+    assert.equal(isReservedFolder("images/sub"), false);
+  });
+
+  test("nothing is created in them, and no Folder is created with their name at the root", async () => {
+    const { project } = await projectOf({ "images/a.png": "x", "images/sub/b.png": "x", "guide/x.md": "" });
+
+    await assert.rejects(project.createDocument("images", "note"), { reason: "reservedFolder" });
+    await assert.rejects(project.createFolder("images", "sub2"), { reason: "reservedFolder" });
+    await assert.rejects(project.createFolder("images/sub", "deeper"), { reason: "reservedFolder" });
+    await assert.rejects(project.createFolder("", "files"), { reason: "reservedFolder" });
+    await assert.rejects(project.createFolder("", "images"), { reason: "reservedFolder" });
+    assert.equal(await project.createFolder("guide", "images"), "guide/images");
+  });
+
+  test("they cannot be renamed or moved, nothing is renamed to their name at the root, nothing moves into them", async () => {
+    const { project } = await projectOf({ "images/a.png": "x", "guide/files/c.md": "", "guide/other/d.md": "", "x.md": "", "top/z.md": "" });
+
+    await assert.rejects(project.rename("images", "pics"), { reason: "reservedFolder" });
+    await assert.rejects(project.move("images", "guide"), { reason: "reservedFolder" });
+    await assert.rejects(project.rename("top", "images"), { reason: "reservedFolder" });
+    await assert.rejects(project.move("guide/files", ""), { reason: "reservedFolder" });
+    await assert.rejects(project.move("x.md", "images"), { reason: "reservedFolder" });
+    await assert.rejects(project.move("guide/other", "images"), { reason: "reservedFolder" });
+    assert.equal(await project.rename("guide/files", "images"), "guide/images");
   });
 });

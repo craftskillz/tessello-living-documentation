@@ -217,7 +217,7 @@ describe("renaming from the entry menu", () => {
 
     await page.getByRole("link", { name: "note.md" }).click({ button: "right" });
     const menu = page.getByRole("menu");
-    assert.deepEqual(await menu.getByRole("menuitem").allInnerTexts(), ["Rename", "Move to…"]);
+    assert.deepEqual(await menu.getByRole("menuitem").allInnerTexts(), ["Hide", "Rename", "Move to…", "Delete"]);
     await menu.getByRole("menuitem", { name: "Rename" }).click();
     const dialog = page.getByRole("dialog", { name: "Rename document" });
     const field = dialog.getByRole("textbox", { name: "New name" });
@@ -299,7 +299,7 @@ describe("renaming from the entry menu", () => {
   test("the menu and the dialog are in French", async () => {
     const { page } = await withProject({ "Intro.md": "# Intro\n", "other.md": "# Other\n" }, { locale: "fr" });
     await page.getByRole("link", { name: "other.md" }).click({ button: "right" });
-    assert.deepEqual(await page.getByRole("menu").getByRole("menuitem").allInnerTexts(), ["Renommer", "Déplacer vers…"]);
+    assert.deepEqual(await page.getByRole("menu").getByRole("menuitem").allInnerTexts(), ["Masquer", "Renommer", "Déplacer vers…", "Supprimer"]);
     await page.getByRole("menuitem", { name: "Renommer" }).click();
     const dialog = page.getByRole("dialog", { name: "Renommer le document" });
     await dialog.getByRole("textbox", { name: "Nouveau nom" }).fill("intro");
@@ -441,5 +441,255 @@ describe("drag and drop", () => {
     await toast.getByText("Could not move “x.md”.").waitFor();
     await toast.getByText("An entry with this name already exists", { exact: false }).waitFor();
     assert.equal(host.folders.read(disk, "x.md"), "# X root\n");
+  });
+});
+
+const showHidden = (page: Page, locale: "en" | "fr" = "en") =>
+  page.getByRole("button", { name: locale === "en" ? "Show hidden items" : "Afficher les éléments masqués" });
+const SECRET = "---\nhidden: [secret.md]\n---\n";
+
+describe("Show hidden items", () => {
+  test("reveals a hidden Document, the manifest (locked) and other files; it is remembered after reopening the View", async () => {
+    const { page } = await withProject({ "a.md": "# A\n", "secret.md": "# Secret\n", "liv-doc-main.md": SECRET, "notes.txt": "hello" });
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+    assert.deepEqual(await links(page).allInnerTexts(), ["a.md"]);
+    assert.equal(await showHidden(page).getAttribute("aria-pressed"), "false");
+
+    await showHidden(page).click();
+    await page.getByRole("link", { name: "notes.txt" }).waitFor();
+    assert.deepEqual(await links(page).allInnerTexts(), ["liv-doc-main.md", "a.md", "secret.md", "notes.txt"]);
+    assert.equal(await showHidden(page).getAttribute("aria-pressed"), "true");
+    assert.match(await row(page, "liv-doc-main.md").innerText(), /🔒/);
+    assert.equal(await row(page, "liv-doc-main.md").getAttribute("draggable"), null);
+    assert.equal(await row(page, "notes.txt").getAttribute("draggable"), null);
+    assert.equal(await row(page, "secret.md").evaluate((each) => getComputedStyle(each).fontStyle), "italic");
+
+    await page.reload();
+    await page.getByRole("link", { name: "notes.txt" }).waitFor();
+    assert.equal(await showHidden(page).getAttribute("aria-pressed"), "true");
+  });
+
+  test("the manifest opens read-only; a click or a right click on it or on a file offers no menu", async () => {
+    const { page } = await withProject({ "a.md": "# A\n", "liv-doc-main.md": SECRET, "notes.txt": "hello" });
+    await showHidden(page).click();
+    await page.getByRole("link", { name: "liv-doc-main.md" }).click();
+    await page.getByText("Read-only", { exact: true }).waitFor();
+    await page.getByRole("link", { name: "liv-doc-main.md" }).click({ button: "right" });
+    await page.getByRole("link", { name: "notes.txt" }).click({ button: "right" });
+    assert.equal(await page.getByRole("menu").count(), 0);
+  });
+
+  test("the button is named in French", async () => {
+    const { page } = await withProject({ "a.md": "# A\n" }, { locale: "fr" });
+    await showHidden(page, "fr").waitFor();
+  });
+});
+
+describe("Hide and Show from the entry menu", () => {
+  test("Hide removes the entry and writes the manifest's hidden list; Show brings it back", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n", "b.md": "# B\n" });
+    await page.getByRole("link", { name: "b.md" }).click({ button: "right" });
+    assert.deepEqual(await page.getByRole("menu").getByRole("menuitem").allInnerTexts(), ["Hide", "Rename", "Move to…", "Delete"]);
+    await page.getByRole("menuitem", { name: "Hide" }).click();
+    await page.getByRole("link", { name: "b.md" }).waitFor({ state: "detached" });
+    assert.match(host.folders.read(disk, "liv-doc-main.md") ?? "", /hidden:[\s\S]*b\.md/);
+    assert.equal(host.folders.read(disk, "b.md"), "# B\n");
+
+    await showHidden(page).click();
+    await page.getByRole("link", { name: "b.md" }).click({ button: "right" });
+    assert.deepEqual(await page.getByRole("menu").getByRole("menuitem").allInnerTexts(), ["Show", "Rename", "Move to…", "Delete"]);
+    await page.getByRole("menuitem", { name: "Show" }).click();
+    await until(() => !/b\.md/.test(host.folders.read(disk, "liv-doc-main.md") ?? ""));
+    await showHidden(page).click();
+    await page.getByRole("link", { name: "b.md" }).waitFor();
+  });
+
+  test("a refused Hide says so, with the reason", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n", "liv-doc-main.md": "---\norder: [unclosed\n---\n" });
+    await page.getByRole("link", { name: "a.md" }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Hide" }).click();
+    const toast = page.getByRole("status");
+    await toast.getByText("Could not hide “a.md”.").waitFor();
+    await toast.getByText("has an invalid frontmatter", { exact: false }).waitFor();
+    assert.equal(host.folders.read(disk, "liv-doc-main.md"), "---\norder: [unclosed\n---\n");
+  });
+
+  test("a reserved images folder offers only Hide, and is not a Location nor a Destination", async () => {
+    const { page } = await withProject({ "a.md": "# A\n", "guide/g.md": "# G\n", "images/p.png": "x" });
+    await showHidden(page).click();
+    await folderRow(page, "images").first().click({ button: "right" });
+    assert.deepEqual(await page.getByRole("menu").getByRole("menuitem").allInnerTexts(), ["Hide"]);
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "New folder" }).click();
+    const dialog = page.getByRole("dialog", { name: "New folder" });
+    assert.deepEqual(await dialog.getByRole("combobox", { name: "Location" }).locator("option").allInnerTexts(), ["/ (root)", "/guide"]);
+    await dialog.getByRole("combobox", { name: "Location" }).selectOption("");
+    await dialog.getByRole("textbox", { name: "Name" }).fill("images");
+    await dialog.getByRole("alert").getByText("reserved", { exact: false }).waitFor();
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("link", { name: "a.md" }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Move to…" }).click();
+    const move = page.getByRole("dialog", { name: "Move document" });
+    assert.deepEqual(await move.getByRole("combobox", { name: "Destination" }).locator("option").allInnerTexts(), ["/guide"]);
+  });
+});
+
+describe("deleting", () => {
+  const confirmation = (page: Page, title: string) => page.getByRole("dialog", { name: title });
+
+  test("the open Document from the header: the dialog counts the links, the file goes, the link becomes text, the next Document opens", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n\nsee [b](./b.md)\n", "b.md": "# B\n", "c.md": "# C\n" });
+    await page.getByRole("link", { name: "b.md" }).click();
+    await page.getByRole("heading", { level: 1, name: "B" }).waitFor();
+
+    await page.getByRole("button", { name: "Delete" }).click();
+    const dialog = confirmation(page, "Delete document");
+    await dialog.getByText("Permanently delete “b.md”?").waitFor();
+    await dialog.getByText("1 document links to it: that link will become plain text.").waitFor();
+    await dialog.getByText("This action cannot be undone.").waitFor();
+    await dialog.getByRole("button", { name: "Delete" }).click();
+
+    await dialog.waitFor({ state: "detached" });
+    await page.getByRole("heading", { level: 1, name: "C" }).waitFor();
+    assert.equal(host.folders.read(disk, "b.md"), null);
+    assert.doesNotMatch(host.folders.read(disk, "a.md") ?? "", /b\.md/);
+    assert.deepEqual(await links(page).allInnerTexts(), ["a.md", "c.md"]);
+  });
+
+  test("the last Document of the Tree: the one before opens; the only one left: a hint to choose", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n", "b.md": "# B\n" });
+    await page.getByRole("link", { name: "b.md" }).click();
+    await page.getByRole("heading", { level: 1, name: "B" }).waitFor();
+    await page.getByRole("button", { name: "Delete" }).click();
+    await confirmation(page, "Delete document").getByText("Permanently delete “b.md”?").waitFor();
+    await confirmation(page, "Delete document").getByRole("button", { name: "Delete" }).click();
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+
+    await page.getByRole("button", { name: "Delete" }).click();
+    await confirmation(page, "Delete document").getByRole("button", { name: "Delete" }).click();
+    await page.getByText("Choose a document in the Tree.").waitFor();
+    assert.equal(host.folders.read(disk, "a.md"), null);
+  });
+
+  test("a Folder from the Tree menu: counts by kind, everything goes, links into it become text", async () => {
+    const { page, host, disk } = await withProject({
+      "a.md": "# A\n\n[x](./guide/x.md)\n",
+      "guide/x.md": "# X\n",
+      "guide/y.md": "# Y\n",
+      "guide/p.png": "png",
+      "guide/n.txt": "text",
+    });
+    await page.getByRole("heading", { level: 1, name: "X" }).waitFor();
+    await folderRow(page, "guide").first().click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    const dialog = confirmation(page, "Delete folder");
+    await dialog.getByText("Permanently delete the folder “guide” and everything it contains?").waitFor();
+    await dialog.getByText("It holds 2 documents, 1 image, 1 other file.").waitFor();
+    await dialog.getByText("1 document links into it: that link will become plain text.").waitFor();
+    await dialog.getByRole("button", { name: "Delete" }).click();
+
+    await dialog.waitFor({ state: "detached" });
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+    for (const file of ["guide/x.md", "guide/y.md", "guide/p.png", "guide/n.txt"]) assert.equal(host.folders.read(disk, file), null, file);
+    assert.doesNotMatch(host.folders.read(disk, "a.md") ?? "", /guide/);
+    assert.equal(await folderRow(page, "guide").count(), 0);
+  });
+
+  test("Cancel and Escape write nothing", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n", "b.md": "# B\n" });
+    await page.getByRole("link", { name: "b.md" }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    const dialog = confirmation(page, "Delete document");
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await dialog.waitFor({ state: "detached" });
+
+    await page.getByRole("link", { name: "b.md" }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await dialog.waitFor();
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "detached" });
+    assert.equal(host.folders.read(disk, "b.md"), "# B\n");
+    assert.deepEqual(await links(page).allInnerTexts(), ["a.md", "b.md"]);
+  });
+
+  test("a hidden Document can be deleted without being shown first", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n", "secret.md": "# S\n", "liv-doc-main.md": SECRET });
+    await showHidden(page).click();
+    await page.getByRole("link", { name: "secret.md" }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await confirmation(page, "Delete document").getByRole("button", { name: "Delete" }).click();
+    await page.getByRole("link", { name: "secret.md" }).waitFor({ state: "detached" });
+    assert.equal(host.folders.read(disk, "secret.md"), null);
+  });
+
+  test("an empty Folder says so; the dialog is in French", async () => {
+    const { page } = await withProject({ "a.md": "# A\n", "vide/liv-doc-main.md": "---\n---\n" }, { locale: "fr" });
+    await showHidden(page, "fr").click();
+    await folderRow(page, "vide").first().click({ button: "right" });
+    assert.deepEqual(await page.getByRole("menu").getByRole("menuitem").allInnerTexts(), ["Masquer", "Renommer", "Déplacer vers…", "Supprimer"]);
+    await page.getByRole("menuitem", { name: "Supprimer" }).click();
+    const dialog = confirmation(page, "Supprimer le dossier");
+    await dialog.getByText("Supprimer définitivement le dossier « vide » et tout son contenu ?").waitFor();
+    await dialog.getByText("Il est vide.").waitFor();
+    await dialog.getByText("Cette action est irréversible.").waitFor();
+    await dialog.getByRole("button", { name: "Annuler" }).click();
+
+    await page.getByRole("link", { name: "a.md" }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Supprimer" }).click();
+    await confirmation(page, "Supprimer le document").getByText("Supprimer définitivement « a.md » ?").waitFor();
+  });
+});
+
+describe("other files", () => {
+  const panel = (page: Page, name: string) => page.getByRole("heading", { level: 2, name });
+
+  test("a text file is shown in place of the Document; opening a Document closes it", async () => {
+    const { page } = await withProject({ "a.md": "# A\n", "notes.txt": "hello\nworld" });
+    await showHidden(page).click();
+    await page.getByRole("link", { name: "notes.txt" }).click();
+    await panel(page, "notes.txt").waitFor();
+    assert.equal(await page.locator("pre").innerText(), "hello\nworld");
+    assert.equal(await page.getByRole("heading", { level: 1, name: "A" }).count(), 0);
+    assert.equal(await page.getByText("Truncated", { exact: false }).count(), 0);
+
+    await page.getByRole("link", { name: "a.md" }).click();
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+    assert.equal(await panel(page, "notes.txt").count(), 0);
+  });
+
+  test("a text over 1 MB is cut and says so", async () => {
+    const { page } = await withProject({ "a.md": "# A\n", "big.txt": "a".repeat(1024 * 1024 + 10) });
+    await showHidden(page).click();
+    await page.getByRole("link", { name: "big.txt" }).click();
+    await page.getByText("⚠ Truncated at 1 MB").waitFor();
+    assert.equal((await page.locator("pre").innerText()).length, 1024 * 1024);
+  });
+
+  test("a binary file offers Download, which saves it under its name", async () => {
+    const { page } = await withProject({ "a.md": "# A\n", "data.bin": new Uint8Array([0, 1, 2, 3]) });
+    await showHidden(page).click();
+    await page.getByRole("link", { name: "data.bin" }).click();
+    await page.getByText("This file cannot be shown here.").waitFor();
+    const downloading = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download" }).click();
+    assert.equal((await downloading).suggestedFilename(), "data.bin");
+    assert.equal(await page.locator("a[href]").count(), 0);
+  });
+
+  test("an image is previewed from a blob; turning Show hidden items off closes the panel", async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>';
+    const { page } = await withProject({ "a.md": "# A\n", "pic.svg": svg });
+    await showHidden(page).click();
+    await page.getByRole("link", { name: "pic.svg" }).click();
+    const image = page.getByRole("img", { name: "pic.svg" });
+    await image.waitFor();
+    assert.match((await image.getAttribute("src")) ?? "", /^blob:/);
+    await until(async () => (await image.evaluate((each: HTMLImageElement) => each.naturalWidth)) === 20);
+
+    await showHidden(page).click();
+    await image.waitFor({ state: "detached" });
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
   });
 });
