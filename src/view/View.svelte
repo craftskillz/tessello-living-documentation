@@ -6,7 +6,10 @@
   import { sideBySide } from "../lib/diff.ts";
   import { applyEdits, type TextRange } from "../lib/edits.ts";
   import { replaceSection, sectionAt } from "../lib/sections.ts";
-  import { parseDocument } from "../lib/document.ts";
+  import { parseDocument, setField } from "../lib/document.ts";
+  import { htmlTemplateOf, type HtmlTemplateId } from "../lib/htmlTemplates.ts";
+  import HtmlTemplateDialog from "./HtmlTemplateDialog.svelte";
+  import HtmlView from "./HtmlView.svelte";
   import { decorateCollapsible } from "./collapsible.ts";
   import { drawDiagrams } from "./mermaid.ts";
   import { loadImages } from "../lib/images.ts";
@@ -120,6 +123,43 @@
       : "",
   );
   const hasHeading = $derived(model ? /^ {0,3}# /m.test(model.body) : false);
+
+  /** The HTML view is open on the Document (a View state, never an address), and the template dialog with its saving state. */
+  let htmlOpen = $state(false);
+  let choosing = $state<{ saving: boolean; failure: string | null } | null>(null);
+  const templateOf = $derived(model ? htmlTemplateOf(model.htmlTemplate) : null);
+
+  /** Opens the template dialog, nothing saving and no failure yet. */
+  function openChooser() {
+    choosing = { saving: false, failure: null };
+  }
+
+  /** Writes `html_template` (only that line, version-checked); the dialog stays open on a conflict or a failure. */
+  async function chooseTemplate(id: HtmlTemplateId) {
+    if (!current || !path || !project || !choosing || choosing.saving) return;
+    if (templateOf?.id === id) return void (choosing = null);
+    const edit = setField(current.text, "html_template", id);
+    if (!edit) {
+      choosing = null;
+      htmlOpen = false;
+      report(t("htmlFixFrontmatter"));
+      startEditing();
+      return;
+    }
+    const asked = path;
+    const text = applyEdits(current.text, [edit]);
+    choosing = { saving: true, failure: null };
+    try {
+      const version = await project.save(asked, text, current.version);
+      if (path === asked) current = { text, version };
+      choosing = null;
+    } catch (reason) {
+      if (reason instanceof Conflict) {
+        if (reason.theirs && path === asked) current = reason.theirs;
+        choosing = { saving: false, failure: t("htmlChangedOnDisk") };
+      } else choosing = { saving: false, failure: t("htmlSaveFailed", { reason: reason instanceof Error ? reason.message : String(reason) }) };
+    }
+  }
 
   /** Shows `message`, the raw reason, if any, only as a detail (docs/spec/cross-cutting.md, Failures). */
   function report(message: string, reason?: unknown) {
@@ -335,6 +375,8 @@
     if (!(await leave())) return;
     stopEditing();
     closeFile();
+    htmlOpen = false;
+    choosing = null;
     path = target;
     error = null;
     detail = null;
@@ -506,6 +548,8 @@
     project = null;
     stopEditing();
     closeFile();
+    htmlOpen = false;
+    choosing = null;
     path = null;
     current = null;
     trail = [];
@@ -1424,6 +1468,22 @@
       {:else if path === null}
         <p class="muted choose">{t("chooseDocument")}</p>
       {:else if current && model}
+        {#if htmlOpen && !editing && !readOnly}
+          <HtmlView
+            {model}
+            path={path!}
+            softBreaks={settings.softBreaks}
+            readBytes={(imagePath) => project!.readBytes(imagePath)}
+            onback={() => (htmlOpen = false)}
+            onchoose={openChooser}
+            onfollow={(doc, anchor) => {
+              htmlOpen = false;
+              void follow(doc, anchor);
+            }}
+            onfile={(file) => report(t("fileUnavailable", { path: file }))}
+            onfail={report}
+          />
+        {:else}
         <!-- The header stays on top while the Document scrolls, while reading and while editing. -->
         <div class="sticky" bind:offsetHeight={headerHeight}>
         <Header
@@ -1437,6 +1497,9 @@
           treeLabels={display.treeLabels}
           {labelFilter}
           softBreaks={settings.softBreaks}
+          htmlAction={templateOf ? "view" : "generate"}
+          onhtml={() => (templateOf ? (htmlOpen = true) : openChooser())}
+          onhtmlchange={openChooser}
           onsoftbreaks={(on) => void changeSoftBreaks(on)}
           onlabels={(treeLabels) => void setDisplay({ treeLabels })}
           onfilter={setLabelFilter}
@@ -1496,6 +1559,7 @@
             sectionAt={(offset) => (readOnly || session || !current ? null : sectionAt(current.text, offset))}
             onsection={startSection}
           />
+        {/if}
         {/if}
       {/if}
     </main>
@@ -1760,6 +1824,17 @@
   onkeydown={(event) => { if (event.key === "Escape" && menu) menu = null; }}
   onpointerdown={(event) => { if (menu && !(event.target as Element).closest("[role=menu]")) menu = null; }}
 />
+
+{#if choosing && model}
+  <HtmlTemplateDialog
+    current={templateOf?.id ?? null}
+    unknown={model.htmlTemplate !== null && !templateOf ? model.htmlTemplate : null}
+    saving={choosing.saving}
+    failure={choosing.failure}
+    onchoose={(id) => void chooseTemplate(id)}
+    onclose={() => (choosing = null)}
+  />
+{/if}
 
 {#if reverting}
   <dialog use:modal aria-labelledby="revert-title" oncancel={() => (reverting = false)}>

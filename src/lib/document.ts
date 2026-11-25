@@ -2,6 +2,7 @@
 // (ADR 0004, docs/spec/frontmatter.md).
 
 import { parse, YAMLParseError } from "yaml";
+import type { TextEdit } from "./edits.ts";
 
 export type Frontmatter =
   | { valid: true; fields: Record<string, unknown> }
@@ -14,6 +15,10 @@ export interface DocumentModel {
   description: string | null;
   tags: string[];
   type: string | null;
+  /** The `html_template` field as written (trimmed), null when absent or empty. Read also from an invalid frontmatter's line-by-line fields. */
+  htmlTemplate: string | null;
+  /** The `language` field (trimmed), null when absent or empty. */
+  language: string | null;
   frontmatter: Frontmatter;
   /** The YAML between the `---` lines, as written; null without a frontmatter block. */
   frontmatterText: string | null;
@@ -39,6 +44,8 @@ export function parseDocument(text: string, path: string): DocumentModel {
     description: string(fields.description),
     tags: tagsOf(fields.tags),
     type: string(fields.type),
+    htmlTemplate: string(fields.html_template),
+    language: string(fields.language),
     frontmatter,
     frontmatterText: match ? match[1]! : null,
     frontmatterEnd: match ? match[0].length - match[2]!.length : null,
@@ -92,3 +99,26 @@ const plain = (inline: string) =>
     .trim();
 
 const fileTitle = (path: string) => path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+
+/**
+ * The edit that sets the frontmatter field `name` to `value`, null when the frontmatter is invalid YAML. An existing
+ * top-level line is replaced in place (keeping its line ending); a missing field is appended as the block's last line;
+ * a Document without a frontmatter gets one at the top. Every other byte stays (ADR 0004).
+ */
+export function setField(text: string, name: string, value: string): TextEdit | null {
+  const match = FRONTMATTER.exec(text);
+  if (!match) return { range: { from: 0, to: 0 }, text: `---\n${name}: ${value}\n---\n` };
+  if (!frontmatterOf(match[1]!).valid) return null;
+  const yamlStart = match[0].indexOf("\n") + 1;
+  const yaml = match[1]!;
+  const eol = match[0].startsWith("---\r\n") ? "\r\n" : "\n";
+  const key = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t]*:.*`, "m");
+  const line = key.exec(yaml);
+  if (line) {
+    const from = yamlStart + line.index;
+    return { range: { from, to: from + line[0].replace(/\r$/, "").length }, text: `${name}: ${value}` };
+  }
+  if (yaml === "") return { range: { from: yamlStart, to: yamlStart }, text: `${name}: ${value}${eol}` };
+  const at = yamlStart + yaml.length;
+  return { range: { from: at, to: at }, text: `${eol}${name}: ${value}` };
+}

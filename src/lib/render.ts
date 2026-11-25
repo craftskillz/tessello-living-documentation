@@ -77,6 +77,17 @@ export function renderDocument(
   labels: Partial<RenderLabels>,
   options: { frontmatter?: boolean; softBreaks: boolean },
 ): string {
+  const tree = renderDocumentTree(model, path, labels, options);
+  return unified().use(rehypeStringify, { allowDangerousHtml: true }).stringify(tree);
+}
+
+/** The hast tree `renderDocument` stringifies: what another renderer of the same Document (the HTML page) builds on. */
+export function renderDocumentTree(
+  model: DocumentModel,
+  path: string,
+  labels: Partial<RenderLabels>,
+  options: { frontmatter?: boolean; softBreaks: boolean },
+): Root {
   const all = { ...ENGLISH, ...labels };
   const documentText = `${model.frontmatterText ?? ""}\n${model.body}`;
   const tree = renderTree(model.body, path, model.bodyStart, all, "ld-", { documentText, topLevel: true, softBreaks: options.softBreaks });
@@ -86,7 +97,7 @@ export function renderDocument(
     for (const node of block.children) if (node.type === "element") node.properties.dataSrc = `0-${model.frontmatterEnd}`;
     tree.children = [...block.children, { type: "text", value: "\n" }, ...tree.children];
   }
-  return unified().use(rehypeStringify, { allowDangerousHtml: true }).stringify(tree);
+  return tree;
 }
 
 /** `text` starts at offset `bodyStart` of the Document. Each `:::compare` region is rendered apart, then swapped in. */

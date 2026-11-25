@@ -2,7 +2,8 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { parseDocument } from "../src/lib/document.ts";
+import { parseDocument, setField } from "../src/lib/document.ts";
+import { applyEdits } from "../src/lib/edits.ts";
 
 describe("the displayed title", () => {
   test("the frontmatter title first", () => {
@@ -72,5 +73,82 @@ describe("the frontmatter", () => {
     const document = parseDocument("---\r\na: 1\r\n---\r\nText", "t.md");
     assert.equal(document.frontmatterText, "a: 1");
     assert.equal(document.frontmatterEnd, 14);
+  });
+});
+
+describe("the html_template and language fields", () => {
+  test("read trimmed from the frontmatter", () => {
+    const document = parseDocument("---\nhtml_template:   article  \nlanguage: fr\n---\nText\n", "a.md");
+    assert.equal(document.htmlTemplate, "article");
+    assert.equal(document.language, "fr");
+  });
+
+  test("null when absent or empty", () => {
+    const absent = parseDocument("---\ntitle: T\n---\n", "a.md");
+    assert.equal(absent.htmlTemplate, null);
+    assert.equal(absent.language, null);
+    const empty = parseDocument("---\nhtml_template:\nlanguage: \"  \"\n---\n", "a.md");
+    assert.equal(empty.htmlTemplate, null);
+    assert.equal(empty.language, null);
+    assert.equal(parseDocument("Text\n", "a.md").htmlTemplate, null);
+  });
+
+  test("read line by line from an invalid frontmatter", () => {
+    const document = parseDocument("---\nhtml_template: article\nlanguage: fr\ntitle: [oops\n---\n", "a.md");
+    assert.equal(document.frontmatter.valid, false);
+    assert.equal(document.htmlTemplate, "article");
+    assert.equal(document.language, "fr");
+  });
+});
+
+describe("setting a frontmatter field", () => {
+  const set = (text: string, name: string, value: string) => applyEdits(text, [setField(text, name, value)!]);
+
+  test("an existing field is replaced in place, every other byte stays", () => {
+    const text = '---\n# kept comment\ntitle:   "X"  # note\nhtml_template: article\ntags: [a,   b]\n---\n# Body\n';
+    assert.equal(set(text, "html_template", "interview-sheet"), '---\n# kept comment\ntitle:   "X"  # note\nhtml_template: interview-sheet\ntags: [a,   b]\n---\n# Body\n');
+  });
+
+  test("a replaced line keeps its own CRLF line ending", () => {
+    assert.equal(set("---\r\nlanguage: en\r\nx: 1\r\n---\r\nText", "language", "fr"), "---\r\nlanguage: fr\r\nx: 1\r\n---\r\nText");
+  });
+
+  test("a field on the last line of the block is replaced", () => {
+    assert.equal(set("---\ntitle: T\nlanguage: en\n---\nText\n", "language", "fr"), "---\ntitle: T\nlanguage: fr\n---\nText\n");
+  });
+
+  test("a missing field is appended as the last line of the block", () => {
+    assert.equal(set("---\ntitle:   T  # c\n---\n# T\n", "language", "fr"), "---\ntitle:   T  # c\nlanguage: fr\n---\n# T\n");
+  });
+
+  test("appending uses CRLF when the block does", () => {
+    assert.equal(set("---\r\ntitle: T\r\n---\r\nText", "language", "fr"), "---\r\ntitle: T\r\nlanguage: fr\r\n---\r\nText");
+  });
+
+  test("appending to an empty frontmatter", () => {
+    assert.equal(set("---\n---\nText\n", "html_template", "article"), "---\nhtml_template: article\n---\nText\n");
+  });
+
+  test("a Document without a frontmatter gets one at the top", () => {
+    assert.equal(set("# Title\n\nText\n", "language", "fr"), "---\nlanguage: fr\n---\n# Title\n\nText\n");
+    assert.equal(set("", "language", "fr"), "---\nlanguage: fr\n---\n");
+  });
+
+  test("only a top-level key at column 0 counts, not a line inside another field's value", () => {
+    assert.equal(
+      set("---\ndescription: |\n  html_template: no\ntitle: T\n---\nText\n", "html_template", "article"),
+      "---\ndescription: |\n  html_template: no\ntitle: T\nhtml_template: article\n---\nText\n",
+    );
+  });
+
+  test("a key that merely starts with the name is not the field", () => {
+    assert.equal(
+      set("---\nhtml_template_old: x\n---\nText\n", "html_template", "article"),
+      "---\nhtml_template_old: x\nhtml_template: article\n---\nText\n",
+    );
+  });
+
+  test("an invalid frontmatter is refused", () => {
+    assert.equal(setField("---\nhtml_template: article\ntitle: [oops\n---\nText\n", "html_template", "x"), null);
   });
 });
