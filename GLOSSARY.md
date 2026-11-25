@@ -62,6 +62,14 @@ _Avoid_: Labels, keywords; never "tag" alone for a Tag marker
 A lone opening tag written inside a Document's text (`<add-footnote>`, `<rewrite-section in three parts>`), an instruction left for an LLM, shown as a yellow pill in the reading view.
 _Avoid_: Tag (alone), annotation, instruction tag
 
+**Annotation**:
+A note a User attaches to a passage of a Document in its reading view, kept in the Project's `.annotations.json` with the passage and the text around it, never in the Document's text. Placed where passage and surroundings match; marked "surrounding text changed" when only the passage, occurring once, matches; else an orphan.
+_Avoid_: Comment, highlight, Tag marker
+
+**Marker**:
+The reading-view button that cycles the annotations through Normal (shown), Active (shown, and a selection opens the creation popup) and Hidden (not shown). Normal and Hidden are remembered.
+_Avoid_: Highlighter, annotation mode
+
 **Folder**:
 A directory inside a Project folder; Folders and Documents together form the Tree.
 _Avoid_: Category, section, directory (in user-facing text)

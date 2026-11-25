@@ -57,7 +57,7 @@ Hides the cascades of R12-style rules: rewriting relative Links on rename and mo
 
 ### 4. `annotations` — placement and storage
 
-`placeAnnotations(model, list) → Placed[]` (pure: placed / surrounding changed / orphan) and `AnnotationStore` over `project` (`add / edit / remove` with re-read, re-apply, retry on conflict).
+`placeAnnotations(text, list) → Placement[]` (pure, over the reading view's text: placed / surrounding changed / orphan) and functions over `project`: `readAnnotations`, `addAnnotation` (ticket 19), then edit and remove (ticket 20), each re-reading and re-applying its own change on a conflict. The DOM side (selection to passage and surrounding text, highlights) is `src/view/highlights.ts`.
 
 ### 5. `render` — Document model → HTML (DOM-free string or hast)
 

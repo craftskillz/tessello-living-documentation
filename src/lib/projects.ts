@@ -55,6 +55,8 @@ export interface DisplayPreferences {
   whiteBackground: boolean;
   /** Hidden Folders and Documents, Folder manifests and other files shown in the Tree. */
   showHidden: boolean;
+  /** The Marker's Hidden state: annotations not shown. Normal and Hidden are kept; Active is not (docs/spec/annotations.md rule 5). */
+  markerHidden: boolean;
   /** What the Tree shows for each Document: its file name or its displayed title. */
   treeLabels: TreeLabels;
   /** The table of contents: open or closed, and its width in pixels (160–400). */
@@ -117,7 +119,7 @@ export interface Projects {
   /** The User's display preferences; defaults when none were kept or the kept value is malformed. */
   preferences(): Promise<DisplayPreferences>;
   /** Changes some preferences, keeps the others; resolves with all of them. A TOC width is clamped to 160–400 and a sidebar width to 200–600, both rounded; a non-finite width keeps the kept one. */
-  setPreferences(changes: { lines?: boolean; whiteBackground?: boolean; showHidden?: boolean; treeLabels?: TreeLabels; toc?: { open?: boolean; width?: number }; sidebar?: { width?: number } }): Promise<DisplayPreferences>;
+  setPreferences(changes: { lines?: boolean; whiteBackground?: boolean; showHidden?: boolean; markerHidden?: boolean; treeLabels?: TreeLabels; toc?: { open?: boolean; width?: number }; sidebar?: { width?: number } }): Promise<DisplayPreferences>;
 }
 
 const KEY = "projects";
@@ -173,6 +175,7 @@ function readPreferences(value: Json): DisplayPreferences {
     lines: typeof raw.lines === "boolean" ? raw.lines : false,
     whiteBackground: typeof raw.whiteBackground === "boolean" ? raw.whiteBackground : false,
     showHidden: typeof raw.showHidden === "boolean" ? raw.showHidden : false,
+    markerHidden: typeof raw.markerHidden === "boolean" ? raw.markerHidden : false,
     treeLabels: raw.treeLabels === "title" ? "title" : "name",
     toc: {
       open: typeof toc.open === "boolean" ? toc.open : false,
@@ -354,6 +357,7 @@ export function createProjects(module: ConnectedModule): Projects {
         lines: changes.lines ?? kept.lines,
         whiteBackground: changes.whiteBackground ?? kept.whiteBackground,
         showHidden: changes.showHidden ?? kept.showHidden,
+        markerHidden: changes.markerHidden ?? kept.markerHidden,
         treeLabels: changes.treeLabels ?? kept.treeLabels,
         toc: {
           open: changes.toc?.open ?? kept.toc.open,
@@ -363,7 +367,7 @@ export function createProjects(module: ConnectedModule): Projects {
           width: changes.sidebar?.width !== undefined && Number.isFinite(changes.sidebar.width) ? clampSidebarWidth(changes.sidebar.width) : kept.sidebar.width,
         },
       };
-      await module.storage.set(DISPLAY_KEY, { lines: next.lines, whiteBackground: next.whiteBackground, showHidden: next.showHidden, treeLabels: next.treeLabels, toc: { ...next.toc }, sidebar: { ...next.sidebar } });
+      await module.storage.set(DISPLAY_KEY, { lines: next.lines, whiteBackground: next.whiteBackground, showHidden: next.showHidden, markerHidden: next.markerHidden, treeLabels: next.treeLabels, toc: { ...next.toc }, sidebar: { ...next.sidebar } });
       return next;
     },
     async connect() {

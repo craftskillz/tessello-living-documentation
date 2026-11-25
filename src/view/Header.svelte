@@ -3,6 +3,7 @@
   // Saving… during a save only, and Done. A read-only Document (a Folder manifest) has no Edit and no Delete.
   import { t } from "../lib/i18n.ts";
   import type { LabelFilter } from "../lib/labels.ts";
+  import type { MarkerState } from "../lib/annotations.ts";
   import type { TreeLabels } from "../lib/projects.ts";
   import Settings from "./Settings.svelte";
 
@@ -13,6 +14,7 @@
     lines,
     whiteBackground,
     tocOpen,
+    marker,
     favorite,
     treeLabels,
     labelFilter,
@@ -23,6 +25,7 @@
     onlabels,
     onfilter,
     onsoftbreaks,
+    onmarker,
     oncopypath,
     onlines,
     onwhite,
@@ -39,6 +42,8 @@
     lines: boolean;
     whiteBackground: boolean;
     tocOpen: boolean;
+    /** The annotation Marker's state: Normal shows the annotations, Active also creates them, Hidden shows none. */
+    marker: MarkerState;
     favorite: boolean;
     treeLabels: TreeLabels;
     labelFilter: LabelFilter;
@@ -51,6 +56,7 @@
     onlabels: (treeLabels: TreeLabels) => void;
     onfilter: (filter: LabelFilter) => void;
     onsoftbreaks: (on: boolean) => void;
+    onmarker: () => void;
     oncopypath: () => void;
     onlines: () => void;
     onwhite: () => void;
@@ -76,6 +82,10 @@
     <button aria-pressed={tocOpen} onclick={ontoc}>{t("toc")}</button>
     <Settings {treeLabels} filter={labelFilter} {softBreaks} {onlabels} {onfilter} {onsoftbreaks} />
     {#if !readOnly}
+      <button class="marker" data-state={marker} title={t("markerHint")} aria-pressed={marker === "active" ? true : marker === "hidden" ? "mixed" : false} onclick={onmarker}>
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3" /><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />{#if marker === "hidden"}<path d="m3 3 18 18" />{/if}</svg>
+        {t("marker")}
+      </button>
       {#if htmlAction === "view"}
         <button title={t("htmlViewHint")} onclick={onhtml}>{t("htmlView")}</button>
         <button aria-label={t("htmlChange")} title={t("htmlChange")} onclick={onhtmlchange}>
@@ -113,6 +123,10 @@
     padding: 0.1em 0.7em;
     font-size: 0.85em;
     color: var(--muted, #777);
+  }
+  .marker[data-state="active"] {
+    background: rgba(250, 204, 21, 0.5);
+    border-color: #d9a400;
   }
   button[aria-pressed="true"] {
     background: color-mix(in srgb, var(--accent) 18%, var(--panel));

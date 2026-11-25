@@ -223,6 +223,19 @@ const en = {
   htmlUnknownTemplate: "This document asks for the HTML template “{name}”, which does not exist.",
   htmlNoTemplate: "This document has no HTML template.",
   htmlChoose: "Choose a template",
+  marker: "Marker",
+  markerHint: "Marker mode — highlight to annotate",
+  annotationNew: "New annotation",
+  annotationTitle: "✎ Annotation",
+  annotationPlaceholder: "Your comment or suggestion…",
+  annotationSave: "Save",
+  annotationsColumn: "Annotations",
+  annotationReading: "Annotation",
+  annotationChanged: "The text around this passage changed since it was annotated.",
+  annotationOrphan: "⚠ Annotated text not found — the excerpt has been edited or removed.",
+  annotationsLoadFailed: "The annotations could not be read.",
+  annotationsInvalid: "The file .annotations.json is not valid JSON. Fix it, then try again.",
+  annotationSaveFailed: "The annotation could not be saved. Try again.",
 };
 
 type Messages = typeof en;
@@ -450,6 +463,19 @@ const fr: Messages = {
   htmlUnknownTemplate: "Ce document demande le modèle HTML « {name} », qui n’existe pas.",
   htmlNoTemplate: "Ce document n’a pas de modèle HTML.",
   htmlChoose: "Choisir un modèle",
+  marker: "Marqueur",
+  markerHint: "Mode Marqueur — surligner pour annoter",
+  annotationNew: "Nouvelle annotation",
+  annotationTitle: "✎ Annotation",
+  annotationPlaceholder: "Votre remarque ou suggestion…",
+  annotationSave: "Enregistrer",
+  annotationsColumn: "Annotations",
+  annotationReading: "Annotation",
+  annotationChanged: "Le texte autour de ce passage a changé depuis l’annotation.",
+  annotationOrphan: "⚠ Texte annoté introuvable — l'extrait a été modifié ou supprimé.",
+  annotationsLoadFailed: "Les annotations n’ont pas pu être lues.",
+  annotationsInvalid: "Le fichier .annotations.json n’est pas du JSON valide. Corrigez-le, puis réessayez.",
+  annotationSaveFailed: "L’annotation n’a pas pu être enregistrée. Réessayez.",
 };
 
 export type MessageKey = keyof Messages;

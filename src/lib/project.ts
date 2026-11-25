@@ -86,8 +86,12 @@ export class NotFound extends Error {
   }
 }
 
-/** Why a name or a change is refused; each reason has a translated message in the View. */
-export type RefusalReason = "empty" | "characters" | "edges" | "extension" | "reserved" | "taken" | "invalidManifest" | "intoItself" | "missing" | "reservedFolder" | "invalidSettings";
+/**
+ * Why a name or a change is refused; each reason has a translated message in the View. `invalidSettings` is a
+ * `.living-doc.json` that is not a JSON object; `invalidAnnotations` is an `.annotations.json` that is not a JSON object,
+ * or whose entry for a Document is not an array: the file is left untouched.
+ */
+export type RefusalReason = "empty" | "characters" | "edges" | "extension" | "reserved" | "taken" | "invalidManifest" | "intoItself" | "missing" | "reservedFolder" | "invalidSettings" | "invalidAnnotations";
 
 /** A new entry refused: its name breaks the naming rule, or its Folder's manifest is invalid. */
 export class Refused extends Error {

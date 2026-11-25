@@ -13,6 +13,8 @@
   import DocumentMeta from "./DocumentMeta.svelte";
   import { decorateCollapsible } from "./collapsible.ts";
   import { drawDiagrams } from "./mermaid.ts";
+  import Annotations from "./Annotations.svelte";
+  import { addAnnotation, ANNOTATIONS_FILE, type MarkerState, NEXT_MARKER, readAnnotations } from "../lib/annotations.ts";
   import { loadImages } from "../lib/images.ts";
   import { t, tn, type MessageKey } from "../lib/i18n.ts";
   import { previewOf, type FilePreview } from "../lib/otherFiles.ts";
@@ -61,6 +63,10 @@
   let confirmation: ReturnType<typeof setTimeout> | undefined;
   /** The User's display preferences (Lines, White background, table of contents), kept in the Module's storage. */
   let display = $state<DisplayPreferences>({ lines: false, whiteBackground: false, showHidden: false, treeLabels: "name", toc: { open: false, width: TOC_WIDTH.default }, sidebar: { width: SIDEBAR_WIDTH.default } });
+  /** The annotation Marker: Normal shows the annotations, Active also creates them, Hidden shows none. Normal and Hidden are kept. */
+  let marker = $state<MarkerState>("normal");
+  /** Changes when the open Document or the annotations file changed on disk: the annotations are read again. */
+  let annotationsChanged = $state(0);
   let headings = $state.raw<Heading[]>([]);
   /** The Project's favorites in the User's order (personal, ADR 0007), with the Documents' current titles. */
   let favorites = $state.raw<Favorite[]>([]);
@@ -302,6 +308,12 @@
     return writing;
   }
 
+  /** Normal → Active → Hidden → Normal; only Normal and Hidden are remembered (docs/spec/annotations.md rule 5). */
+  function cycleMarker() {
+    marker = NEXT_MARKER[marker];
+    if (marker !== "active") void setDisplay({ markerHidden: marker === "hidden" });
+  }
+
   /** Scrolls to a heading of the table of contents, opening the folded sections around it first. */
   function goToHeading(id: string) {
     const target = article?.querySelector(`#${CSS.escape(id)}`);
@@ -321,6 +333,7 @@
 
   async function start() {
     display = await projects.preferences();
+    marker = display.markerHidden ? "hidden" : "normal";
     const list = await projects.list();
     const wanted = route(host.context.params);
     const activeId = (await projects.active())?.id;
@@ -786,6 +799,7 @@
       if (changes.tree) tree = await loadTree();
       if (changes.tree || changes.documents.length > 0) void loadFavorites();
       if (changes.documents.includes(SETTINGS_FILE)) void loadSettings();
+      if (changes.documents.includes(ANNOTATIONS_FILE) || (checked && changes.documents.includes(checked))) annotationsChanged++;
       // A save of ours still running shows as a change: it is not an agent's edit (theirs would fail that save instead).
       if (!checked || !changes.documents.includes(checked) || autosave?.saving) return;
       const theirs = await project.read(checked).catch(() => null);
@@ -1562,6 +1576,8 @@
           lines={display.lines}
           whiteBackground={display.whiteBackground}
           tocOpen={display.toc.open}
+          {marker}
+          onmarker={cycleMarker}
           favorite={starred}
           treeLabels={display.treeLabels}
           {labelFilter}
@@ -1642,6 +1658,19 @@
             sectionAt={(offset) => (readOnly || session || !current ? null : sectionAt(current.text, offset))}
             onsection={startSection}
           />
+          {#if !readOnly}
+            <Annotations
+              {article}
+              {html}
+              path={path!}
+              {marker}
+              {headerHeight}
+              changeCount={annotationsChanged}
+              read={() => readAnnotations(project!, path!)}
+              add={(draft) => addAnnotation(project!, path!, draft)}
+              fail={report}
+            />
+          {/if}
         {/if}
         {/if}
       {/if}
