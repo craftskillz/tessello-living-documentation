@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Reading: links, images and the document stylesheet)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** ready-for-human (built in e978d3a; awaiting the trial in the local Host)
 
 - [x] Controls and highlight
 - [x] Language rules and the dialog writing `language` in place
