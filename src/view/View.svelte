@@ -1,7 +1,7 @@
 <script lang="ts">
   // The Active Project: its Tree, the open Document (read or edited), agent edits and conflicts (docs/spec/cross-cutting.md).
   import type { ConnectedModule } from "@tessello/sdk";
-  import { onDestroy, onMount, tick } from "svelte";
+  import { onDestroy, onMount, tick, untrack } from "svelte";
   import { createAutosave, type Autosave } from "../lib/autosave.ts";
   import { sideBySide } from "../lib/diff.ts";
   import { applyEdits, type TextRange } from "../lib/edits.ts";
@@ -22,6 +22,7 @@
   import { createProjects, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject, type ProjectInfo, projectLabel } from "../lib/projects.ts";
   import ProjectSettingsPanel from "./ProjectSettings.svelte";
   import ProjectSwitcher from "./ProjectSwitcher.svelte";
+  import { createLiveSearch, documentsIn, filterTree, searchProject, titleResults, type SearchResult } from "../lib/search.ts";
   import { renderDocument } from "../lib/render.ts";
   import ArticleTools from "./ArticleTools.svelte";
   import { applyLineLabels } from "./lines.ts";
@@ -70,6 +71,24 @@
   let labelFilter = $state<LabelFilter>({ ...NO_LABEL_FILTER });
   let labelFilterSaving: Promise<void> = Promise.resolve();
   let treeNav = $state<HTMLElement>();
+  /** The search field's text, and what it found: null when the field is blank (the whole Tree shows). */
+  let query = $state("");
+  let searchResults = $state.raw<SearchResult[] | null>(null);
+  const liveSearch = createLiveSearch({
+    titles: (text) => titleResults(tree, text),
+    fullText: (text) => searchProject(project!, tree, text),
+    onresults: (results) => (searchResults = results),
+    onfailure: (reason) => report(t("searchFailed"), reason),
+  });
+  onDestroy(() => liveSearch.dispose());
+  // The Tree reloaded (agent edits, Show hidden items, a rename…) during a search: search it again.
+  $effect(() => {
+    void tree;
+    untrack(() => liveSearch.refresh());
+  });
+  /** What the Tree shows: the whole Tree, or only the search results and the Folders leading to them. */
+  const shownTree = $derived(searchResults ? filterTree(tree, new Set(searchResults.map((result) => result.path))) : tree);
+  const excerpts = $derived(new Map((searchResults ?? []).filter((result) => result.excerpt !== "").map((result) => [result.path, result.excerpt])));
   const compiledFilter = $derived(compileLabelFilter(labelFilter));
   /** What a Tree row shows: a Document's file name or title as chosen, a Folder's name, then the filter. */
   const treeLabel = (entry: TreeFolder | TreeDocument) => {
@@ -557,6 +576,8 @@
     favorites = [];
     settings = DEFAULT_SETTINGS;
     closed = new Set();
+    query = "";
+    liveSearch.search("");
     error = null;
     detail = null;
     menu = null;
@@ -1423,6 +1444,7 @@
     <nav aria-label={t("documents")} bind:this={treeNav}>
       <div class="nav-head">
         {@render switcher(true)}
+        <div class="ld-form search"><input type="search" aria-label={t("searchDocuments")} placeholder={t("searchDocuments")} bind:value={query} oninput={() => liveSearch.search(query)} /></div>
         <div class="nav-tools">
         <Favorites
           entries={favorites}
@@ -1444,10 +1466,13 @@
         </div>
         </div>
       </div>
-      {#if tree.length === 0}
+      <p class="count muted" aria-live="polite">{tn("countDocuments", documentsIn(shownTree).length)}</p>
+      {#if searchResults && shownTree.length === 0}
+        <p class="muted">{t("noDocumentsFound")}</p>
+      {:else if tree.length === 0}
         <p class="muted">{t("emptyProject")}</p>
       {:else}
-        <Tree entries={tree} current={path} open={(target) => void openFresh(target)} onfile={(target) => void openOther(target)} {drag} label={treeLabel} />
+        <Tree entries={shownTree} current={path} open={(target) => void openFresh(target)} onfile={(target) => void openOther(target)} {drag} label={treeLabel} searching={searchResults !== null} {excerpts} />
       {/if}
     </nav>
     <ResizeHandle
@@ -2003,6 +2028,14 @@
     display: grid;
     gap: 0.25rem;
     margin-bottom: 0.75rem;
+  }
+  .search input {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .count {
+    margin: 0 0 0.35rem;
+    font-size: 0.75rem;
   }
   .nav-tools {
     display: flex;

@@ -55,6 +55,7 @@ button.primary {
   gap: 0.2rem;
 }
 .ld-form input[type="text"],
+.ld-form input[type="search"],
 .ld-form textarea,
 .ld-form select {
   font: inherit;
@@ -68,7 +69,7 @@ button.primary {
 .ld-form .mono {
   font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-.ld-form :is(input[type="text"], textarea, select):focus-visible {
+.ld-form :is(input[type="text"], input[type="search"], textarea, select):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }

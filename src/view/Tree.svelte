@@ -45,6 +45,8 @@
     onfile,
     drag,
     label = (entry) => entry.name,
+    searching = false,
+    excerpts,
   }: {
     entries: TreeEntry[];
     current: string | null;
@@ -53,6 +55,10 @@
     drag: Dragging;
     /** What the row of a Folder or a Document shows (its name, its title, filtered); its full name is the tooltip when they differ. */
     label?: (entry: TreeFolder | TreeDocument) => string;
+    /** While searching every Folder is open, whatever the User closed, and rows cannot be dragged. */
+    searching?: boolean;
+    /** Search excerpts by Document path, shown under the row. */
+    excerpts?: ReadonlyMap<string, string>;
   } = $props();
 
   /** A label in pieces that each end after `_`, `-` or `.`: a long name wraps there first, as names seldom have spaces. */
@@ -123,7 +129,7 @@
     <li>
       {#if entry.kind === "folder"}
         {@const shown = label(entry)}
-        <details open={!drag.closed.has(entry.path)} ontoggle={(event) => drag.toggle(entry.path, event.currentTarget.open)}>
+        <details open={searching || !drag.closed.has(entry.path)} ontoggle={(event) => { if (!searching) drag.toggle(entry.path, event.currentTarget.open); }}>
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <summary
             class="row"
@@ -133,7 +139,7 @@
             class:before={markOf(entry.path) === "before"}
             class:after={markOf(entry.path) === "after"}
             class:inside={markOf(entry.path) === "inside"}
-            draggable="true"
+            draggable={searching ? "false" : "true"}
             ondragstart={(event) => onDragStart(event, entry)}
             ondragend={() => drag.end()}
             ondragenter={(event) => onDragOver(event, entry)}
@@ -146,7 +152,7 @@
             {@render icon("chevron")}
             <span class="entry">{@render icon("folder")}<span class="label">{@render breakable(shown)}</span></span>
           </summary>
-          <Tree entries={entry.children} {current} {open} {onfile} {drag} {label} />
+          <Tree entries={entry.children} {current} {open} {onfile} {drag} {label} {searching} {excerpts} />
         </details>
       {:else if entry.kind === "manifest"}
         <div class="row hidden" class:current={entry.path === current} data-entry={entry.path}>
@@ -182,7 +188,7 @@
           title={fullName(entry, shown)}
           class:before={markOf(entry.path) === "before"}
           class:after={markOf(entry.path) === "after"}
-          draggable="true"
+          draggable={searching ? "false" : "true"}
           ondragstart={(event) => onDragStart(event, entry)}
           ondragend={() => drag.end()}
           ondragenter={(event) => onDragOver(event, entry)}
@@ -202,6 +208,7 @@
           >
           <!-- Outside the link: its accessible name stays the label. -->
           <small class="date" title={entry.date.kind === "created" ? t("createdOn") : t("modifiedOn")}>{formatTreeDate(entry.date, currentLocale())}</small>
+          {#if excerpts?.get(entry.path)}<small class="excerpt">{excerpts.get(entry.path)}</small>{/if}
         </div>
       {/if}
     </li>
@@ -307,6 +314,20 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    padding-left: calc(16px + 0.4rem);
+    color: var(--muted, #777);
+    font-size: 0.75rem;
+    line-height: 1.3;
+  }
+  /* A search result's excerpt: muted, one or two lines. */
+  .excerpt {
+    grid-column: 2;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
     padding-left: calc(16px + 0.4rem);
     color: var(--muted, #777);
     font-size: 0.75rem;
