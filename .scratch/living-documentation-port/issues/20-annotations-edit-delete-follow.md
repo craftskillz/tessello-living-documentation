@@ -4,7 +4,7 @@
 
 **Blocked by:** 09 (Tree: rename and move), 19 (Annotations I: create and show)
 
-**Status:** ready-for-human (built in 495ee22; awaiting the trial in the local Host)
+**Status:** done (495ee22)
 
 - [x] Edit and Delete from the reading popup
 - [x] Concurrent writes do not lose others' annotations
@@ -12,7 +12,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -25,4 +25,4 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - The cascades go through `project.ts`'s `update`, which retries once on a conflict. A malformed `.annotations.json` is left untouched and the rename, move or delete still succeeds (as the original).
 - Failures: a translated message each, specific for an annotation deleted meanwhile (the list is read again), a malformed file, and a file that kept changing through the retries.
 - Differences from the original: notes can be edited (it had no edit); the popup's date line adds " · edited <date>"; Cancel in the confirmation closes the popup instead of going back to the reading popup; Escape cancels the form and the confirmation, Cmd/Ctrl+Enter saves the edit.
-- Still to do: the trial in the local Host.
+- Tried in the local Host by the User on 2026-11-25: validated.
