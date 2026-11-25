@@ -12,10 +12,11 @@ Atlas page: `features/documents.md` (business rules R1–R23). Atlas answers: Q-
 6. **The count** above the Tree counts what the Tree shows, or the search results; it and the badge tooltips are translated with plural rules.
 7. **Reserved files:** only the Folder manifest `liv-doc-main.md` is special: hidden, read-only in the Module, changed only through Tree actions. `index.md` and `log.md` are ordinary Documents.
 8. **`images/` and `files/`** at the Project root stay reserved (R8, R21): pasted Images go to `images/`, attachments to `files/`; both are created only when first needed and cannot be renamed, moved or deleted.
-9. **Other files** (shown only with **Show hidden items**): images and videos are previewed, text up to 1 MB, anything else is offered as **Download**.
+9. **Other files**: those whose extension is in the Project's shown list (rule 13) are always in the Tree, the others only with **Show hidden items**. Images and videos are previewed, text up to 1 MB, anything else is offered as **Download**.
 10. **Dropped:** Extra Files (replaced by Projects), linked files, status highlighting, the Export button (not in v1), opening a file with the computer's application.
 11. **View preferences** (sidebar width, Show hidden items, Show attachments) are kept in the Module's storage for all Projects; the Folders open in the Tree are remembered per Project.
 12. **Failures** show a translated message (cross-cutting rule), including refused Hide/Show, failed full-text search and New folder errors.
+13. **Shown and excluded** (Project settings in `.living-doc.json`, changed from the Project settings dialog, ticket 32): `treeShownExtensions`, the extensions of the other files shown without **Show hidden items** (default: `png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `avif`, `bmp`, `ico`, `pdf`, `txt`); `treeExcluded`, names of folders or files at any depth treated as hidden entries (default: `.git`, `node_modules`, `.DS_Store`). A Document inside an excluded entry is never read for Links or Types, nor searched, even with Show hidden items; changes inside one are not agent edits. Deleting a Folder still removes everything in it. A missing or invalid value gives the default; an empty list is kept.
 
 ## Kept from the original
 

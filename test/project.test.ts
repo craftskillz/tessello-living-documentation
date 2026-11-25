@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import { type ConnectedModule, connect, TesselloError } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
 import { ANNOTATIONS_FILE, readAnnotations } from "../src/lib/annotations.ts";
-import { Conflict, NotFound, openProject, Refused, refusalOf, isReservedFolder, type TreeEntry } from "../src/lib/project.ts";
+import { Conflict, NotFound, openProject, DEFAULT_VISIBILITY, Refused, refusalOf, isReservedFolder, type TreeEntry } from "../src/lib/project.ts";
 
 /** A Project opened on a folder holding `files`, with the Test Host to change its disk as an agent would. */
 async function projectOf(files: Record<string, string | Uint8Array> = {}, options?: { now?: () => Date; wrap?: (module: ConnectedModule) => ConnectedModule }) {
@@ -92,7 +92,7 @@ describe("the Tree's titles", () => {
 });
 
 describe("the Tree", () => {
-  test("Folders, then Documents, each alphabetical ignoring case; only Markdown Documents", async () => {
+  test("Folders, then Documents, each alphabetical ignoring case, then the other files shown by default", async () => {
     const { project } = await projectOf({
       "zeta.md": "",
       "Alpha.md": "",
@@ -103,7 +103,7 @@ describe("the Tree", () => {
       "notes.txt": "",
     });
 
-    assert.deepEqual(outline(await project.tree()), ["Archive/", "  old.md", "guide/", "  A.md", "  b.md", "Alpha.md", "zeta.md"]);
+    assert.deepEqual(outline(await project.tree()), ["Archive/", "  old.md", "guide/", "  A.md", "  b.md", "Alpha.md", "zeta.md", "logo.png", "notes.txt"]);
   });
 
   test("a Folder manifest puts its listed entries first, in its order, and leaves its hidden entries out", async () => {
@@ -914,7 +914,7 @@ const everything = (entries: TreeEntry[], depth = 0): string[] =>
   entries.flatMap((entry) => {
     const indent = "  ".repeat(depth);
     if (entry.kind === "manifest") return [`${indent}${entry.name} [manifest]`];
-    if (entry.kind === "file") return [`${indent}${entry.name} [file]`];
+    if (entry.kind === "file") return [`${indent}${entry.name} [file]${entry.hidden ? " (h)" : ""}`];
     const mark = entry.hidden ? " (h)" : "";
     return entry.kind === "folder" ? [`${indent}${entry.name}/${mark}`, ...everything(entry.children, depth + 1)] : [`${indent}${entry.name}${mark}`];
   });
@@ -944,8 +944,9 @@ describe("the Tree with hidden items shown", () => {
       "zeta.md",
       "archive/",
       "  x.md",
-      "  a.csv [file]",
-      "  Data.csv [file]",
+      "  .DS_Store [file] (h)",
+      "  a.csv [file] (h)",
+      "  Data.csv [file] (h)",
       "drafts/ (h)",
       "  liv-doc-main.md [manifest]",
       "  d.md",
@@ -953,14 +954,15 @@ describe("the Tree with hidden items shown", () => {
       "  b.png [file]",
       "alpha.md",
       "secret.md (h)",
+      ".DS_Store [file] (h)",
       "Notes.txt [file]",
     ]);
   });
 
-  test("without the option the Tree is as before: no hidden entry, no manifest, no other file", async () => {
+  test("without the option: no hidden entry, no manifest, and only the other files shown by default", async () => {
     const { project } = await projectOf(files);
 
-    assert.deepEqual(outline(await project.tree()), ["zeta.md", "archive/", "  x.md", "alpha.md"]);
+    assert.deepEqual(outline(await project.tree()), ["zeta.md", "archive/", "  x.md", "alpha.md", "Notes.txt"]);
   });
 
   test("a hidden entry listed in the custom order keeps its place there", async () => {
@@ -1013,7 +1015,7 @@ describe("hiding and showing", () => {
     await project.setHidden("images", true);
     await project.setHidden("files", true);
 
-    assert.deepEqual(everything(await project.tree({ hidden: true })), ["liv-doc-main.md [manifest]", "files/ (h)", "  b.zip [file]", "images/ (h)", "  a.png [file]"]);
+    assert.deepEqual(everything(await project.tree({ hidden: true })), ["liv-doc-main.md [manifest]", "files/ (h)", "  b.zip [file] (h)", "images/ (h)", "  a.png [file]"]);
   });
 
   test("is refused for a manifest, for a missing entry and in a Folder whose manifest is invalid", async () => {
@@ -1457,5 +1459,157 @@ describe("pasted or dropped files", () => {
     assert.equal(host.folders.read(disk, "files/liv-doc-main.md"), null);
     assert.equal(host.folders.read(disk, "a.md"), "# A\n");
     assert.equal(host.folders.read(disk, "liv-doc-main.md"), "---\norder: []\nhidden: []\n---\n");
+  });
+});
+
+describe("the Tree's visibility", () => {
+  const files = {
+    "a.md": "",
+    "Photo.PNG": "x",
+    "notes.txt": "x",
+    "data.csv": "x",
+    "guide/b.md": "",
+    "guide/liv-doc-main.md": "---\norder: []\nhidden: []\n---\n",
+    "guide/spec.pdf": "x",
+    "guide/archive.zip": "x",
+    "images/p.webp": "x",
+    ".git/config": "x",
+    ".git/notes/n.md": "",
+    "web/node_modules/pkg/readme.md": "",
+    "web/c.md": "",
+    ".DS_Store": "x",
+    "guide/.DS_Store": "x",
+  };
+
+  test("by default, other files with a shown extension (case ignored) come last in their Folder; the rest stay out", async () => {
+    const { project } = await projectOf(files);
+
+    assert.deepEqual(outline(await project.tree()), [
+      "guide/", "  b.md", "  spec.pdf",
+      "images/", "  p.webp",
+      "web/", "  c.md",
+      "a.md", "notes.txt", "Photo.PNG",
+    ]);
+  });
+
+  test("an excluded folder or file is left out at any depth, and flagged hidden with Show hidden items", async () => {
+    const { project } = await projectOf(files);
+
+    assert.deepEqual(everything(await project.tree({ hidden: true })), [
+      ".git/ (h)", "  notes/", "    n.md", "  config [file] (h)",
+      "guide/", "  liv-doc-main.md [manifest]", "  b.md", "  .DS_Store [file] (h)", "  archive.zip [file] (h)", "  spec.pdf [file]",
+      "images/", "  p.webp [file]",
+      "web/", "  node_modules/ (h)", "    pkg/", "      readme.md", "  c.md",
+      "a.md", ".DS_Store [file] (h)", "data.csv [file] (h)", "notes.txt [file]", "Photo.PNG [file]",
+    ]);
+  });
+
+  test("setVisibility changes what is shown and excluded; an empty list is kept as given", async () => {
+    const { project } = await projectOf(files);
+
+    project.setVisibility({ shownExtensions: ["csv"], excluded: ["guide"] });
+    assert.deepEqual(outline(await project.tree()), [".git/", "  notes/", "    n.md", "images/", "web/", "  node_modules/", "    pkg/", "      readme.md", "  c.md", "a.md", "data.csv"]);
+
+    project.setVisibility({ shownExtensions: [], excluded: [] });
+    assert.deepEqual(outline(await project.tree()), [
+      ".git/", "  notes/", "    n.md",
+      "guide/", "  b.md",
+      "images/",
+      "web/", "  node_modules/", "    pkg/", "      readme.md", "  c.md",
+      "a.md",
+    ]);
+
+    project.setVisibility(DEFAULT_VISIBILITY);
+    assert.deepEqual(outline(await project.tree()).slice(-3), ["a.md", "notes.txt", "Photo.PNG"]);
+  });
+  /** Wraps the module to record every path it is asked to read or to write. */
+  const recording = (reads: string[], writes: string[] = []) => (module: ConnectedModule): ConnectedModule => ({
+    ...module,
+    files: {
+      ...module.files,
+      read: ((folder, path, options) => (reads.push(path), (module.files.read as (...args: unknown[]) => unknown)(folder, path, options))) as ConnectedModule["files"]["read"],
+      write: ((folder, path, content, options) => (writes.push(path), module.files.write(folder, path, content, options))) as ConnectedModule["files"]["write"],
+    },
+  });
+
+  const repository = {
+    "a.md": "---\ntype: Note\n---\n# A\n[x](.git/notes/n.md) [y](web/node_modules/pkg/readme.md)",
+    ".git/notes/n.md": "---\ntype: Secret\n---\n[a](../../a.md)",
+    "web/node_modules/pkg/readme.md": "---\ntype: Vendor\n---\n[a](../../../a.md)",
+    "web/c.md": "---\ntype: Page\n---\n",
+    ".git/config": "x",
+  };
+
+  test("without hidden items, the Documents inside an excluded entry are not read for the Tree", async () => {
+    const reads: string[] = [];
+    const { project } = await projectOf(repository, { wrap: recording(reads) });
+
+    await project.tree();
+
+    assert.deepEqual([...reads].sort(), ["a.md", "web/c.md"]);
+  });
+
+  test("with hidden items, the Documents inside an excluded entry are read", async () => {
+    const reads: string[] = [];
+    const { project } = await projectOf(repository, { wrap: recording(reads) });
+
+    await project.tree({ hidden: true });
+
+    assert.ok(reads.includes(".git/notes/n.md"));
+  });
+
+  test("the Types leave out the Documents inside excluded entries, which are not read", async () => {
+    const reads: string[] = [];
+    const { project } = await projectOf(repository, { wrap: recording(reads) });
+
+    assert.deepEqual(await project.types(), ["Note", "Page"]);
+    assert.deepEqual([...reads].sort(), ["a.md", "web/c.md"]);
+  });
+
+  test("a rename or a move does not read nor rewrite the Documents inside excluded entries", async () => {
+    const reads: string[] = [];
+    const writes: string[] = [];
+    const { host, disk, project } = await projectOf(repository, { wrap: recording(reads, writes) });
+
+    await project.rename("a.md", "b");
+
+    assert.equal(host.folders.read(disk, ".git/notes/n.md"), "---\ntype: Secret\n---\n[a](../../a.md)");
+    assert.ok(!reads.some((path) => path.startsWith(".git/") || path.includes("node_modules/")), reads.join());
+    assert.ok(!writes.some((path) => path.startsWith(".git/") || path.includes("node_modules/")), writes.join());
+  });
+
+  test("deleting counts and removes everything in a Folder, excluded entries included (but .DS_Store is not counted), and counts as linking no Document inside an excluded entry", async () => {
+    const reads: string[] = [];
+    const { host, disk, project } = await projectOf({ ...repository, "web/.DS_Store": "x", "web/z.md": "[c](c.md)" }, { wrap: recording(reads) });
+
+    assert.deepEqual(await project.deletion("web"), { documents: 3, images: 0, others: 0, linking: 1 }); // a.md links into it
+    assert.deepEqual(await project.deletion("a.md"), { documents: 1, images: 0, others: 0, linking: 0 });
+
+    await project.remove("web");
+    assert.equal(host.folders.read(disk, "web/node_modules/pkg/readme.md"), null);
+    assert.equal(host.folders.read(disk, "web/.DS_Store"), null);
+    assert.equal(host.folders.read(disk, ".git/notes/n.md"), "---\ntype: Secret\n---\n[a](../../a.md)");
+  });
+
+  test("removing a Document does not unlink the Documents inside excluded entries", async () => {
+    const { host, disk, project } = await projectOf(repository);
+
+    await project.remove("a.md");
+
+    assert.equal(host.folders.read(disk, ".git/notes/n.md"), "---\ntype: Secret\n---\n[a](../../a.md)");
+    assert.equal(host.folders.read(disk, "web/node_modules/pkg/readme.md"), "---\ntype: Vendor\n---\n[a](../../../a.md)");
+  });
+
+  test("check() reports nothing for changes inside excluded entries", async () => {
+    const { host, disk, project } = await projectOf(repository);
+    await project.check();
+
+    host.folders.write(disk, ".git/config", "changed");
+    host.folders.write(disk, ".git/new.md", "new");
+    host.folders.write(disk, "web/node_modules/pkg/readme.md", "changed");
+    assert.deepEqual(await project.check(), { tree: false, documents: [] });
+
+    host.folders.write(disk, "web/c.md", "changed");
+    assert.deepEqual(await project.check(), { tree: false, documents: ["web/c.md"] });
   });
 });

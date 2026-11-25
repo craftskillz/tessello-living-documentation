@@ -2,7 +2,7 @@
 // format (docs/adr/0003): other keys and their order stay as written.
 
 import type { Json } from "@tessello/sdk";
-import { NotFound, type Project, Refused } from "./project.ts";
+import { DEFAULT_VISIBILITY, NotFound, type Project, Refused, type TreeVisibility } from "./project.ts";
 
 /** The Project's metadata file, shared with the original application. */
 export const SETTINGS_FILE = ".living-doc.json";
@@ -10,10 +10,12 @@ export const SETTINGS_FILE = ".living-doc.json";
 export interface ProjectSettings {
   /** The original's `markdownSoftBreaks`: every newline in a Document is a line break. On unless the file says false. */
   softBreaks: boolean;
+  /** The Tree's `treeShownExtensions` and `treeExcluded`: which files it shows and which names count as hidden. */
+  visibility: TreeVisibility;
 }
 
 /** What a Project without the file, or with a malformed one, has: the original's defaults. */
-export const DEFAULT_SETTINGS: ProjectSettings = { softBreaks: true };
+export const DEFAULT_SETTINGS: ProjectSettings = { softBreaks: true, visibility: DEFAULT_VISIBILITY };
 
 /** The settings file with its version; null when it does not exist. Other read failures propagate. */
 const readFile = (project: Project) =>
@@ -34,11 +36,30 @@ function parseObject(text: string): Record<string, Json> | null {
   }
 }
 
-/** The Project's settings; a missing, malformed or odd file, or a value that is not a boolean, gives the default. Other read failures propagate. */
+/** The strings of a JSON array, or null when the value is not an array of strings. */
+const stringList = (value: unknown): string[] | null =>
+  Array.isArray(value) && value.every((item) => typeof item === "string") ? (value as string[]) : null;
+
+/** Extensions as the Tree compares them: trimmed, no leading dot, lower case, empty items dropped. */
+const normalizeExtensions = (list: string[]) => list.map((item) => item.trim().replace(/^\./, "").toLowerCase()).filter(Boolean);
+
+/** Excluded names as the Tree compares them: trimmed, empty items dropped, otherwise exact. */
+const normalizeNames = (list: string[]) => list.map((item) => item.trim()).filter(Boolean);
+
+/** The Project's settings; a missing, malformed or odd file, or a value that is not a boolean (or, for the Tree's lists, not an array of strings), gives the default. Other read failures propagate. */
 export async function readSettings(project: Project): Promise<ProjectSettings> {
   const file = await readFile(project);
-  const value = file ? parseObject(file.text)?.markdownSoftBreaks : undefined;
-  return { softBreaks: typeof value === "boolean" ? value : DEFAULT_SETTINGS.softBreaks };
+  const data = file ? parseObject(file.text) : null;
+  const value = data?.markdownSoftBreaks;
+  const shown = stringList(data?.treeShownExtensions);
+  const excluded = stringList(data?.treeExcluded);
+  return {
+    softBreaks: typeof value === "boolean" ? value : DEFAULT_SETTINGS.softBreaks,
+    visibility: {
+      shownExtensions: shown ? normalizeExtensions(shown) : DEFAULT_VISIBILITY.shownExtensions,
+      excluded: excluded ? normalizeNames(excluded) : DEFAULT_VISIBILITY.excluded,
+    },
+  };
 }
 
 /** The indentation a JSON text uses (tab or spaces of its first indented line), two spaces when it has none. */
@@ -59,3 +80,19 @@ export async function changeSetting(project: Project, key: string, value: Json):
 
 /** Turns "every newline is a line break" on or off for the Project. */
 export const setSoftBreaks = (project: Project, on: boolean) => changeSetting(project, "markdownSoftBreaks", on);
+
+/** Sets the extensions of the other files the Tree shows (normalized: no dot, lower case, no empty item). */
+export const setShownExtensions = (project: Project, list: string[]) => changeSetting(project, "treeShownExtensions", normalizeExtensions(list));
+
+/** Sets the names of the folders and files, at any depth, the Tree treats as hidden (trimmed, no empty item). */
+export const setExcluded = (project: Project, list: string[]) => changeSetting(project, "treeExcluded", normalizeNames(list));
+
+/** The items of a comma-separated text, trimmed, empty ones dropped; otherwise as typed. */
+export const parseList = (text: string): string[] =>
+  text
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+/** A list as the dialog shows it: items joined with ", ". */
+export const formatList = (list: string[]): string => list.join(", ");

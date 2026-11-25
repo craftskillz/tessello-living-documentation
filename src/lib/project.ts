@@ -36,6 +36,8 @@ export interface TreeFile {
   kind: "file";
   name: string;
   path: string;
+  /** Shown only because hidden items are: excluded by the Project settings, or its extension is not in the shown list; absent otherwise. */
+  hidden?: true;
 }
 
 export interface TreeDocument {
@@ -132,6 +134,20 @@ export const isReservedFolder = (path: string) => path === "images" || path === 
 /** Whether `path` is a reserved Folder or inside one. */
 export const isInsideReserved = (path: string) => isReservedFolder(path) || path.startsWith("images/") || path.startsWith("files/");
 
+/** Which other files the Tree shows and which entries it treats as hidden: two Project settings (`.living-doc.json`). */
+export interface TreeVisibility {
+  /** Extensions (no dot, lower case) of the other files shown without Show hidden items. */
+  shownExtensions: string[];
+  /** Names of folders or files, at any depth, treated as hidden; their content is never read for Links or Types. */
+  excluded: string[];
+}
+
+/** The visibility of a Project whose settings say nothing: images, PDF and text shown; a repository's and a package manager's folders excluded. */
+export const DEFAULT_VISIBILITY: TreeVisibility = {
+  shownExtensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp", "ico", "pdf", "txt"],
+  excluded: [".git", "node_modules", ".DS_Store"],
+};
+
 /** What deleting an entry would remove, to confirm with the User. */
 export interface Deletion {
   /** What goes with it: for a Document 1/0/0; for a Folder, at any depth, its Documents (manifests excepted), its images and its other files. */
@@ -148,6 +164,10 @@ export interface Project {
    * entries are there too (flagged, at their place), each Folder's manifest comes first and its other files last.
    */
   tree(options?: { hidden?: boolean }): Promise<TreeEntry[]>;
+  /** The Project settings for what the Tree shows and leaves out; until called, `DEFAULT_VISIBILITY` applies. Takes effect on the next call of any method. */
+  setVisibility(visibility: TreeVisibility): void;
+  /** Whether `path` is an excluded entry or inside one, by the current visibility. */
+  isExcluded(path: string): boolean;
   /** A Document's text and version; rejects with NotFound when it does not exist. Other failures propagate unchanged. */
   read(path: string): Promise<DocumentText>;
   /** When the file at `path` was last modified (ms since the epoch), as the disk says; null when there is no such file. Lists only its Folder. */
@@ -220,6 +240,9 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
   const own = new Map<string, string>();
   // The files this Project moved away or deleted since the last check.
   const gone = new Set<string>();
+  let visibility = DEFAULT_VISIBILITY;
+  /** Whether `path` is an excluded entry or inside one (any name along it). */
+  const isExcluded = (path: string) => path.split("/").some((name) => visibility.excluded.includes(name));
 
   /** Creates the entry `entry` (a file, or a Folder holding its manifest) in `parent`, after the naming rule and its Folder's manifest. */
   async function create(kind: "document" | "folder", parent: string, name: string, entry: string, content: string): Promise<string> {
@@ -337,7 +360,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
   /** Rewrites the Links of every Markdown file listed in `before`, now at the path `map` gives. */
   async function followLinks(before: FolderEntry[], map: PathMapper): Promise<void> {
     for (const entry of before) {
-      if (entry.kind !== "file" || !entry.path.toLowerCase().endsWith(".md")) continue;
+      if (entry.kind !== "file" || !entry.path.toLowerCase().endsWith(".md") || isExcluded(entry.path)) continue;
       await update(map(entry.path) ?? entry.path, (text) => (text === null ? null : rewriteLinks(text, entry.path, map)));
     }
   }
@@ -352,8 +375,12 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
   }
 
   return {
+    setVisibility(next) {
+      visibility = next;
+    },
+    isExcluded,
     async check() {
-      const now = new Map((await module.files.list(folder)).map((entry) => [entry.path, entry.kind === "file" ? entry.version : ""]));
+      const now = new Map((await module.files.list(folder)).filter((entry) => !isExcluded(entry.path)).map((entry) => [entry.path, entry.kind === "file" ? entry.version : ""]));
       const before = seen;
       seen = now;
       if (!before) {
@@ -376,7 +403,9 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       return { tree, documents };
     },
     async tree(options = {}) {
-      const entries = await module.files.list(folder);
+      const all = options.hidden ?? false;
+      // Without hidden items, nothing inside an excluded entry is read.
+      const entries = (await module.files.list(folder)).filter((entry) => all || !isExcluded(entry.path));
       const manifests = new Map<string, Manifest>();
       for (const entry of entries) {
         if (entry.kind === "file" && nameOf(entry.path) === FOLDER_MANIFEST) {
@@ -395,7 +424,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
           dates.set(entry.path, created ? { kind: "created", at: created } : { kind: "modified", at: entry.modified });
         }),
       );
-      return treeOf(entries, "", manifests, dates, titles, options.hidden ?? false);
+      return treeOf(entries, "", manifests, dates, titles, all, visibility);
     },
     async read(path) {
       try {
@@ -413,7 +442,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       const entries = await module.files.list(folder);
       const found = await Promise.all(
         entries.map(async (entry) => {
-          if (entry.kind !== "file" || !isDocument(nameOf(entry.path)) || entry.path.startsWith(".templates/")) return null;
+          if (entry.kind !== "file" || !isDocument(nameOf(entry.path)) || entry.path.startsWith(".templates/") || isExcluded(entry.path)) return null;
           const content = await module.files.read(folder, entry.path).then((file) => file.content, () => null);
           return content === null ? null : parseDocument(content, entry.path).type;
         }),
@@ -528,7 +557,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       }
       let linking = 0;
       for (const entry of before) {
-        if (entry.kind !== "file" || goes(entry.path) || !isDocument(nameOf(entry.path))) continue;
+        if (entry.kind !== "file" || goes(entry.path) || !isDocument(nameOf(entry.path)) || isExcluded(entry.path)) continue;
         const text = (await readOrNull(entry.path))?.content;
         if (text !== undefined && unlinkDeletedLinks(text, entry.path, goes) !== text) linking++;
       }
@@ -547,7 +576,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       await update(manifestPathOf(parent), (text) => (text && removedFrom(text, name)) ?? null);
       await update(ANNOTATIONS_FILE, (text) => (text === null ? null : keysDropped(text, path, isFolder)));
       for (const entry of before) {
-        if (entry.kind !== "file" || goes(entry.path) || !isDocument(nameOf(entry.path))) continue;
+        if (entry.kind !== "file" || goes(entry.path) || !isDocument(nameOf(entry.path)) || isExcluded(entry.path)) continue;
         await update(entry.path, (text) => (text === null ? null : unlinkDeletedLinks(text, entry.path, goes)));
       }
       const after = await module.files.list(folder);
@@ -661,13 +690,15 @@ const removedFrom = (text: string, name: string) => withLists(text, (list) => li
 const withOrder = (text: string | null, order: string[]) =>
   text === null ? `---\n${stringify({ order, hidden: [] }, { lineWidth: 0 })}---\n` : (editedFields(text, (fields) => ({ ...fields, order })) ?? text);
 
+const extensionOf = (name: string) => (name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "");
+
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 
 /**
  * The entries directly in the Folder at `path`: custom order first, then Folders, then Documents. With `all`, hidden
  * entries are kept (flagged), the Folder manifest comes first and the other files last, alphabetical ignoring case.
  */
-function treeOf(entries: FolderEntry[], path: string, manifests: Map<string, Manifest>, dates: Map<string, TreeDate>, titles: Map<string, string>, all: boolean): TreeEntry[] {
+function treeOf(entries: FolderEntry[], path: string, manifests: Map<string, Manifest>, dates: Map<string, TreeDate>, titles: Map<string, string>, all: boolean, visibility: TreeVisibility): TreeEntry[] {
   const manifest = manifests.get(path) ?? { order: [], hidden: [] };
   const children: TreeEntry[] = [];
   const manifestEntries: TreeEntry[] = [];
@@ -675,11 +706,18 @@ function treeOf(entries: FolderEntry[], path: string, manifests: Map<string, Man
   for (const entry of entries) {
     if (parentOf(entry.path) !== path) continue;
     const name = nameOf(entry.path);
-    const hidden = manifest.hidden.includes(name);
-    if (name === ".DS_Store" || (hidden && !all)) continue;
-    if (entry.kind === "folder") children.push({ kind: "folder", name, path: entry.path, hidden, children: treeOf(entries, entry.path, manifests, dates, titles, all) });
+    const excluded = visibility.excluded.includes(name);
+    const hidden = excluded || manifest.hidden.includes(name);
+    if (hidden && !all) continue;
+    if (entry.kind === "folder") children.push({ kind: "folder", name, path: entry.path, hidden, children: treeOf(entries, entry.path, manifests, dates, titles, all, visibility) });
     else if (isDocument(name)) children.push({ kind: "document", name, path: entry.path, hidden, title: titles.get(entry.path) ?? parseDocument("", entry.path).title, date: dates.get(entry.path) ?? { kind: "modified", at: entry.modified } });
-    else if (all) (name === FOLDER_MANIFEST ? manifestEntries : files).push({ kind: name === FOLDER_MANIFEST ? "manifest" : "file", name, path: entry.path });
+    else if (name === FOLDER_MANIFEST) {
+      if (all) manifestEntries.push({ kind: "manifest", name, path: entry.path });
+    } else {
+      // A file the Tree shows only with hidden items (excluded, or an extension not shown) is flagged as hidden.
+      const shown = !excluded && visibility.shownExtensions.includes(extensionOf(name));
+      if (all || shown) files.push({ kind: "file", name, path: entry.path, ...(shown ? {} : { hidden: true as const }) });
+    }
   }
   return [...manifestEntries, ...ordered(children, manifest.order), ...files.sort(byName)];
 }

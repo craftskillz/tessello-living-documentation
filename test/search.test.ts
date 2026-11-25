@@ -171,8 +171,14 @@ describe("searchProject", () => {
     assert.deepEqual(await searchProject(project, tree, "needle"), [{ path: "b.md", excerpt: "needle" }]);
   });
 
+  test("a Document inside an excluded entry is not searched, even with hidden items shown", async () => {
+    const { project } = await projectOf({ "a.md": "needle\n", "node_modules/x/README.md": "needle\n", ".git/notes.md": "needle\n" });
+
+    assert.deepEqual(await searchProject(project, await project.tree({ hidden: true }), "needle"), [{ path: "a.md", excerpt: "needle" }]);
+  });
+
   test("any other failing read rejects the whole search", async () => {
-    const failing = { read: async () => { throw new Error("disk on fire"); } };
+    const failing = { read: async () => { throw new Error("disk on fire"); }, isExcluded: () => false };
     const tree: TreeEntry[] = [{ kind: "document", name: "a.md", path: "a.md", hidden: false, title: "A", date: { kind: "modified", at: 0 } }];
     await assert.rejects(searchProject(failing, tree, "x"), /disk on fire/);
   });

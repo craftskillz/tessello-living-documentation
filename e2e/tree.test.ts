@@ -457,11 +457,11 @@ describe("Show hidden items", () => {
   test("reveals a hidden Document, the manifest (locked) and other files; it is remembered after reopening the View", async () => {
     const { page } = await withProject({ "a.md": "# A\n", "secret.md": "# Secret\n", "liv-doc-main.md": SECRET, "notes.txt": "hello" });
     await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
-    assert.deepEqual(await links(page).allInnerTexts(), ["a.md"]);
+    assert.deepEqual(await links(page).allInnerTexts(), ["a.md", "notes.txt"]);
     assert.equal(await showHidden(page).getAttribute("aria-pressed"), "false");
 
     await showHidden(page).click();
-    await page.getByRole("link", { name: "notes.txt" }).waitFor();
+    await page.getByRole("link", { name: "secret.md" }).waitFor();
     assert.deepEqual(await links(page).allInnerTexts(), ["liv-doc-main.md", "a.md", "secret.md", "notes.txt"]);
     assert.equal(await showHidden(page).getAttribute("aria-pressed"), "true");
     assert.match(await row(page, "liv-doc-main.md").innerText(), /🔒/);
@@ -685,7 +685,7 @@ describe("other files", () => {
 
   test("an image is previewed from a blob; turning Show hidden items off closes the panel", async () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>';
-    const { page } = await withProject({ "a.md": "# A\n", "pic.svg": svg });
+    const { page } = await withProject({ "a.md": "# A\n", "node_modules/pic.svg": svg });
     await showHidden(page).click();
     await page.getByRole("link", { name: "pic.svg" }).click();
     const image = page.getByRole("img", { name: "pic.svg" });

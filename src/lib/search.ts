@@ -71,13 +71,14 @@ function excerptOf(original: string, folded: Folded, at: number, length: number)
 }
 
 /**
- * Full-text search: reads every Document of `entries` through `project.read`, in Tree order. A Document gone since the
- * Tree was read is skipped; any other failing read rejects the whole search.
+ * Full-text search: reads every Document of `entries` through `project.read`, in Tree order, except those inside an
+ * excluded entry (shown with hidden items, never searched). A Document gone since the Tree was read is skipped; any
+ * other failing read rejects the whole search.
  */
-export async function searchProject(project: Pick<Project, "read">, entries: TreeEntry[], query: string): Promise<SearchResult[]> {
+export async function searchProject(project: Pick<Project, "read" | "isExcluded">, entries: TreeEntry[], query: string): Promise<SearchResult[]> {
   if (isBlank(query)) return [];
   const results = await Promise.all(
-    documentsIn(entries).map(async ({ path }): Promise<SearchResult | null> => {
+    documentsIn(entries).filter(({ path }) => !project.isExcluded(path)).map(async ({ path }): Promise<SearchResult | null> => {
       const text = await project.read(path).then(({ text }) => text, (error: unknown) => {
         if (error instanceof NotFound) return null;
         throw error;

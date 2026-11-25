@@ -19,10 +19,10 @@
   import { pastedLink, cleanFileName, freeName, imageExtension, isImage, splitName, timestampName } from "../lib/pasted.ts";
   import { t, tn, type MessageKey } from "../lib/i18n.ts";
   import { previewOf, type FilePreview } from "../lib/otherFiles.ts";
-  import { Conflict, documentFile, FOLDER_MANIFEST, isInsideReserved, isReservedFolder, NotFound, Refused, refusalOf, type Deletion, type DocumentText, type Project, type RefusalReason, type TreeDocument, type TreeEntry, type TreeFolder } from "../lib/project.ts";
+  import { Conflict, documentFile, FOLDER_MANIFEST, isInsideReserved, isReservedFolder, NotFound, Refused, refusalOf, type Deletion, type DocumentText, type Project, type RefusalReason, type TreeDocument, type TreeEntry, type TreeFolder, type TreeVisibility } from "../lib/project.ts";
   import { entryMapper } from "../lib/links.ts";
   import { compileLabelFilter, NO_LABEL_FILTER, type LabelFilter } from "../lib/labels.ts";
-  import { DEFAULT_SETTINGS, readSettings, setSoftBreaks, SETTINGS_FILE, type ProjectSettings } from "../lib/projectSettings.ts";
+  import { DEFAULT_SETTINGS, readSettings, setExcluded, setShownExtensions, setSoftBreaks, SETTINGS_FILE, type ProjectSettings } from "../lib/projectSettings.ts";
   import { createProjects, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject, type ProjectInfo, projectLabel } from "../lib/projects.ts";
   import ProjectSettingsPanel from "./ProjectSettings.svelte";
   import ProjectSwitcher from "./ProjectSwitcher.svelte";
@@ -444,9 +444,52 @@
     try {
       const latest = await readSettings(asked);
       // A read made before the User's last change would put the old value back.
-      if (project === asked && edits === settingEdits) settings = latest;
+      if (project === asked && edits === settingEdits) await useSettings(latest);
     } catch (reason) {
       fail(reason);
+    }
+  }
+
+  /** Takes `next` as the Project's settings; when what the Tree shows changed, the Tree reloads (and the panel of a file it no longer holds goes). */
+  async function useSettings(next: ProjectSettings) {
+    const asked = project!;
+    const changed = JSON.stringify(next.visibility) !== JSON.stringify(settings.visibility);
+    settings = next;
+    asked.setVisibility(next.visibility);
+    if (!changed) return;
+    const latest = await asked.tree({ hidden: display.showHidden });
+    if (project !== asked) return;
+    tree = latest;
+    closeFileIfGone();
+  }
+
+  /** Whether the Tree holds the other file `path`. */
+  const treeHolds = (entries: TreeEntry[], file: string): boolean =>
+    entries.some((entry) => entry.path === file || (entry.kind === "folder" && treeHolds(entry.children, file)));
+
+  /** The panel of an other file goes when the Tree no longer shows that file. */
+  function closeFileIfGone() {
+    if (openFile && !treeHolds(tree, openFile.path)) closeFile();
+  }
+
+  /** Shows a Tree list change at once, then keeps it in the Project's file; if it cannot be kept, the previous list comes back with a message. */
+  async function changeVisibility(next: TreeVisibility, write: (project: Project) => Promise<void>) {
+    if (!project) return;
+    const asked = project;
+    const previous = settings;
+    const edit = ++settingEdits;
+    try {
+      await useSettings({ ...settings, visibility: next });
+      await write(asked);
+    } catch (reason) {
+      if (project !== asked) return;
+      if (edit === settingEdits) await useSettings(previous).catch(fail);
+      if (reason instanceof Refused) report(refusalMessage(reason.reason));
+      else if (reason instanceof Conflict) {
+        report(t("settingsConflict"));
+        settingEdits++;
+        void loadSettings();
+      } else fail(reason);
     }
   }
 
@@ -512,11 +555,12 @@
     void projects.labelFilter(active!).then((kept) => {
       if (active === asked) labelFilter = kept;
     }, fail);
+    settings = DEFAULT_SETTINGS;
+    // The settings first: the Tree shows what they say.
+    await loadSettings();
     tree = await loadTree();
     await project.check();
     void loadFavorites();
-    settings = DEFAULT_SETTINGS;
-    void loadSettings();
     const target = wantedPath ?? (await projects.startDocument(active!));
     if (target) await show(target);
     clearInterval(checking);
@@ -1353,9 +1397,9 @@
   /** Show hidden items: the Tree reloads with or without them; the panel of an other file goes when they are hidden. */
   async function toggleHidden() {
     await setDisplay({ showHidden: !display.showHidden });
-    if (!display.showHidden) closeFile();
     try {
       if (project) tree = await loadTree();
+      closeFileIfGone();
     } catch (reason) {
       fail(reason);
     }
@@ -2126,9 +2170,12 @@
     {repository}
     failure={repositoryFailure}
     softBreaks={settings.softBreaks}
+    visibility={settings.visibility}
     onconnectrepository={connectRepository}
     ondisconnectrepository={() => void disconnectRepository()}
     onsoftbreaks={(on) => void changeSoftBreaks(on)}
+    onshown={(list) => void changeVisibility({ ...settings.visibility, shownExtensions: list }, (asked) => setShownExtensions(asked, list))}
+    onexcluded={(list) => void changeVisibility({ ...settings.visibility, excluded: list }, (asked) => setExcluded(asked, list))}
     onclose={() => (settingsOpen = false)}
   />
 {/if}

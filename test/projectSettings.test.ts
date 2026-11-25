@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import { connect } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
 import { Conflict, openProject, Refused } from "../src/lib/project.ts";
-import { changeSetting, readSettings, setSoftBreaks, SETTINGS_FILE } from "../src/lib/projectSettings.ts";
+import { changeSetting, formatList, parseList, readSettings, setExcluded, setShownExtensions, setSoftBreaks, SETTINGS_FILE } from "../src/lib/projectSettings.ts";
 
 async function projectOf(files: Record<string, string> = {}) {
   const host = createTestHost({ module: { id: "@craftskillz/living-documentation", version: "0.0.1" }, permissions: { folders: true } });
@@ -18,7 +18,13 @@ async function projectOf(files: Record<string, string> = {}) {
 describe("reading the settings", () => {
   test("soft breaks are on without a file", async () => {
     const { project } = await projectOf();
-    assert.deepEqual(await readSettings(project), { softBreaks: true });
+    assert.deepEqual(await readSettings(project), {
+      softBreaks: true,
+      visibility: {
+        shownExtensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp", "ico", "pdf", "txt"],
+        excluded: [".git", "node_modules", ".DS_Store"],
+      },
+    });
   });
 
   test("markdownSoftBreaks is read as written", async () => {
@@ -33,6 +39,48 @@ describe("reading the settings", () => {
       const { project } = await projectOf({ [SETTINGS_FILE]: content });
       assert.equal((await readSettings(project)).softBreaks, true, content);
     }
+  });
+});
+
+describe("reading the Tree's visibility settings", () => {
+  const defaults = {
+    shownExtensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp", "ico", "pdf", "txt"],
+    excluded: [".git", "node_modules", ".DS_Store"],
+  };
+  const read = async (content: unknown) => (await readSettings((await projectOf({ [SETTINGS_FILE]: JSON.stringify(content) })).project)).visibility;
+
+  test("treeShownExtensions alone replaces the shown extensions only", async () => {
+    assert.deepEqual(await read({ treeShownExtensions: ["md", "csv"] }), { ...defaults, shownExtensions: ["md", "csv"] });
+  });
+
+  test("treeExcluded alone replaces the excluded names only", async () => {
+    assert.deepEqual(await read({ treeExcluded: ["dist", "build"] }), { ...defaults, excluded: ["dist", "build"] });
+  });
+
+  test("a value that is not an array of strings gives that list's default, the other list is still read", async () => {
+    for (const bad of ["png", 3, null, { a: 1 }, ["png", 1], [["png"]]]) {
+      assert.deepEqual(await read({ treeShownExtensions: bad, treeExcluded: ["dist"] }), { ...defaults, excluded: ["dist"] });
+      assert.deepEqual(await read({ treeShownExtensions: ["md"], treeExcluded: bad }), { ...defaults, shownExtensions: ["md"] });
+    }
+  });
+
+  test("a malformed file or a file that is not an object gives both defaults", async () => {
+    for (const content of ["{not json", "[1]", "null", ""]) {
+      const { project } = await projectOf({ [SETTINGS_FILE]: content });
+      assert.deepEqual((await readSettings(project)).visibility, defaults, content);
+    }
+  });
+
+  test("extensions lose their leading dot and are lower-cased and trimmed, empty items dropped", async () => {
+    assert.deepEqual(await read({ treeShownExtensions: [".PNG", " Jpg ", "", "  ", ".", "pdf"] }), { ...defaults, shownExtensions: ["png", "jpg", "pdf"] });
+  });
+
+  test("excluded names are trimmed and empty items dropped, otherwise exact", async () => {
+    assert.deepEqual(await read({ treeExcluded: [" Dist ", "", "  ", ".git"] }), { ...defaults, excluded: ["Dist", ".git"] });
+  });
+
+  test("an empty array is kept: nothing shown, nothing excluded", async () => {
+    assert.deepEqual(await read({ treeShownExtensions: [], treeExcluded: [] }), { shownExtensions: [], excluded: [] });
   });
 });
 
@@ -107,5 +155,62 @@ describe("changing a setting", () => {
     await project.check();
     await setSoftBreaks(project, false);
     assert.deepEqual(await project.check(), { tree: false, documents: [] });
+  });
+});
+
+describe("changing the Tree's visibility settings", () => {
+  test("setShownExtensions writes the normalized list on a missing file, 2-space indented", async () => {
+    const { host, disk, project } = await projectOf();
+    await setShownExtensions(project, [".PNG", " pdf ", ""]);
+    assert.equal(host.folders.read(disk, SETTINGS_FILE), '{\n  "treeShownExtensions": [\n    "png",\n    "pdf"\n  ]\n}\n');
+    assert.deepEqual((await readSettings(project)).visibility.shownExtensions, ["png", "pdf"]);
+  });
+
+  test("setExcluded writes the trimmed list and keeps the other keys, their order and the tab indentation", async () => {
+    const written = { markdownSoftBreaks: false, unknown: { deep: [1] }, treeShownExtensions: ["md"] };
+    const { host, disk, project } = await projectOf({ [SETTINGS_FILE]: JSON.stringify(written, null, "\t") });
+    await setExcluded(project, [" dist ", "", "build"]);
+    assert.equal(host.folders.read(disk, SETTINGS_FILE), `${JSON.stringify({ ...written, treeExcluded: ["dist", "build"] }, null, "\t")}\n`);
+  });
+
+  test("setting an empty list is kept as an empty array", async () => {
+    const { project } = await projectOf({ [SETTINGS_FILE]: '{"treeExcluded":["x"]}' });
+    await setExcluded(project, []);
+    assert.deepEqual((await readSettings(project)).visibility.excluded, []);
+  });
+
+  test("refuse a file that is not a JSON object and leave it untouched", async () => {
+    for (const set of [setShownExtensions, setExcluded]) {
+      const { host, disk, project } = await projectOf({ [SETTINGS_FILE]: "[1]" });
+      await assert.rejects(set(project, ["a"]), (error) => error instanceof Refused && error.reason === "invalidSettings");
+      assert.equal(host.folders.read(disk, SETTINGS_FILE), "[1]");
+    }
+  });
+
+  test("are a Conflict when the file changed between the read and the write", async () => {
+    for (const set of [setShownExtensions, setExcluded]) {
+      const { host, disk, project } = await projectOf({ [SETTINGS_FILE]: '{"a":1}' });
+      const read = project.read.bind(project);
+      project.read = async (path) => {
+        const result = await read(path);
+        host.folders.write(disk, SETTINGS_FILE, '{"a":2}');
+        return result;
+      };
+      await assert.rejects(set(project, ["a"]), Conflict);
+      assert.equal(host.folders.read(disk, SETTINGS_FILE), '{"a":2}');
+    }
+  });
+});
+
+describe("the dialog's list text", () => {
+  test("parseList splits on commas, trims and drops empty items, keeping what was typed", () => {
+    assert.deepEqual(parseList("png, .JPG ,, pdf"), ["png", ".JPG", "pdf"]);
+    assert.deepEqual(parseList(""), []);
+    assert.deepEqual(parseList(" , "), []);
+  });
+
+  test("formatList joins with a comma and a space", () => {
+    assert.equal(formatList(["png", "jpg", "pdf"]), "png, jpg, pdf");
+    assert.equal(formatList([]), "");
   });
 });

@@ -3,6 +3,8 @@
   // and the settings shared in its .living-doc.json. It only shows and asks: View acts and keeps the values.
   // The "shared" section is a list of fields: a new shared setting adds one.
   import { t } from "../lib/i18n.ts";
+  import { DEFAULT_VISIBILITY, type TreeVisibility } from "../lib/project.ts";
+  import { formatList, parseList } from "../lib/projectSettings.ts";
 
   let {
     folderName,
@@ -13,9 +15,12 @@
     repository,
     failure,
     softBreaks,
+    visibility,
     onconnectrepository,
     ondisconnectrepository,
     onsoftbreaks,
+    onshown,
+    onexcluded,
     onclose,
   }: {
     /** The Project folder's name: the Host never gives its path on disk. */
@@ -33,12 +38,25 @@
     /** What went wrong the last time the repository was changed, translated. */
     failure: string | null;
     softBreaks: boolean;
+    /** The Tree's two lists: the extensions of the other files it shows, the names it treats as hidden. */
+    visibility: TreeVisibility;
     /** Opens the Host's folder prompt: called straight from the click. */
     onconnectrepository: () => void;
     ondisconnectrepository: () => void;
     onsoftbreaks: (on: boolean) => void;
+    /** The User changed the extensions shown, or restored their default. */
+    onshown: (list: string[]) => void;
+    /** The User changed the excluded names, or restored their default. */
+    onexcluded: (list: string[]) => void;
     onclose: () => void;
   } = $props();
+
+  /** Commits a list field on Enter or when it is left, only when it changed; the field shows the list as kept. */
+  function commit(input: HTMLInputElement, current: string[], change: (list: string[]) => void) {
+    const next = parseList(input.value);
+    if (formatList(next) === formatList(current)) input.value = formatList(current);
+    else change(next);
+  }
 
   function modal(node: HTMLDialogElement) {
     node.showModal();
@@ -103,6 +121,38 @@
     <legend>{t("sharedSettings")}</legend>
     <label class="check"><input type="checkbox" checked={softBreaks} onchange={(event) => onsoftbreaks(event.currentTarget.checked)} /> {t("softBreaks")}</label>
     <p class="hint muted">{t("softBreaksHint")}</p>
+    <label class="field">
+      {t("treeShown")}
+      <input
+        type="text"
+        class="mono"
+        value={formatList(visibility.shownExtensions)}
+        spellcheck="false"
+        autocomplete="off"
+        onchange={(event) => commit(event.currentTarget, visibility.shownExtensions, onshown)}
+        onkeydown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+      />
+    </label>
+    <p class="hint muted">{t("treeShownHint", { list: formatList(DEFAULT_VISIBILITY.shownExtensions) })}</p>
+    <div><button type="button" aria-label={t("restoreDefaultsOf", { field: t("treeShown") })} onclick={() => onshown(DEFAULT_VISIBILITY.shownExtensions)}>{t("restoreDefaults")}</button></div>
+    <label class="field">
+      {t("treeExcluded")}
+      <input
+        type="text"
+        class="mono"
+        value={formatList(visibility.excluded)}
+        spellcheck="false"
+        autocomplete="off"
+        onchange={(event) => commit(event.currentTarget, visibility.excluded, onexcluded)}
+        onkeydown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+      />
+    </label>
+    <p class="hint muted">{t("treeExcludedHint", { list: formatList(DEFAULT_VISIBILITY.excluded) })}</p>
+    <div><button type="button" aria-label={t("restoreDefaultsOf", { field: t("treeExcluded") })} onclick={() => onexcluded(DEFAULT_VISIBILITY.excluded)}>{t("restoreDefaults")}</button></div>
   </fieldset>
   <div class="actions"><button type="button" onclick={onclose}>{t("close")}</button></div>
 </dialog>

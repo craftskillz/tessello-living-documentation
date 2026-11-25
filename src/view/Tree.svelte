@@ -167,7 +167,7 @@
           >
         </div>
       {:else if entry.kind === "file"}
-        <div class="row hidden" data-entry={entry.path}>
+        <div class="row" class:hidden={entry.hidden} data-entry={entry.path}>
           <span class="spacer"></span>
           <span
             class="entry"
