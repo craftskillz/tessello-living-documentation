@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 (Reading: Mermaid, Kanban blocks and Tag marker pills)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** ready-for-human (built in 69c6759; awaiting the trial in the local Host)
 
 - [x] Template dialog writes only `html_template`
 - [x] HTML view inside the View with the template's structure
