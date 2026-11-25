@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 (Reading: Mermaid, Kanban blocks and Tag marker pills), 09 (Tree: rename and move)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** ready-for-human (built in d6555c7; awaiting the trial in the local Host)
 
 - [x] Board under the Document's text; detection rule shared with the header
 - [x] Column folders and card order
