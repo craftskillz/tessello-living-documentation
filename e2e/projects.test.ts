@@ -156,6 +156,52 @@ describe("Project settings", () => {
     assert.equal(page.url(), address);
   });
 
+  test("the name shown replaces the folder's name in the sidebar and the switcher; the folder's name stays in the settings", async () => {
+    const opened = await inRepository();
+    const { page, address } = opened;
+    const settings = await openSettings(opened);
+    await settings.getByText("docs", { exact: true }).waitFor();
+    const name = settings.getByRole("textbox", { name: "Name shown" });
+    assert.equal(await name.inputValue(), "");
+
+    await name.fill("A rather long name for the team's handbook");
+    await name.press("Enter");
+    await settings.getByRole("button", { name: "Close" }).click();
+    await settings.waitFor({ state: "detached" });
+
+    const current = page.locator(".switcher > button");
+    await until(async () => (await current.innerText()).includes("A rather long name for the team's handbook"), "the name shown in the sidebar");
+    // The whole name shows: the sidebar's tools are on the line below it.
+    const nameBox = (await page.locator(".switcher .name").boundingBox())!;
+    const toolsBox = (await page.locator(".nav-tools").boundingBox())!;
+    assert.ok(toolsBox.y >= nameBox.y + nameBox.height - 1);
+    assert.equal(await page.locator(".switcher .name").evaluate((node) => node.scrollWidth <= node.clientWidth), true);
+
+    const reopened = await openSettings(opened);
+    await reopened.getByRole("textbox", { name: "Name shown" }).fill("");
+    await reopened.getByRole("textbox", { name: "Name shown" }).press("Enter");
+    await reopened.getByRole("button", { name: "Close" }).click();
+    await until(async () => (await current.innerText()).trim().startsWith("docs"), "the folder's name again");
+    assert.equal(page.url(), address);
+  });
+
+  test("the location typed is kept and shown again when the settings reopen", async () => {
+    const opened = await inRepository();
+    const { page, address } = opened;
+    const settings = await openSettings(opened);
+    const location = settings.getByRole("textbox", { name: "Location on disk" });
+    assert.equal(await location.inputValue(), "");
+
+    await location.fill("/Users/me/work/repo/docs");
+    await location.press("Enter");
+    await settings.getByRole("button", { name: "Close" }).click();
+    await settings.waitFor({ state: "detached" });
+
+    const reopened = await openSettings(opened);
+    await until(async () => (await reopened.getByRole("textbox", { name: "Location on disk" }).inputValue()) === "/Users/me/work/repo/docs", "the location kept");
+    assert.equal(page.url(), address);
+  });
+
   test("the line break checkbox writes .living-doc.json only when changed", async () => {
     const opened = await inRepository();
     const { page, host, docs, address } = opened;

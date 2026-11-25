@@ -66,7 +66,7 @@
     >
   </button>
   {#if shown}
-    <div class="panel" role="dialog" aria-label={t("displaySettings")}>
+    <div class="panel ld-form" role="dialog" aria-label={t("displaySettings")}>
       <fieldset>
         <legend>{t("treeShows")}</legend>
         <label><input type="radio" name="tree-labels" checked={treeLabels === "name"} onchange={() => onlabels("name")} /> {t("treeShowsNames")}</label>
@@ -95,6 +95,7 @@
 </div>
 
 <style>
+  /* The form look comes from .ld-form (base.css, docs/ui.md); only the popover's own layout is here. */
   .settings {
     position: relative;
   }
@@ -111,60 +112,5 @@
     background: var(--panel);
     box-shadow: 0 10px 30px rgb(0 0 0 / 0.2);
     text-align: left;
-  }
-  fieldset {
-    border: 0;
-    margin: 0 0 0.6rem;
-    padding: 0;
-    display: grid;
-    gap: 0.35rem;
-  }
-  legend {
-    font-weight: 600;
-    margin-bottom: 0.3rem;
-    padding: 0;
-  }
-  .field {
-    display: grid;
-    gap: 0.2rem;
-  }
-  .mono {
-    font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: var(--ink);
-    background: var(--bg);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 0.35em 0.5em;
-  }
-  .mono:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -1px;
-  }
-  .mono[aria-invalid="true"] {
-    border-color: #c0392b;
-  }
-  label:has(> input[type="radio"]),
-  .check {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    cursor: pointer;
-  }
-  input[type="radio"],
-  input[type="checkbox"] {
-    accent-color: var(--accent);
-    margin: 0;
-  }
-  .invalid {
-    margin: 0;
-    color: light-dark(#c0392b, #f87171);
-    font-size: 0.85em;
-  }
-  .hint {
-    margin: 0;
-    font-size: 0.8em;
-  }
-  .muted {
-    color: var(--muted, #777);
   }
 </style>

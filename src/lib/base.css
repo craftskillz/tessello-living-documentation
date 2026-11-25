@@ -35,3 +35,67 @@ button.primary {
   background: #ffffff;
   color: #111827;
 }
+
+/* Settings panels, dialogs and forms of the View (docs/ui.md): the look of the settings cog. A panel puts `ld-form` on
+   its root and keeps only its own layout in its component. */
+.ld-form fieldset {
+  border: 0;
+  margin: 0 0 0.7rem;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+.ld-form legend {
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+  padding: 0;
+}
+.ld-form .field {
+  display: grid;
+  gap: 0.2rem;
+}
+.ld-form input[type="text"],
+.ld-form textarea,
+.ld-form select {
+  font: inherit;
+  font-size: 0.95em;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.35em 0.5em;
+}
+.ld-form .mono {
+  font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ld-form :is(input[type="text"], textarea, select):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.ld-form [aria-invalid="true"] {
+  border-color: #c0392b;
+}
+.ld-form .check,
+.ld-form label:has(> input[type="radio"]) {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+.ld-form input[type="radio"],
+.ld-form input[type="checkbox"] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.ld-form .hint {
+  margin: 0;
+  font-size: 0.8em;
+}
+.ld-form .muted {
+  color: var(--muted, #777);
+}
+.ld-form .invalid {
+  margin: 0;
+  color: light-dark(#c0392b, #f87171);
+  font-size: 0.85em;
+}

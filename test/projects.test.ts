@@ -17,6 +17,56 @@ async function projectsOf(host: ReturnType<typeof hostOf>) {
   return createProjects(await connect({ transport: host.mount({ surface: "view" }).transport }));
 }
 
+describe("the name shown", () => {
+  test("is kept per Project for the next visit, trimmed and cut; an empty one shows the folder's name again", async () => {
+    const host = hostOf();
+    host.folders.choose(host.folders.create("docs"));
+    const project = (await (await projectsOf(host)).connect())!;
+    const projects = await projectsOf(host);
+
+    const kept = await projects.setDisplayName(project, "  Handbook of the team  ");
+
+    assert.deepEqual(kept, { id: project.id, name: "docs", displayName: "Handbook of the team" });
+    const next = await projectsOf(host);
+    assert.deepEqual(await next.list(), [{ ...kept, state: "available" }]);
+    assert.deepEqual(await next.active(), kept);
+    assert.equal((await next.setDisplayName(project, "x".repeat(250))).displayName, "x".repeat(200));
+
+    assert.deepEqual(await next.setDisplayName(project, "   "), { id: project.id, name: "docs" });
+    assert.deepEqual(await (await projectsOf(host)).list(), [{ id: project.id, name: "docs", state: "available" }]);
+  });
+
+  test("the location is kept as typed, trimmed and cut, beside the name shown; an empty one forgets it", async () => {
+    const host = hostOf();
+    host.folders.choose(host.folders.create("docs"));
+    const project = (await (await projectsOf(host)).connect())!;
+    const projects = await projectsOf(host);
+    await projects.setDisplayName(project, "Handbook");
+
+    const kept = await projects.setLocation(project, "  /Users/me/work/repo/docs ");
+
+    assert.deepEqual(kept, { id: project.id, name: "docs", displayName: "Handbook", location: "/Users/me/work/repo/docs" });
+    assert.deepEqual(await (await projectsOf(host)).active(), kept);
+    assert.equal((await projects.setLocation(project, "/".repeat(1200))).location?.length, 1000);
+    assert.deepEqual(await projects.setLocation(project, ""), { id: project.id, name: "docs", displayName: "Handbook" });
+  });
+
+  test("names the Project an overlapping folder clashes with", async () => {
+    const host = hostOf();
+    const docs = host.folders.create("docs");
+    host.folders.choose(docs);
+    const project = (await (await projectsOf(host)).connect())!;
+    const projects = await projectsOf(host);
+    await projects.setDisplayName(project, "Handbook");
+    host.folders.choose(docs);
+
+    const refused = await projects.connect().catch((error: unknown) => error);
+
+    assert.ok(refused instanceof FolderRefused);
+    assert.equal(refused.project?.displayName, "Handbook");
+  });
+});
+
 describe("connecting a folder", () => {
   test("adds a Project named after the folder, which becomes the Active Project", async () => {
     const host = hostOf();

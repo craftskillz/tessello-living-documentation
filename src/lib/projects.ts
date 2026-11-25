@@ -11,7 +11,17 @@ export interface ProjectInfo {
   id: string;
   /** The folder's name. */
   name: string;
+  /** The name the User gave the Project, shown instead of the folder's (personal, kept in the Module's storage). */
+  displayName?: string;
+  /** Where the folder is on disk, as the User typed it: the Host never gives the path (personal, kept in the Module's storage). */
+  location?: string;
 }
+
+/** What the User sees as the Project's name: the one they gave it, else its folder's. */
+export const projectLabel = (project: ProjectInfo) => project.displayName ?? project.name;
+
+export const MAX_DISPLAY_NAME = 200;
+export const MAX_LOCATION = 1000;
 
 /** A git repository the Project may read its history from (Repository grant, ADR 0008). */
 export type RepositoryInfo = { id: string; name: string };
@@ -86,6 +96,10 @@ export interface Projects {
   opened(project: ProjectInfo, path: string): Promise<void>;
   /** The last Document opened in the Project if it still exists, else its top existing favorite, else the first Document of its Tree, else null. */
   startDocument(project: ProjectInfo): Promise<string | null>;
+  /** Gives the Project the name the User sees (trimmed, cut to 200 characters); an empty one shows the folder's name again. Resolves with the Project as kept. */
+  setDisplayName(project: ProjectInfo, displayName: string): Promise<ProjectInfo>;
+  /** Keeps where the folder is on disk, as the User typed it (trimmed, cut to 1000 characters); an empty one forgets it. Resolves with the Project as kept. */
+  setLocation(project: ProjectInfo, location: string): Promise<ProjectInfo>;
   /** Asks the User to allow the folder again (call it from their click); true when it is available. */
   reconnect(project: ProjectInfo): Promise<boolean>;
   /** The Project's label filter; empty (no pattern, no replacement) when none was kept or the kept one is malformed. */
@@ -130,9 +144,15 @@ function readStored(value: Json): Stored {
     ? raw.projects.flatMap((each) =>
         typeof each === "object" && each !== null && !Array.isArray(each) && typeof each.id === "string" && typeof each.name === "string"
           ? [
-              isObject(each.repository) && typeof each.repository.id === "string" && typeof each.repository.name === "string"
-                ? { id: each.id, name: each.name, repository: { id: each.repository.id, name: each.repository.name } }
-                : { id: each.id, name: each.name },
+              {
+                id: each.id,
+                name: each.name,
+                ...(typeof each.displayName === "string" && each.displayName.trim() !== "" && { displayName: each.displayName }),
+                ...(typeof each.location === "string" && each.location.trim() !== "" && { location: each.location }),
+                ...(isObject(each.repository) &&
+                  typeof each.repository.id === "string" &&
+                  typeof each.repository.name === "string" && { repository: { id: each.repository.id, name: each.repository.name } }),
+              },
             ]
           : [],
       )
@@ -182,6 +202,14 @@ export const clampSidebarWidth = (width: number) => clampWidth(width, SIDEBAR_WI
 export const clampWidth = (width: number, bounds: { min: number; max: number }) => Math.min(bounds.max, Math.max(bounds.min, Math.round(width)));
 
 const folderOf = (project: ProjectInfo): Folder => ({ id: project.id, name: project.name });
+
+/** What the View is given of a kept Project: no repository. */
+const infoOf = (project: StoredProject): ProjectInfo => ({
+  id: project.id,
+  name: project.name,
+  ...(project.displayName !== undefined && { displayName: project.displayName }),
+  ...(project.location !== undefined && { location: project.location }),
+});
 
 const isObject = (value: unknown): value is Record<string, Json> => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -247,14 +275,18 @@ export function createProjects(module: ConnectedModule): Projects {
   // The Project folders last read or written: connect() must send its request straight from the User's click (ADR 0022),
   // so it cannot read the storage first.
   let projectFolders: Folder[] = [];
+  // The same Projects, to name the one an overlapping folder clashes with.
+  let known: ProjectInfo[] = [];
   const read = async () => {
     const stored = readStored(await module.storage.get(KEY));
     projectFolders = stored.projects.map(folderOf);
+    known = stored.projects.map(infoOf);
     return stored;
   };
   const write = async (stored: Stored) => {
     await module.storage.set(KEY, { ...stored, projects: stored.projects.map((project) => ({ ...project, ...(project.repository && { repository: { ...project.repository } }) })) });
     projectFolders = stored.projects.map(folderOf);
+    known = stored.projects.map(infoOf);
   };
 
   /** Gives the folder back unless a Project still has it as its folder or its repository; already given back is fine. */
@@ -264,6 +296,18 @@ export function createProjects(module: ConnectedModule): Projects {
       // Already given back, as from the Host's About screen.
       if (!(error instanceof TesselloError && error.code === "not_found")) throw error;
     });
+  }
+
+  /** Keeps a text the User gave the Project (trimmed, cut); an empty one forgets it. */
+  async function keepText(project: ProjectInfo, key: "displayName" | "location", text: string, max: number): Promise<ProjectInfo> {
+    const stored = await read();
+    const kept = stored.projects.find((each) => each.id === project.id);
+    if (!kept) return { id: project.id, name: project.name };
+    const value = text.trim().slice(0, max);
+    if (value === "") delete kept[key];
+    else kept[key] = value;
+    await write(stored);
+    return infoOf(kept);
   }
 
   const readDisplay = async () => readPreferences(await module.storage.get(DISPLAY_KEY));
@@ -325,10 +369,11 @@ export function createProjects(module: ConnectedModule): Projects {
     async connect() {
       // Nothing awaited before the request: it must leave from the User's click.
       const mustNotOverlap = projectFolders;
+      const listed = known;
       const folder = await module.folders.request({ mustNotOverlap }).catch((error: unknown) => {
         if (error instanceof TesselloError && error.code === "overlapping") {
-          const clash = mustNotOverlap.find((each) => each.id === error.folder);
-          throw new FolderRefused("overlapping", clash && { id: clash.id, name: clash.name });
+          const clash = listed.find((each) => each.id === error.folder);
+          throw new FolderRefused("overlapping", clash);
         }
         throw error;
       });
@@ -342,12 +387,12 @@ export function createProjects(module: ConnectedModule): Projects {
     },
     async list() {
       const states = new Map((await module.folders.list()).map((folder) => [folder.id, folder.state]));
-      return (await read()).projects.map((project) => ({ id: project.id, name: project.name, state: states.get(project.id) === "granted" ? "available" : "unavailable" }));
+      return (await read()).projects.map((project) => ({ ...infoOf(project), state: states.get(project.id) === "granted" ? "available" : "unavailable" }));
     },
     async active() {
       const stored = await read();
       const active = stored.projects.find((project) => project.id === stored.active);
-      return active ? { id: active.id, name: active.name } : null;
+      return active ? infoOf(active) : null;
     },
     async setActive(project) {
       const stored = await read();
@@ -407,6 +452,8 @@ export function createProjects(module: ConnectedModule): Projects {
       const top = (await keptFavorites(project)).find((entry) => exists(entry.path));
       return top?.path ?? firstDocument(await openProject(module, folderOf(project)).tree());
     },
+    setDisplayName: (project, displayName) => keepText(project, "displayName", displayName, MAX_DISPLAY_NAME),
+    setLocation: (project, location) => keepText(project, "location", location, MAX_LOCATION),
     async reconnect(project) {
       return (await module.folders.reconnect(folderOf(project))) === "granted";
     },

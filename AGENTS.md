@@ -14,6 +14,10 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 
 Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+### UI conventions
+
+Before building or restyling a panel, dialog, form or sidebar element of the View or Widget, read `docs/ui.md`.
+
 ## Working a ticket
 
 - Tickets live in `.scratch/living-documentation-port/issues/`; the spec is `.scratch/living-documentation-port/spec.md`. Start only a ticket whose blockers are all `Status: done`.

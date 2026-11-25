@@ -3,7 +3,7 @@
   // or remove, to connect a folder and to open the Project settings. It only shows and asks: View acts. `onconnect` and
   // `onreconnect` open the Host's folder prompt, so they are called straight from the click, with nothing awaited before.
   import { t } from "../lib/i18n.ts";
-  import type { ListedProject } from "../lib/projects.ts";
+  import { type ListedProject, projectLabel } from "../lib/projects.ts";
 
   let {
     active,
@@ -60,7 +60,7 @@
 
 <div class="switcher" bind:this={root}>
   <button type="button" class="current" bind:this={button} title={t("projects")} aria-haspopup="dialog" aria-expanded={shown} onclick={toggle}>
-    <span class="name">{active.name}</span><span aria-hidden="true">▾</span>
+    <span class="name">{projectLabel(active)}</span><span aria-hidden="true">▾</span>
   </button>
   {#if shown}
     <div class="panel" role="dialog" aria-label={t("projects")}>
@@ -72,13 +72,14 @@
               class="title"
               aria-current={project.id === active.id ? "true" : undefined}
               disabled={project.state === "unavailable"}
-              onclick={() => choose(() => onswitch(project))}>{project.name}</button
+              title={project.location ?? (project.displayName ? project.name : undefined)}
+              onclick={() => choose(() => onswitch(project))}>{projectLabel(project)}</button
             >
             {#if project.state === "unavailable"}
               <span class="badge">{t("projectUnavailable")}</span>
-              <button type="button" aria-label={t("reconnectProject", { name: project.name })} onclick={() => choose(() => onreconnect(project))}>{t("reconnect")}</button>
+              <button type="button" aria-label={t("reconnectProject", { name: projectLabel(project) })} onclick={() => choose(() => onreconnect(project))}>{t("reconnect")}</button>
             {/if}
-            <button type="button" class="remove" aria-label={t("removeProject", { name: project.name })} title={t("removeProject", { name: project.name })} onclick={() => choose(() => onremove(project))}>×</button>
+            <button type="button" class="remove" aria-label={t("removeProject", { name: projectLabel(project) })} title={t("removeProject", { name: projectLabel(project) })} onclick={() => choose(() => onremove(project))}>×</button>
           </li>
         {/each}
       </ul>
@@ -93,7 +94,6 @@
 <style>
   .switcher {
     position: relative;
-    flex: 1;
     min-width: 0;
   }
   button.current {
@@ -102,6 +102,7 @@
     gap: 0.35rem;
     max-width: 100%;
     padding: 0.2rem 0.4rem;
+    text-align: left;
     font-weight: 600;
     border-color: transparent;
     background: transparent;
@@ -109,10 +110,10 @@
   button.current:hover {
     background: color-mix(in srgb, var(--ink) 8%, transparent);
   }
+  /* The whole name shows, on several lines when it is long. */
   .name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .panel {
     position: absolute;

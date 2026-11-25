@@ -16,7 +16,7 @@
   import { entryMapper } from "../lib/links.ts";
   import { compileLabelFilter, NO_LABEL_FILTER, type LabelFilter } from "../lib/labels.ts";
   import { DEFAULT_SETTINGS, readSettings, setSoftBreaks, SETTINGS_FILE, type ProjectSettings } from "../lib/projectSettings.ts";
-  import { createProjects, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject } from "../lib/projects.ts";
+  import { createProjects, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject, type ProjectInfo, projectLabel } from "../lib/projects.ts";
   import ProjectSettingsPanel from "./ProjectSettings.svelte";
   import ProjectSwitcher from "./ProjectSwitcher.svelte";
   import { renderDocument } from "../lib/render.ts";
@@ -489,7 +489,7 @@
   /** The message for a folder the Host refused, null for any other failure. */
   function refusedText(reason: unknown): string | null {
     if (!(reason instanceof FolderRefused)) return null;
-    return reason.reason === "overlapping" ? (reason.project ? t("overlapNamed", { name: reason.project.name }) : t("overlapUnnamed")) : null;
+    return reason.reason === "overlapping" ? (reason.project ? t("overlapNamed", { name: projectLabel(reason.project) }) : t("overlapUnnamed")) : null;
   }
 
   async function loadProjects() {
@@ -647,6 +647,24 @@
       repositoryFailure = t("repositoryFailed");
     }
   }
+
+  /** Keeps a change of the Active Project's own name or location, then shows the Project as kept. */
+  async function changeProject(change: (project: ListedProject) => Promise<ProjectInfo>, failure: string) {
+    const asked = active;
+    if (!asked) return;
+    try {
+      const kept = await change(asked);
+      if (active?.id === asked.id) active = { ...kept, state: asked.state };
+      allProjects = allProjects.map((each) => (each.id === kept.id ? { ...kept, state: each.state } : each));
+    } catch (reason) {
+      report(failure, reason);
+    }
+  }
+
+  /** An empty name shows the folder's name again. */
+  const renameProject = (name: string) => changeProject((project) => projects.setDisplayName(project, name), t("projectNameFailed"));
+  /** An empty location forgets it. */
+  const locateProject = (location: string) => changeProject((project) => projects.setLocation(project, location), t("projectLocationFailed"));
 
   const reconnect = () => reconnectProject(active!);
 
@@ -1349,7 +1367,7 @@
   </main>
 {:else if active.state === "unavailable"}
   <main class="welcome">
-    <h1>{t("unavailable", { name: active.name })}</h1>
+    <h1>{t("unavailable", { name: projectLabel(active) })}</h1>
     <p>{t("unavailableText")}</p>
     <button class="primary" onclick={reconnect}>{t("reconnect")}</button>
     <div class="other-projects">
@@ -1361,6 +1379,7 @@
     <nav aria-label={t("documents")} bind:this={treeNav}>
       <div class="nav-head">
         {@render switcher(true)}
+        <div class="nav-tools">
         <Favorites
           entries={favorites}
           onshow={() => void loadFavorites()}
@@ -1378,6 +1397,7 @@
           <button type="button" class="icon" aria-label={t("showHidden")} title={t("showHidden")} aria-pressed={display.showHidden} onclick={() => void toggleHidden()}>
             {@render entryIcon(display.showHidden ? "eye" : "eyeOff")}
           </button>
+        </div>
         </div>
       </div>
       {#if tree.length === 0}
@@ -1696,7 +1716,7 @@
     <form onsubmit={(event) => { event.preventDefault(); void confirmRemoval(); }}>
       <header>
         <span class="badge-icon danger">{@render entryIcon("delete")}</span>
-        <h2 id="remove-project-title">{t("removeProjectTitle", { name: leaving.name })}</h2>
+        <h2 id="remove-project-title">{t("removeProjectTitle", { name: projectLabel(leaving) })}</h2>
       </header>
       <p>{t("removeProjectText")}</p>
       <div class="actions">
@@ -1709,6 +1729,11 @@
 
 {#if settingsOpen && active}
   <ProjectSettingsPanel
+    folderName={active.name}
+    displayName={active.displayName ?? ""}
+    onname={(name) => void renameProject(name)}
+    location={active.location ?? ""}
+    onlocation={(location) => void locateProject(location)}
     {repository}
     failure={repositoryFailure}
     softBreaks={settings.softBreaks}
@@ -1898,11 +1923,16 @@
     border-radius: 6px;
     padding: 0 1rem;
   }
+  /* The Project's name on its own line, the sidebar's tools below it. */
   .nav-head {
+    display: grid;
+    gap: 0.25rem;
+    margin-bottom: 0.75rem;
+  }
+  .nav-tools {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    margin-bottom: 0.75rem;
   }
   .creators {
     display: flex;
