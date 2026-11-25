@@ -90,6 +90,10 @@ _Avoid_: Reference, wiki-link
 An image file stored inside a Project folder and shown by a Document through a Link.
 _Avoid_: Asset, attachment, upload
 
+**Attachment**:
+A file that is neither a Document nor an Image (a PDF, an archive…), dropped into a Document while editing, saved in the Project's `files/` and shown by the Document through a Link.
+_Avoid_: calling an Image an attachment, upload
+
 **Agent edit**:
 A change to a Project folder made outside the Module, by a coding agent, an editor or `git`. The Module notices it but never assumes it did not happen.
 _Avoid_: External sync, remote change

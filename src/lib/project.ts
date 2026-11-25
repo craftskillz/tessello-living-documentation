@@ -159,6 +159,15 @@ export interface Project {
   types(): Promise<string[]>;
   /** Any file's bytes, exactly as on disk (an image, an attachment); rejects with NotFound when it does not exist. */
   readBytes(path: string): Promise<Uint8Array>;
+  /** The names of the files directly in `images/` or `files/` at the Project root (not what is in sub-folders); none when the folder does not exist yet. */
+  fileNames(folder: "images" | "files"): Promise<string[]>;
+  /**
+   * Saves `bytes` as `<folder>/<fileName>` with a create-only write, so it never overwrites; the folder is created by this
+   * write when it does not exist yet. No Folder manifest is written. Resolves with the Project path. Rejects with Refused:
+   * "empty", "characters", "edges" (the naming rule of the Tree), "reserved" (`liv-doc-main.md`), "taken" (a file of that
+   * name exists, ignoring case, or the write meets a conflict).
+   */
+  addFile(folder: "images" | "files", fileName: string, bytes: Uint8Array): Promise<string>;
   /** Writes a Document read at `version` (`null`: create it, it must not exist); resolves with its new version, or rejects with a Conflict. */
   save(path: string, text: string, version: string | null): Promise<string>;
   /**
@@ -420,6 +429,21 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       } catch (error) {
         throw missing(error, path);
       }
+    },
+    async fileNames(root) {
+      return (await listChildren(root)).filter((entry) => entry.kind === "file").map((entry) => nameOf(entry.path));
+    },
+    async addFile(root, fileName, bytes) {
+      const siblings = (await listChildren(root)).map((entry) => nameOf(entry.path));
+      const reason = refusalOf("folder", fileName, siblings);
+      if (reason) throw new Refused(reason);
+      const path = join(root, fileName);
+      try {
+        own.set(path, (await module.files.write(folder, path, bytes, { ifVersion: null })).version);
+      } catch (error) {
+        throw isCode(error, "conflict") ? new Refused("taken") : error;
+      }
+      return path;
     },
     async createDocument(parent, name) {
       return create("document", parent, name, documentFile(name), `---\ntimestamp: ${clock().toISOString()}\n---\n# ${name}\n`);

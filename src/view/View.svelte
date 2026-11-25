@@ -16,6 +16,7 @@
   import Annotations from "./Annotations.svelte";
   import { addAnnotation, ANNOTATIONS_FILE, editAnnotation, removeAnnotation, type MarkerState, NEXT_MARKER, readAnnotations } from "../lib/annotations.ts";
   import { loadImages } from "../lib/images.ts";
+  import { pastedLink, cleanFileName, freeName, imageExtension, isImage, splitName, timestampName } from "../lib/pasted.ts";
   import { t, tn, type MessageKey } from "../lib/i18n.ts";
   import { previewOf, type FilePreview } from "../lib/otherFiles.ts";
   import { Conflict, documentFile, FOLDER_MANIFEST, isInsideReserved, isReservedFolder, NotFound, Refused, refusalOf, type Deletion, type DocumentText, type Project, type RefusalReason, type TreeDocument, type TreeEntry, type TreeFolder } from "../lib/project.ts";
@@ -1013,6 +1014,91 @@
 
   let reverting = $state(false);
 
+  // Images and files pasted or dropped in an editor: saved in images/ or files/, their link given back to the editor.
+  /** The name dialog of a pasted image, shown while it waits for its Name; `job` holds what the dialog acts on. */
+  let naming = $state.raw<{ name: string; extension: string; failure: string | null; running: boolean } | null>(null);
+  let job: { file: File; bytes: Uint8Array; documentPath: string; resolve: (link: string | null) => void; reject: (reason: unknown) => void } | null = null;
+  /** Pastes and drops are handled one after the other: only one name dialog at a time. */
+  let pasting: Promise<unknown> = Promise.resolve();
+  const namingRefusal = $derived(
+    naming ? (naming.name === "" ? "empty" : (refusalOf("folder", naming.name, []) ?? refusalOf("folder", `${naming.name}.${naming.extension}`, []))) : null,
+  );
+
+  function pasteFiles(files: File[]): Promise<string | null> {
+    const run = pasting.then(() => savePasted(files));
+    pasting = run.catch(() => {});
+    return run;
+  }
+
+  /** Saves each file in order and answers the links to insert, one per line; null when nothing was saved. */
+  async function savePasted(files: File[]): Promise<string | null> {
+    const documentPath = path;
+    if (!project || documentPath === null) return null;
+    const links: string[] = [];
+    for (const file of files) {
+      const image = isImage(file);
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const link = image ? await askImageName(file, bytes, documentPath) : await saveFile(file, bytes, documentPath);
+        if (link !== null) links.push(link);
+      } catch (reason) {
+        report(t(image ? "imageSaveFailed" : "fileSaveFailed"), reason);
+      }
+    }
+    return links.length > 0 ? links.join("\n") : null;
+  }
+
+  async function saveFile(file: File, bytes: Uint8Array, documentPath: string): Promise<string> {
+    const { base, extension } = splitName(cleanFileName(file.name));
+    const free = freeName(base, extension, await project!.fileNames("files"));
+    const fileName = extension === "" ? free : `${free}.${extension}`;
+    return pastedLink(documentPath, await project!.addFile("files", fileName, bytes), "file", fileName);
+  }
+
+  /** Opens the name dialog for a pasted image; resolves with its link once saved, or null when the User cancels. */
+  async function askImageName(file: File, bytes: Uint8Array, documentPath: string): Promise<string | null> {
+    const extension = imageExtension(file.type, file.name);
+    const name = freeName(timestampName(new Date()), extension, await project!.fileNames("images"));
+    return new Promise((resolve, reject) => {
+      job = { file, bytes, documentPath, resolve, reject };
+      naming = { name, extension, failure: null, running: false };
+    });
+  }
+
+  async function saveNamedImage() {
+    if (!naming || !job || !project || namingRefusal !== null || naming.running) return;
+    const { name, extension } = naming;
+    const current = job;
+    naming = { ...naming, running: true };
+    const taken = async () => {
+      const proposed = freeName(name, extension, await project!.fileNames("images"));
+      naming = { name: proposed, extension, failure: t("imageNameTaken", { file: `${name}.${extension}`, proposed }), running: false };
+    };
+    try {
+      if (freeName(name, extension, await project.fileNames("images")) !== name) return await taken();
+      const saved = await project.addFile("images", `${name}.${extension}`, current.bytes);
+      naming = null;
+      job = null;
+      current.resolve(pastedLink(current.documentPath, saved, "image", name));
+    } catch (reason) {
+      if (reason instanceof Refused && reason.reason === "taken") return await taken().catch((again) => failNaming(current, again));
+      failNaming(current, reason);
+    }
+  }
+
+  function failNaming(current: NonNullable<typeof job>, reason: unknown) {
+    naming = null;
+    job = null;
+    current.reject(reason);
+  }
+
+  function cancelNaming() {
+    if (naming?.running) return;
+    naming = null;
+    job?.resolve(null);
+    job = null;
+  }
+
   // The New document / New folder dialog.
   let creating = $state<{ kind: "document" | "folder"; name: string; folder: string; failure: string | null } | null>(null);
 
@@ -1701,7 +1787,7 @@
           {/if}
         {/if}
         {#if editing}
-          <Editor text={draft} label={t("markdown")} onchange={typed} />
+          <Editor text={draft} label={t("markdown")} onchange={typed} onfiles={pasteFiles} />
         {:else}
           {#if trail.length > 0}
             <div class="trail" role="group" aria-label={t("trail")}>
@@ -1801,7 +1887,7 @@
       {/if}
     {/if}
     <div class="panes">
-      <Editor text={draft} label={t("markdown")} onchange={typed} />
+      <Editor text={draft} label={t("markdown")} onchange={typed} onfiles={pasteFiles} />
       <section class="preview" aria-label={t("preview")}>
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
         <article class="document" bind:this={preview} onclick={(event) => event.preventDefault()}>{@html previewHtml}</article>
@@ -1876,6 +1962,40 @@
       <div class="actions">
         <button type="button" onclick={() => (creating = null)}>{t("cancel")}</button>
         <button type="submit" class="primary" disabled={refusal !== null}>{t("create")}</button>
+      </div>
+    </form>
+  </dialog>
+{/if}
+
+{#if naming}
+  <dialog use:modal aria-labelledby="image-title" class="create ld-form" oncancel={(event) => { event.preventDefault(); cancelNaming(); }}>
+    <form onsubmit={(event) => { event.preventDefault(); void saveNamedImage(); }}>
+      <header>
+        <h2 id="image-title">{t("saveImage")}</h2>
+      </header>
+      <label class="field">
+        {t("name")}
+        <span class="named">
+          <input
+            type="text"
+            class:invalid={naming.failure !== null || (namingRefusal !== null && namingRefusal !== "empty")}
+            value={naming.name}
+            oninput={(event) => naming && (naming = { ...naming, name: event.currentTarget.value, failure: null })}
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <span class="muted">.{naming.extension}</span>
+        </span>
+      </label>
+      <p class="hint muted">{t("imageSavedIn")}</p>
+      {#if naming.failure}
+        <p class="invalid" role="alert">{naming.failure}</p>
+      {:else if namingRefusal && namingRefusal !== "empty"}
+        <p class="invalid" role="alert">{refusalMessage(namingRefusal)}</p>
+      {/if}
+      <div class="actions">
+        <button type="button" onclick={cancelNaming}>{t("cancel")}</button>
+        <button type="submit" class="primary" disabled={namingRefusal !== null || naming.running}>{t("saveNamed")}</button>
       </div>
     </form>
   </dialog>
@@ -2356,6 +2476,15 @@
     color: #e53935;
     font-size: 0.875rem;
     margin: -0.25rem 0 1rem;
+  }
+  .named {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .named input {
+    flex: 1;
+    min-width: 0;
   }
   dialog.create .actions {
     margin-top: 0.5rem;

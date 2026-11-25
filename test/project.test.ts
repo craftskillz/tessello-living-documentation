@@ -1355,3 +1355,107 @@ describe("annotations follow a rename, a move or a deletion", () => {
     assert.deepEqual(await readAnnotations(project, "a.md"), [entry("a")]);
   });
 });
+
+describe("pasted or dropped files", () => {
+  // Not valid UTF-8: a text round trip would change them.
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 255, 254, 128]);
+
+  test("an image is saved exactly under its name in images/, which is created by this first write", async () => {
+    const { project } = await projectOf({ "a.md": "# A\n" });
+    assert.deepEqual(await project.tree({ hidden: true }).then(outline), ["a.md"]);
+
+    const path = await project.addFile("images", "Screenshot 1.png", png);
+
+    assert.equal(path, "images/Screenshot 1.png");
+    assert.deepEqual(await project.readBytes("images/Screenshot 1.png"), png);
+    assert.deepEqual(await project.tree({ hidden: true }).then(outline), ["images/", "  Screenshot 1.png", "a.md"]);
+  });
+
+  test("another file goes to files/, apart from images/", async () => {
+    const { project } = await projectOf();
+
+    assert.equal(await project.addFile("files", "report.pdf", png), "files/report.pdf");
+
+    assert.deepEqual(await project.readBytes("files/report.pdf"), png);
+    assert.deepEqual(await project.fileNames("images"), []);
+    assert.deepEqual(await project.fileNames("files"), ["report.pdf"]);
+  });
+
+  test("the names in a folder are listed: none before it exists, only its direct files after", async () => {
+    const { project } = await projectOf({ "images/old.png": png, "images/sub/deep.png": png });
+    const empty = (await projectOf()).project;
+
+    assert.deepEqual(await empty.fileNames("images"), []);
+    await empty.addFile("images", "b.png", png);
+    assert.deepEqual(await empty.fileNames("images"), ["b.png"]);
+    assert.deepEqual(await project.fileNames("images"), ["old.png"]);
+  });
+
+  test("a name already taken is refused, whatever its case, and the existing file is left as it is", async () => {
+    const { project, host, disk } = await projectOf({ "images/a.png": "mine" });
+
+    for (const name of ["a.png", "A.PNG"]) {
+      const refused = await project.addFile("images", name, png).catch((error: unknown) => error);
+      assert.ok(refused instanceof Refused, name);
+      assert.equal(refused.reason, "taken");
+    }
+
+    assert.equal(host.folders.read(disk, "images/a.png"), "mine");
+    assert.deepEqual(await project.fileNames("images"), ["a.png"]);
+  });
+
+  test("a name that breaks the naming rule is refused and nothing is written", async () => {
+    const { project } = await projectOf();
+    const cases: [string, string][] = [
+      ["", "empty"],
+      ["a/b.png", "characters"],
+      ["a:b.png", "characters"],
+      [" a.png", "edges"],
+      ["a.png.", "edges"],
+      ["liv-doc-main.md", "reserved"],
+      ["LIV-DOC-MAIN.MD", "reserved"],
+    ];
+
+    for (const [name, reason] of cases) {
+      const refused = await project.addFile("files", name, png).catch((error: unknown) => error);
+      assert.ok(refused instanceof Refused, name);
+      assert.equal(refused.reason, reason, name);
+    }
+
+    assert.deepEqual(await project.fileNames("files"), []);
+  });
+
+  test("a write that meets a file created meanwhile is refused as taken", async () => {
+    const racing = await projectOf({}, { wrap: (module) => ({ ...module, files: { ...module.files, list: async () => [] } }) as ConnectedModule });
+    racing.host.folders.write(racing.disk, "images/a.png", "theirs");
+
+    const refused = await racing.project.addFile("images", "a.png", png).catch((error: unknown) => error);
+
+    assert.ok(refused instanceof Refused);
+    assert.equal(refused.reason, "taken");
+    assert.equal(racing.host.folders.read(racing.disk, "images/a.png"), "theirs");
+  });
+
+  test("a pasted file written by the Module is not reported by the next check as a change made outside", async () => {
+    const { project, host, disk } = await projectOf({ "a.md": "# A\n" });
+    await project.check();
+
+    await project.addFile("images", "a.png", png);
+    assert.deepEqual(await project.check(), { tree: true, documents: [] });
+
+    host.folders.write(disk, "images/b.png", png);
+    assert.deepEqual(await project.check(), { tree: true, documents: ["images/b.png"] });
+  });
+
+  test("no Folder manifest is written in images/ or files/, and the Documents are untouched", async () => {
+    const { project, host, disk } = await projectOf({ "a.md": "# A\n", "liv-doc-main.md": "---\norder: []\nhidden: []\n---\n" });
+
+    await project.addFile("images", "a.png", png);
+    await project.addFile("files", "a.zip", png);
+
+    assert.equal(host.folders.read(disk, "images/liv-doc-main.md"), null);
+    assert.equal(host.folders.read(disk, "files/liv-doc-main.md"), null);
+    assert.equal(host.folders.read(disk, "a.md"), "# A\n");
+    assert.equal(host.folders.read(disk, "liv-doc-main.md"), "---\norder: []\nhidden: []\n---\n");
+  });
+});
