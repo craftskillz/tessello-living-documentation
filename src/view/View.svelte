@@ -6,10 +6,11 @@
   import { sideBySide } from "../lib/diff.ts";
   import { applyEdits, type TextRange } from "../lib/edits.ts";
   import { replaceSection, sectionAt } from "../lib/sections.ts";
-  import { parseDocument, setField } from "../lib/document.ts";
+  import { parseDocument, setField, setType } from "../lib/document.ts";
   import { htmlTemplateOf, type HtmlTemplateId } from "../lib/htmlTemplates.ts";
   import HtmlTemplateDialog from "./HtmlTemplateDialog.svelte";
   import HtmlView from "./HtmlView.svelte";
+  import DocumentMeta from "./DocumentMeta.svelte";
   import { decorateCollapsible } from "./collapsible.ts";
   import { drawDiagrams } from "./mermaid.ts";
   import { loadImages } from "../lib/images.ts";
@@ -177,6 +178,49 @@
         if (reason.theirs && path === asked) current = reason.theirs;
         choosing = { saving: false, failure: t("htmlChangedOnDisk") };
       } else choosing = { saving: false, failure: t("htmlSaveFailed", { reason: reason instanceof Error ? reason.message : String(reason) }) };
+    }
+  }
+
+  /** When the open Document's file was last modified; refetched when the path or its version changes (an own save, an agent edit). */
+  let modifiedAt = $state<number | null>(null);
+  $effect(() => {
+    const asked = path;
+    void current?.version;
+    const open = project;
+    if (!asked || !open) {
+      modifiedAt = null;
+      return;
+    }
+    void open.modified(asked).then(
+      (at) => {
+        if (path === asked) modifiedAt = at;
+      },
+      () => {
+        if (path === asked) modifiedAt = null;
+      },
+    );
+  });
+
+  /** Writes the Type (only that line, version-checked); an empty value clears it. */
+  async function saveType(value: string) {
+    if (!current || !path || !project) return;
+    const edit = setType(current.text, value);
+    if (!edit) {
+      report(t("htmlFixFrontmatter"));
+      startEditing();
+      return;
+    }
+    const text = applyEdits(current.text, [edit]);
+    if (text === current.text) return;
+    const asked = path;
+    try {
+      const version = await project.save(asked, text, current.version);
+      if (path === asked) current = { text, version };
+    } catch (reason) {
+      if (reason instanceof Conflict) {
+        if (reason.theirs && path === asked) current = reason.theirs;
+        report(t("typeChangedOnDisk"));
+      } else report(t("typeSaveFailed", { reason: reason instanceof Error ? reason.message : String(reason) }));
     }
   }
 
@@ -1563,11 +1607,25 @@
             </div>
           {/if}
           <div class="reading">
+            <div class="page">
+            {#if !readOnly}
+              <DocumentMeta
+                created={model.created}
+                modified={modifiedAt}
+                type={model.type}
+                description={model.description}
+                tags={model.tags}
+                invalid={model.frontmatter.valid ? null : { line: model.frontmatter.line }}
+                suggest={() => project!.types()}
+                onsave={saveType}
+              />
+            {/if}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
             <article class="document" class:ld-show-source-lines={display.lines} bind:this={article} onclick={activate} onkeydown={activateKey}>
               {#if !hasHeading}<h1>{model.title}</h1>{/if}
               {@html html}
             </article>
+            </div>
             {#if display.toc.open && headings.length > 0}
               <Toc
                 {headings}
@@ -1925,6 +1983,10 @@
     display: flex;
     align-items: flex-start;
     gap: 1.5rem;
+  }
+  .reading .page {
+    flex: 1;
+    min-width: 0;
   }
   .reading article {
     flex: 1;

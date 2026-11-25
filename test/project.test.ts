@@ -1202,3 +1202,56 @@ describe("the reserved folders images and files", () => {
     assert.equal(await project.rename("guide/files", "images"), "guide/images");
   });
 });
+
+describe("a file's modification time", () => {
+  test("is what the disk holds, and follows an agent's rewrite", async () => {
+    const { host, disk, project } = await projectOf();
+    host.folders.write(disk, "guide/a.md", "# A\n", { modified: Date.UTC(2026, 10, 20, 9, 15) });
+    assert.equal(await project.modified("guide/a.md"), 1795166100000);
+
+    host.folders.write(disk, "guide/a.md", "# A2\n", { modified: Date.UTC(2026, 10, 21, 9, 15) });
+    assert.equal(await project.modified("guide/a.md"), 1795252500000);
+  });
+
+  test("works for a file at the root of the Project", async () => {
+    const { host, disk, project } = await projectOf();
+    host.folders.write(disk, "root.md", "# R\n", { modified: 1700000000000 });
+    assert.equal(await project.modified("root.md"), 1700000000000);
+  });
+
+  test("is null for a missing file, and for a file in a missing Folder", async () => {
+    const { project } = await projectOf({ "guide/a.md": "# A\n" });
+    assert.equal(await project.modified("guide/nope.md"), null);
+    assert.equal(await project.modified("nowhere/a.md"), null);
+  });
+});
+
+describe("the Types used in the Project", () => {
+  test("lists each distinct Type once, sorted ignoring case and accents, from Documents at any depth, hidden ones included", async () => {
+    const { project } = await projectOf({
+      "a.md": "---\ntype: Spec\n---\n",
+      "guide/b.md": "---\ntype: Spec\n---\n",
+      "guide/deep/c.md": "---\ntype: ébauche\n---\n",
+      "guide/d.md": "---\ntype: guide\n---\n",
+      "guide/e.md": "---\ntype: Guide\n---\n",
+      "guide/hid.md": "---\ntype: Aside\n---\n",
+      "guide/liv-doc-main.md": "---\norder: []\nhidden: [hid.md]\n---\n",
+      "guide/none.md": "# No type\n",
+    });
+    assert.deepEqual(await project.types(), ["Aside", "ébauche", "guide", "Guide", "Spec"]);
+  });
+
+  test("ignores Folder manifests and anything under .templates", async () => {
+    const { project } = await projectOf({
+      "a.md": "---\ntype: Real\n---\n",
+      "liv-doc-main.md": "---\ntype: Manifest\norder: []\nhidden: []\n---\n",
+      ".templates/x/y.md": "---\ntype: Template\n---\n",
+    });
+    assert.deepEqual(await project.types(), ["Real"]);
+  });
+
+  test("is empty when no Document has a Type", async () => {
+    const { project } = await projectOf({ "a.md": "# A\n" });
+    assert.deepEqual(await project.types(), []);
+  });
+});

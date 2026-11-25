@@ -145,6 +145,13 @@ export interface Project {
   tree(options?: { hidden?: boolean }): Promise<TreeEntry[]>;
   /** A Document's text and version; rejects with NotFound when it does not exist. Other failures propagate unchanged. */
   read(path: string): Promise<DocumentText>;
+  /** When the file at `path` was last modified (ms since the epoch), as the disk says; null when there is no such file. Lists only its Folder. */
+  modified(path: string): Promise<number | null>;
+  /**
+   * The distinct Types written in the Project's Documents (hidden ones included; not the Folder manifests nor `.templates/`),
+   * as written, sorted alphabetically ignoring case and accents. A file that cannot be read is skipped.
+   */
+  types(): Promise<string[]>;
   /** Any file's bytes, exactly as on disk (an image, an attachment); rejects with NotFound when it does not exist. */
   readBytes(path: string): Promise<Uint8Array>;
   /** Writes a Document read at `version` (`null`: create it, it must not exist); resolves with its new version, or rejects with a Conflict. */
@@ -367,8 +374,9 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
         entries.map(async (entry) => {
           if (entry.kind !== "file" || !isDocument(nameOf(entry.path))) return;
           const content = await module.files.read(folder, entry.path).then((file) => file.content, () => null);
-          const created = content === null ? null : createdOf(content);
-          titles.set(entry.path, parseDocument(content ?? "", entry.path).title);
+          const document = parseDocument(content ?? "", entry.path);
+          const created = content === null ? null : document.created;
+          titles.set(entry.path, document.title);
           dates.set(entry.path, created ? { kind: "created", at: created } : { kind: "modified", at: entry.modified });
         }),
       );
@@ -381,6 +389,22 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       } catch (error) {
         throw missing(error, path);
       }
+    },
+    async modified(path) {
+      const found = (await listChildren(parentOf(path))).find((entry) => entry.kind === "file" && entry.path === path);
+      return found?.kind === "file" ? found.modified : null;
+    },
+    async types() {
+      const entries = await module.files.list(folder);
+      const found = await Promise.all(
+        entries.map(async (entry) => {
+          if (entry.kind !== "file" || !isDocument(nameOf(entry.path)) || entry.path.startsWith(".templates/")) return null;
+          const content = await module.files.read(folder, entry.path).then((file) => file.content, () => null);
+          return content === null ? null : parseDocument(content, entry.path).type;
+        }),
+      );
+      const used = new Set(found.filter((type): type is string => type !== null));
+      return [...used].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
     },
     async readBytes(path) {
       try {
@@ -605,13 +629,6 @@ const removedFrom = (text: string, name: string) => withLists(text, (list) => li
 /** `text` (null: no manifest yet, one is made) with `order` as its order; the text itself when it is invalid. */
 const withOrder = (text: string | null, order: string[]) =>
   text === null ? `---\n${stringify({ order, hidden: [] }, { lineWidth: 0 })}---\n` : (editedFields(text, (fields) => ({ ...fields, order })) ?? text);
-
-/** A Document's frontmatter `timestamp`, to the day or the minute as written; null when it has none that reads as a date. */
-function createdOf(text: string): string | null {
-  const timestamp = frontmatterOf(text)?.fields.timestamp;
-  const date = typeof timestamp === "string" ? /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/.exec(timestamp.trim()) : null;
-  return date ? (date[2] ? `${date[1]}T${date[2]}` : date[1]!) : null;
-}
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 

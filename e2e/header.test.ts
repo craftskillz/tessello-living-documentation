@@ -493,3 +493,111 @@ describe("every newline as a line break", () => {
     await panel.getByText(/^Coché \(par défaut, GitHub-flavoured\)/).waitFor();
   });
 });
+
+describe("the Document header: description, tags, dates and Type", () => {
+  const plan = "---\ndescription: How we ship\ntags: [a, b]\ntimestamp: 2024-03-05\n---\n# Plan\n\nBody.\n";
+
+  test("shows the description, the tag pills, the creation and modification dates and the Type", async () => {
+    const { page } = await project({
+      "plan.md": plan.replace("timestamp", "type: ADR, change\ntimestamp"),
+      "other.md": "---\ntags: c, d\n---\n# Other\n",
+    });
+    await page.getByRole("link", { name: "plan.md" }).click();
+    await page.getByRole("heading", { level: 1, name: "Plan" }).waitFor();
+    await page.getByText("How we ship").waitFor();
+    const tags = page.getByRole("list", { name: "Tags" }).getByRole("listitem");
+    assert.deepEqual(await tags.allTextContents(), ["#a", "#b"]);
+    await page.getByText("Created March 5, 2024").waitFor();
+    await page.getByText(/^Modified /).waitFor();
+    await page.getByRole("button", { name: "Type: ADR, change" }).waitFor();
+
+    await page.getByRole("link", { name: "other.md" }).click();
+    await page.getByRole("heading", { level: 1, name: "Other" }).waitFor();
+    await until(async () => (await tags.allTextContents()).join() === "#c,#d", "the comma-separated tags");
+  });
+
+  test("Add type appends the line and keeps every other byte", async () => {
+    const { page, host, disk } = await project({ "plan.md": plan });
+    await page.getByRole("button", { name: "Add type" }).click();
+    await page.getByRole("combobox", { name: "Type" }).fill("ADR");
+    await page.getByRole("combobox", { name: "Type" }).press("Enter");
+
+    await page.getByRole("button", { name: "Type: ADR" }).waitFor();
+    assert.equal(host.folders.read(disk, "plan.md"), "---\ndescription: How we ship\ntags: [a, b]\ntimestamp: 2024-03-05\ntype: ADR\n---\n# Plan\n\nBody.\n");
+  });
+
+  test("changing the Type with the check button touches only that line, CRLF and comments kept", async () => {
+    const original = "---\r\n# who owns it\r\ntype: ADR\r\nowner:   me\r\n---\r\n# Plan\r\n";
+    const { page, host, disk } = await project({ "plan.md": original });
+    await page.getByRole("button", { name: "Type: ADR" }).click();
+    const field = page.getByRole("combobox", { name: "Type" });
+    assert.equal(await field.inputValue(), "ADR");
+    await field.fill("Runbook");
+    await page.getByRole("button", { name: "Save type" }).click();
+
+    await page.getByRole("button", { name: "Type: Runbook" }).waitFor();
+    assert.equal(host.folders.read(disk, "plan.md"), "---\r\n# who owns it\r\ntype: Runbook\r\nowner:   me\r\n---\r\n# Plan\r\n");
+  });
+
+  test("Clear type removes the line; Escape cancels without writing", async () => {
+    const original = "---\ntags: [a]\ntype: ADR\n---\n# Plan\n";
+    const { page, host, disk } = await project({ "plan.md": original });
+    await page.getByRole("button", { name: "Type: ADR" }).click();
+    await page.getByRole("combobox", { name: "Type" }).fill("Other");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Type: ADR" }).waitFor();
+    assert.equal(host.folders.read(disk, "plan.md"), original);
+
+    await page.getByRole("button", { name: "Type: ADR" }).click();
+    await page.getByRole("button", { name: "Clear type" }).click();
+    await page.getByRole("button", { name: "Add type" }).waitFor();
+    assert.equal(host.folders.read(disk, "plan.md"), "---\ntags: [a]\n---\n# Plan\n");
+  });
+
+  test("the field suggests the Types used in other Documents", async () => {
+    const { page } = await project({
+      "plan.md": "# Plan\n",
+      "a.md": "---\ntype: ADR\n---\n# A\n",
+      "b.md": "---\ntype: Runbook\n---\n# B\n",
+    });
+    await page.getByRole("link", { name: "plan.md" }).click();
+    await page.getByRole("button", { name: "Add type" }).click();
+    const field = page.getByRole("combobox", { name: "Type" });
+    await field.waitFor();
+    await until(async () => (await page.locator(`datalist#${await field.getAttribute("list")} option`).evaluateAll((each) => each.map((o) => (o as HTMLOptionElement).value))).join() === "ADR,Runbook", "the suggestions");
+  });
+
+  test("an invalid frontmatter warns with its line, still renders, and refuses to set a Type", async () => {
+    const broken = "---\ntitle: ok\ntags: [a\n---\n# Plan\n\nStill here.\n";
+    const { page, host, disk } = await project({ "plan.md": broken });
+    await page.getByText("Still here.").waitFor();
+    await page.getByRole("note").getByText(/The frontmatter is not valid YAML \(line \d+\)/).waitFor();
+
+    await page.getByRole("button", { name: "Add type" }).click();
+    await page.getByRole("combobox", { name: "Type" }).fill("ADR");
+    await page.getByRole("combobox", { name: "Type" }).press("Enter");
+
+    await page.getByText("Fix the frontmatter first").waitFor();
+    await page.getByRole("textbox", { name: "Markdown" }).waitFor();
+    assert.equal(host.folders.read(disk, "plan.md"), broken);
+  });
+
+  test("a Document changed on disk meanwhile is not overwritten", async () => {
+    const { page, host, disk } = await project({ "plan.md": plan });
+    await page.getByRole("button", { name: "Add type" }).click();
+    await page.getByRole("combobox", { name: "Type" }).fill("ADR");
+    const theirs = plan + "Agent line.\n";
+    host.folders.write(disk, "plan.md", theirs);
+    await page.getByRole("combobox", { name: "Type" }).press("Enter");
+
+    await page.getByText("The Document changed on disk: the type was not changed. Try again.").waitFor();
+    assert.equal(host.folders.read(disk, "plan.md"), theirs);
+  });
+
+  test("the header is in French in a French Host", async () => {
+    const { page } = await project({ "plan.md": plan }, { locale: "fr" });
+    await page.getByText("Créé le 5 mars 2024").waitFor();
+    await page.getByRole("button", { name: "Ajouter un type" }).waitFor();
+    await page.getByRole("list", { name: "Étiquettes" }).waitFor();
+  });
+});

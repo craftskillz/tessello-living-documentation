@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { parseDocument, setField } from "../src/lib/document.ts";
+import { parseDocument, setField, setType } from "../src/lib/document.ts";
 import { applyEdits } from "../src/lib/edits.ts";
 
 describe("the displayed title", () => {
@@ -150,5 +150,122 @@ describe("setting a frontmatter field", () => {
 
   test("an invalid frontmatter is refused", () => {
     assert.equal(setField("---\nhtml_template: article\ntitle: [oops\n---\nText\n", "html_template", "x"), null);
+  });
+});
+
+describe("the creation date", () => {
+  const created = (frontmatter: string) => parseDocument(`---\n${frontmatter}\n---\n`, "x.md").created;
+
+  test("a date alone is read as written", () => {
+    assert.equal(created("timestamp: 2024-03-05"), "2024-03-05");
+  });
+
+  test("a date with a time is cut to the minute, with a T or a space", () => {
+    assert.equal(created("timestamp: 2024-03-05T10:20:30"), "2024-03-05T10:20");
+    assert.equal(created('timestamp: "2024-03-05 10:20:30"'), "2024-03-05T10:20");
+    assert.equal(created('timestamp: "2024-03-05T10:20:00"'), "2024-03-05T10:20");
+  });
+
+  test("an unquoted timestamp is read as written, not converted", () => {
+    assert.equal(created("timestamp: 2024-03-05T10:20:00"), "2024-03-05T10:20");
+    assert.equal(created("timestamp: 2024-03-05T23:59:00Z"), "2024-03-05T23:59");
+  });
+
+  test("null when absent or not starting with a date", () => {
+    assert.equal(created("title: A"), null);
+    assert.equal(created("timestamp: yesterday"), null);
+    assert.equal(created("timestamp: 12"), null);
+    assert.equal(parseDocument("# A\n", "x.md").created, null);
+  });
+
+  test("read from an invalid frontmatter's line-by-line fields", () => {
+    assert.equal(created("timestamp: 2024-03-05T10:20:00\ntitle: [unclosed"), "2024-03-05T10:20");
+  });
+});
+
+describe("setting the type", () => {
+  const typed = (text: string, type: string | null) => applyEdits(text, [setType(text, type)!]);
+  const cleared = (text: string) => typed(text, null);
+
+  test("a missing field is appended as the block's last line", () => {
+    assert.equal(typed("---\ntitle: A\n---\n# A\n", "ADR"), "---\ntitle: A\ntype: ADR\n---\n# A\n");
+  });
+
+  test("an existing line is replaced in place, its trailing comment and the other lines kept", () => {
+    assert.equal(typed("---\ntype: Old  # note\ntags: [a]\n---\n", "New"), "---\ntype: New  # note\ntags: [a]\n---\n");
+    assert.equal(typed("---\ntype: a#b # c\n---\n", "X"), "---\ntype: X # c\n---\n");
+    assert.equal(typed("---\ntype: \"x # y\"\n---\n", "X"), "---\ntype: X\n---\n");
+  });
+
+  test("clearing removes the trailing comment with its field", () => {
+    assert.equal(cleared("---\ntype: Old # note\nx: 1\n---\n"), "---\nx: 1\n---\n");
+  });
+
+  test("a quoted type key is the field, never doubled", () => {
+    assert.equal(typed("---\n\"type\": Old\nx: 1\n---\n", "New"), "---\ntype: New\nx: 1\n---\n");
+    assert.equal(typed("---\n'type': Old\n---\n", "New"), "---\ntype: New\n---\n");
+  });
+
+  test("a Document without frontmatter gets a block at the top", () => {
+    assert.equal(typed("# A\n", "Guide"), "---\ntype: Guide\n---\n# A\n");
+  });
+
+  test("a value continuing on following lines is replaced whole", () => {
+    assert.equal(typed("---\ntype: >\n  long\n  text\nx: 1\n---\n", "T"), "---\ntype: T\nx: 1\n---\n");
+    assert.equal(typed("---\ntype: |\n  a\n\n  b\nx: 1\n---\n", "T"), "---\ntype: T\nx: 1\n---\n");
+    assert.equal(typed("---\ntype: one\n  two\n---\n", "T"), "---\ntype: T\n---\n");
+  });
+
+  test("only a top-level type key matches", () => {
+    assert.equal(typed("---\nsubtype: a\ntypes: b\nmeta:\n  type: c\n---\n", "T"), "---\nsubtype: a\ntypes: b\nmeta:\n  type: c\ntype: T\n---\n");
+  });
+
+  test("line endings are kept", () => {
+    assert.equal(typed("---\r\ntype: X\r\nb: 1\r\n---\r\n", "Y"), "---\r\ntype: Y\r\nb: 1\r\n---\r\n");
+    assert.equal(typed("---\r\ntitle: A\r\n---\r\n", "Y"), "---\r\ntitle: A\r\ntype: Y\r\n---\r\n");
+  });
+
+  test("the value is trimmed and its whitespace collapsed to one space", () => {
+    assert.equal(typed("---\na: 1\n---\n", "  Big \n  decision\t record "), "---\na: 1\ntype: Big decision record\n---\n");
+  });
+
+  test("a value YAML would misread is quoted so it reads back as that string", () => {
+    for (const value of ["ADR: decision", "a: b", "#tag", "true", "123", "- x", '"quoted', "null", "x #y", "[a]", "{a: 1}", "'q", "@a", "*a", "&a", "!a", "%a", "|", ">", "?", "a'b"]) {
+      const text = typed("---\ntitle: A\n---\n", value);
+      assert.equal(parseDocument(text, "x.md").type, value, value);
+      assert.equal(parseDocument(text, "x.md").title, "A");
+    }
+  });
+
+  test("a plain value stays plain", () => {
+    assert.equal(typed("---\n---\n", "Decision record"), "---\ntype: Decision record\n---\n");
+  });
+
+  test("a long value is not folded", () => {
+    const value = "word ".repeat(40).trim();
+    assert.equal(typed("---\n---\n", value), `---\ntype: ${value}\n---\n`);
+  });
+
+  test("clearing removes the whole field with its line ending", () => {
+    assert.equal(typed("---\r\ntitle: A\r\ntype: X\r\n---\r\n", null), "---\r\ntitle: A\r\n---\r\n");
+    assert.equal(typed("---\ntype: X\ntitle: A\n---\n", null), "---\ntitle: A\n---\n");
+    assert.equal(typed("---\ntype: >\n  a\n  b\nx: 1\n---\n", null), "---\nx: 1\n---\n");
+  });
+
+  test("an empty value clears", () => {
+    assert.equal(typed("---\ntype: X\ntitle: A\n---\n", "  \n "), "---\ntitle: A\n---\n");
+  });
+
+  test("clearing the last field keeps an empty block", () => {
+    assert.equal(typed("---\ntype: X\n---\nText\n", null), "---\n---\nText\n");
+  });
+
+  test("clearing a missing field changes nothing", () => {
+    for (const text of ["---\ntitle: A\n---\n", "# A\n", "---\n---\n"]) assert.equal(typed(text, null), text);
+  });
+
+  test("an invalid frontmatter is refused", () => {
+    assert.equal(setType("---\ntitle: [unclosed\n---\n", "X"), null);
+    assert.equal(setType("---\ntitle: [unclosed\n---\n", null), null);
   });
 });

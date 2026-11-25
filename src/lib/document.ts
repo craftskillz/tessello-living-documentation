@@ -1,7 +1,7 @@
 // The Document model (docs/design.md §1): what the Module reads from a Document's text. Pure: nothing is written back
 // (ADR 0004, docs/spec/frontmatter.md).
 
-import { parse, YAMLParseError } from "yaml";
+import { Lexer, parse, stringify, YAMLParseError } from "yaml";
 import type { TextEdit } from "./edits.ts";
 
 export type Frontmatter =
@@ -17,6 +17,8 @@ export interface DocumentModel {
   type: string | null;
   /** The `html_template` field as written (trimmed), null when absent or empty. Read also from an invalid frontmatter's line-by-line fields. */
   htmlTemplate: string | null;
+  /** The creation date from the frontmatter `timestamp`, as written and never converted: `YYYY-MM-DD`, or `YYYY-MM-DDTHH:mm` when it has a time (space or `T` separator, cut to the minute). Null when absent or not starting with such a date. Read also from an invalid frontmatter's line-by-line fields. */
+  created: string | null;
   /** The `language` field (trimmed), null when absent or empty. */
   language: string | null;
   frontmatter: Frontmatter;
@@ -46,12 +48,19 @@ export function parseDocument(text: string, path: string): DocumentModel {
     type: string(fields.type),
     htmlTemplate: string(fields.html_template),
     language: string(fields.language),
+    created: createdOf(fields.timestamp),
     frontmatter,
     frontmatterText: match ? match[1]! : null,
     frontmatterEnd: match ? match[0].length - match[2]!.length : null,
     body,
     bodyStart,
   };
+}
+
+function createdOf(timestamp: unknown): string | null {
+  const value = timestamp instanceof Date && !Number.isNaN(timestamp.getTime()) ? timestamp.toISOString() : timestamp;
+  const date = typeof value === "string" ? /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/.exec(value.trim()) : null;
+  return date ? (date[2] ? `${date[1]}T${date[2]}` : date[1]!) : null;
 }
 
 function frontmatterOf(yaml: string): Frontmatter {
@@ -101,24 +110,79 @@ const plain = (inline: string) =>
 const fileTitle = (path: string) => path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
 
 /**
- * The edit that sets the frontmatter field `name` to `value`, null when the frontmatter is invalid YAML. An existing
- * top-level line is replaced in place (keeping its line ending); a missing field is appended as the block's last line;
- * a Document without a frontmatter gets one at the top. Every other byte stays (ADR 0004).
+ * The edit that sets the frontmatter field `name` to `value` (written as given), null when the frontmatter is invalid
+ * YAML. An existing top-level field is replaced in place, over all the lines of its value (keeping the line endings
+ * around it); a missing field is appended as the block's last line; a Document without a frontmatter gets one at the
+ * top. Every other byte stays (ADR 0004).
  */
 export function setField(text: string, name: string, value: string): TextEdit | null {
+  return editField(text, name, value);
+}
+
+/**
+ * The edit that sets the frontmatter `type` to `type`, or removes the field when it is null or blank. The value is
+ * trimmed, its whitespace runs collapsed to one space, and quoted as YAML needs so it reads back as exactly that
+ * string. Null when the frontmatter is invalid YAML (the caller shows "Fix the frontmatter first"); clearing a missing
+ * field gives an empty edit. Clearing the last field keeps an empty `---` block. Every other byte stays (ADR 0004).
+ */
+export function setType(text: string, type: string | null): TextEdit | null {
+  const value = type?.replace(/\s+/g, " ").trim() ?? "";
+  return editField(text, "type", value === "" ? null : stringify(value, { lineWidth: 0 }).trimEnd());
+}
+
+/** Sets the top-level field `name` to the raw YAML `value`, or removes it when `value` is null. */
+function editField(text: string, name: string, value: string | null): TextEdit | null {
   const match = FRONTMATTER.exec(text);
-  if (!match) return { range: { from: 0, to: 0 }, text: `---\n${name}: ${value}\n---\n` };
+  if (!match) return value === null ? { range: { from: 0, to: 0 }, text: "" } : { range: { from: 0, to: 0 }, text: `---\n${name}: ${value}\n---\n` };
   if (!frontmatterOf(match[1]!).valid) return null;
   const yamlStart = match[0].indexOf("\n") + 1;
   const yaml = match[1]!;
   const eol = match[0].startsWith("---\r\n") ? "\r\n" : "\n";
-  const key = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t]*:.*`, "m");
-  const line = key.exec(yaml);
-  if (line) {
-    const from = yamlStart + line.index;
-    return { range: { from, to: from + line[0].replace(/\r$/, "").length }, text: `${name}: ${value}` };
+  const lines: { start: number; end: number; content: string }[] = [];
+  for (let start = 0; start <= yaml.length; ) {
+    const next = yaml.indexOf("\n", start);
+    const end = next === -1 ? yaml.length : next;
+    lines.push({ start: yamlStart + start, end: yamlStart + end - (yaml[end - 1] === "\r" ? 1 : 0), content: yaml.slice(start, end).replace(/\r$/, "") });
+    start = end + 1;
   }
-  if (yaml === "") return { range: { from: yamlStart, to: yamlStart }, text: `${name}: ${value}${eol}` };
-  const at = yamlStart + yaml.length;
-  return { range: { from: at, to: at }, text: `${eol}${name}: ${value}` };
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const key = new RegExp(`^(?:${escaped}|"${escaped}"|'${escaped}')[ \\t]*:`);
+  const first = lines.findIndex((line) => key.test(line.content));
+  if (first === -1) {
+    if (value === null) return { range: { from: 0, to: 0 }, text: "" };
+    if (yaml === "") return { range: { from: yamlStart, to: yamlStart }, text: `${name}: ${value}${eol}` };
+    const at = yamlStart + yaml.length;
+    return { range: { from: at, to: at }, text: `${eol}${name}: ${value}` };
+  }
+  // The field's value goes on over indented lines (and blank lines between them), and over a block sequence at column 0.
+  let last = first;
+  for (let i = first + 1; i < lines.length; i++) {
+    const content = lines[i]!.content;
+    if (content.trim() === "") continue;
+    if (!/^([ \t]|-(\s|$))/.test(content)) break;
+    last = i;
+  }
+  const from = lines[first]!.start;
+  if (value !== null) {
+    // A one-line field keeps its trailing comment, the spaces before it included.
+    const comment = first === last ? trailingComment(lines[first]!.content) : "";
+    return { range: { from, to: lines[last]!.end }, text: `${name}: ${value}${comment}` };
+  }
+  // Removed with the line ending that follows (the block's closing line always follows the last line of the YAML).
+  const after = lines[last]!.end;
+  const to = text.startsWith("\r\n", after) ? after + 2 : after + 1;
+  return { range: { from, to }, text: "" };
+}
+
+/** The comment ending a one-line YAML field (`  # note`, with the spaces before it), as the YAML lexer reads it; "" when none. */
+function trailingComment(line: string): string {
+  let offset = 0;
+  let space = -1;
+  for (const token of new Lexer().lex(line)) {
+    if (token.startsWith("#") && space !== -1) return line.slice(space);
+    space = /^[ \t]+$/.test(token) ? offset : -1;
+    // The lexer's control tokens (document, scalar starts) are not source text.
+    if (!/^[\u0000-\u001f]$/.test(token)) offset += token.length;
+  }
+  return "";
 }
