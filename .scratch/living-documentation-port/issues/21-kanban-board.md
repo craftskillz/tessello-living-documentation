@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 (Reading: Mermaid, Kanban blocks and Tag marker pills), 09 (Tree: rename and move)
 
-**Status:** ready-for-human (built in d6555c7; awaiting the trial in the local Host)
+**Status:** done (d6555c7)
 
 - [x] Board under the Document's text; detection rule shared with the header
 - [x] Column folders and card order
@@ -13,7 +13,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -29,4 +29,5 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - Differences from the original: the board's own text shows above the board and Edit is there (Q-048); cards follow the manifest order and can be reordered (Q-053); the header has no White background, Lines, table of contents, settings cog, Marker or HTML actions; no section editing or annotations on a board (Q-060, R12); each card also shows its date, each column a counter, as the original did.
 - The column palette is now shared by the reading preview and the board (`.ld-kanban-<color>` in `document.css`, no longer scoped to `.document`).
 - New glossary entries: Kanban board, Column, Card.
-- Not done yet: the screenshot beside the cog panel (docs/ui.md) and the trial in the local Host.
+- Not done: the screenshot beside the cog panel (docs/ui.md).
+- Tried in the local Host by the User on 2026-11-25 (Chrome): the board shows and cards move. Cards are created from the Tree's New document until ticket 22 adds the column's +.
