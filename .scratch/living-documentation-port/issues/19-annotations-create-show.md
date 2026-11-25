@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Reading: links, images and the document stylesheet)
 
-**Status:** ready-for-human (built in fb5bafd; awaiting the trial in the local Host)
+**Status:** done (fb5bafd)
 
 - [x] Create an annotation; the file stays compatible with the original
 - [x] Placement rules with orange and red states
@@ -14,7 +14,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -26,4 +26,4 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - Column buttons: hover shows the popup; a click scrolls only (keyboard focus also shows the popup); an orphan's click shows its popup next to the button. Their accessible name is the note cut at 60 characters, its warning first; no native `title`, so it does not cover the popup.
 - Additions: Escape cancels the creation popup, Cmd/Ctrl+Enter saves it; the annotations are read again when the open Document or `.annotations.json` changes on disk.
 - Not in this ticket: Edit and Delete (ticket 20); the original's sidebar annotation counts are not in `docs/spec/annotations.md`, so not built. Kanban boards do not exist yet (ticket 21): it must not mount the annotations there.
-- Still to do: the trial in the local Host, on an old Living Documentation folder with a `.annotations.json`.
+- Tried in the local Host by the User on 2026-11-25: validated.
