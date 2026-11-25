@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human (built in COMMIT; awaiting the trial in the local Host)
+**Status:** ready-for-human (built in 43ad5ed; awaiting the trial in the local Host)
 
 - [x] Title matches at once; full text after a short pause
 - [x] Matches title, Tags, description, Type and body only
