@@ -245,6 +245,13 @@ const en = {
   annotationMissing: "This annotation was deleted meanwhile.",
   annotationDeleteFailed: "The annotation could not be deleted. Try again.",
   annotationsBusy: "The annotations file kept changing while saving (an agent or another window is writing it). Try again.",
+  board: "Kanban board",
+  boardNoCards: "No cards",
+  boardCardUnreadable: "This card could not be read.",
+  boardLoadFailed: "Could not load the board.",
+  boardColumnFailed: "The folder of the column “{column}” could not be created.",
+  boardMoveTaken: "“{name}” cannot move to {column}: a card with this name is already there.",
+  boardMoveFailed: "Could not move the card “{name}”.",
 };
 
 type Messages = typeof en;
@@ -494,6 +501,13 @@ const fr: Messages = {
   annotationMissing: "Cette annotation a été supprimée entre-temps.",
   annotationDeleteFailed: "L’annotation n’a pas pu être supprimée. Réessayez.",
   annotationsBusy: "Le fichier des annotations changeait sans cesse pendant l’enregistrement (un agent ou une autre fenêtre l’écrit). Réessayez.",
+  board: "Tableau Kanban",
+  boardNoCards: "Aucune carte",
+  boardCardUnreadable: "Cette carte n’a pas pu être lue.",
+  boardLoadFailed: "Le tableau n’a pas pu être chargé.",
+  boardColumnFailed: "Le dossier de la colonne « {column} » n’a pas pu être créé.",
+  boardMoveTaken: "« {name} » ne peut pas aller dans {column} : une carte de ce nom s’y trouve déjà.",
+  boardMoveFailed: "La carte « {name} » n’a pas pu être déplacée.",
 };
 
 export type MessageKey = keyof Messages;

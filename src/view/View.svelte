@@ -26,7 +26,9 @@
   import ProjectSettingsPanel from "./ProjectSettings.svelte";
   import ProjectSwitcher from "./ProjectSwitcher.svelte";
   import { createLiveSearch, documentsIn, filterTree, searchProject, titleResults, type SearchResult } from "../lib/search.ts";
-  import { renderDocument } from "../lib/render.ts";
+  import { renderDocument, kanbanBlockOf } from "../lib/render.ts";
+  import { type CardPlace, loadBoard, moveCard, type Column } from "../lib/board.ts";
+  import Board from "./Board.svelte";
   import ArticleTools from "./ArticleTools.svelte";
   import { applyLineLabels } from "./lines.ts";
   import Editor from "./Editor.svelte";
@@ -136,7 +138,59 @@
         footnoteBack: t("footnoteBack"),
         compareSource: t("compareSource"),
         compareRender: t("compareRender"),
-      }, { frontmatter: readOnly, softBreaks: settings.softBreaks }) : "");
+      }, { frontmatter: readOnly, softBreaks: settings.softBreaks, board: boardBlock !== null }) : "");
+  /** The Kanban block that makes the open Document a board (the same rule as its rendering); null: a plain Document. */
+  const boardBlock = $derived(model && !readOnly ? kanbanBlockOf(model) : null);
+  /** The board of the open Document: its columns and cards; null until loaded. */
+  let board = $state.raw<{ path: string; columns: Column[] } | null>(null);
+  /** Changes with the open board and its Kanban block only, not with every reading of the Document. */
+  const boardKey = $derived(boardBlock && path ? JSON.stringify([path, boardBlock]) : null);
+  let boardLoads = 0;
+  $effect(() => {
+    void boardKey;
+    untrack(() => void refreshBoard(true));
+  });
+
+  /** Loads the board of the open Document: its missing column folders are created, then the Tree shows them. */
+  async function refreshBoard(withTree: boolean) {
+    const block = boardBlock;
+    const at = path;
+    const mine = ++boardLoads;
+    if (!project || !block || !at) {
+      board = null;
+      return;
+    }
+    if (board?.path !== at) board = null;
+    try {
+      const columns = await loadBoard(project, at, block);
+      if (mine !== boardLoads || path !== at) return;
+      board = { path: at, columns };
+      if (withTree) tree = await loadTree();
+    } catch (reason) {
+      if (mine === boardLoads && path === at) report(t("boardLoadFailed"), reason);
+    }
+  }
+
+  const boardFailure = (column: Column) =>
+    column.failure instanceof Refused
+      ? `${t("boardColumnFailed", { column: column.label })} ${refusalMessage(column.failure.reason)}`
+      : `${t("boardColumnFailed", { column: column.label })} ${t("detail", { reason: column.failure instanceof Error ? column.failure.message : String(column.failure) })}`;
+
+  /** A card dropped in a column: its file moves there, before or after another card or at the end. */
+  async function moveBoardCard(card: { path: string; name: string }, column: Column, place?: CardPlace) {
+    const shown = board;
+    if (!shown || !project || !(await beforeChange())) return;
+    let to: string;
+    try {
+      to = await moveCard(project, shown.columns, card.path, column.folder, place);
+    } catch (reason) {
+      if (reason instanceof Refused && reason.reason === "taken") report(t("boardMoveTaken", { name: card.name, column: column.label }));
+      else reportFailure(t("boardMoveFailed", { name: card.name }), reason);
+      return;
+    }
+    if (to !== card.path) await afterChange(card.path, to, false);
+    await refreshBoard(false);
+  }
   /** The live preview of the section being edited, rendered as a Document of its own; its links do nothing. */
   const previewHtml = $derived(
     session?.kind === "section" && path
@@ -797,6 +851,7 @@
     try {
       const changes = await project.check();
       if (changes.tree) tree = await loadTree();
+      if (boardBlock && (changes.tree || changes.documents.length > 0)) void refreshBoard(false);
       if (changes.tree || changes.documents.length > 0) void loadFavorites();
       if (changes.documents.includes(SETTINGS_FILE)) void loadSettings();
       if (changes.documents.includes(ANNOTATIONS_FILE) || (checked && changes.documents.includes(checked))) annotationsChanged++;
@@ -1573,6 +1628,7 @@
           {editing}
           {saving}
           {readOnly}
+          board={boardBlock !== null}
           lines={display.lines}
           whiteBackground={display.whiteBackground}
           tocOpen={display.toc.open}
@@ -1641,8 +1697,11 @@
               {#if !hasHeading}<h1>{model.title}</h1>{/if}
               {@html html}
             </article>
+            {#if boardBlock && board?.path === path}
+              <Board columns={board.columns} onopen={(card) => void follow(card, null)} onmove={(card, column, place) => void moveBoardCard(card, column, place)} failure={boardFailure} />
+            {/if}
             </div>
-            {#if display.toc.open && headings.length > 0}
+            {#if display.toc.open && headings.length > 0 && !boardBlock}
               <Toc
                 {headings}
                 width={tocWidth}
@@ -1655,10 +1714,10 @@
             {article}
             {notify}
             fail={report}
-            sectionAt={(offset) => (readOnly || session || !current ? null : sectionAt(current.text, offset))}
+            sectionAt={(offset) => (readOnly || boardBlock || session || !current ? null : sectionAt(current.text, offset))}
             onsection={startSection}
           />
-          {#if !readOnly}
+          {#if !readOnly && !boardBlock}
             <Annotations
               {article}
               {html}

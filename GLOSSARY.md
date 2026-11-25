@@ -105,3 +105,15 @@ _Avoid_: Template (alone; that is the Template library), theme, export
 **HTML view**:
 A Document presented with its HTML template, editable in place, inside the View.
 _Avoid_: HTML page, preview, export
+
+**Kanban board**:
+A Document holding a Kanban block (real Markdown, outside code), shown as its own text followed by its Columns of Cards. The block names the Columns and their colors; the board's state is plain files.
+_Avoid_: Board document, project board (for the feature)
+
+**Column**:
+One column of a Kanban board: a Folder next to the board Document, named after the column's label (accents removed, other characters `_`), created when missing.
+_Avoid_: Lane, swimlane, status
+
+**Card**:
+A Document stored directly in a Column's Folder, in that Folder manifest's order then alphabetical. Moving a Card between Columns moves its file.
+_Avoid_: Item, task, ticket

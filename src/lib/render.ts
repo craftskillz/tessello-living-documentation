@@ -14,7 +14,7 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import type { DocumentModel } from "./document.ts";
 import { calloutIcon, gridTemplate, parseColumnComment, type Directive, parseDirective, quoteAttrs, type QuoteAttrs, sizeAttrs, tableAttrs } from "./directives.ts";
-import { parseKanbanBlock } from "./kanban.ts";
+import { type KanbanBlock, parseKanbanBlock } from "./kanban.ts";
 import { isMarkerName, pillLabel, TAG_SOURCE } from "./tagMarkers.ts";
 import { headingId, resolveImage, resolveLink } from "./links.ts";
 
@@ -39,6 +39,8 @@ type Pass = {
   rendered: Element[];
   /** Whether a Kanban block counts here: not inside a `:::compare`, so the Document shows at most one board. */
   kanban: boolean;
+  /** Whether the View draws the board itself: the Kanban block is then left out instead of previewed. */
+  board: boolean;
   /** The text this pass parses (offsets of its nodes are in it), and the whole Document's, for closing tags. */
   text: string;
   documentText: string;
@@ -75,7 +77,7 @@ export function renderDocument(
   model: DocumentModel,
   path: string,
   labels: Partial<RenderLabels>,
-  options: { frontmatter?: boolean; softBreaks: boolean },
+  options: { frontmatter?: boolean; softBreaks: boolean; board?: boolean },
 ): string {
   const tree = renderDocumentTree(model, path, labels, options);
   return unified().use(rehypeStringify, { allowDangerousHtml: true }).stringify(tree);
@@ -86,11 +88,11 @@ export function renderDocumentTree(
   model: DocumentModel,
   path: string,
   labels: Partial<RenderLabels>,
-  options: { frontmatter?: boolean; softBreaks: boolean },
+  options: { frontmatter?: boolean; softBreaks: boolean; board?: boolean },
 ): Root {
   const all = { ...ENGLISH, ...labels };
   const documentText = `${model.frontmatterText ?? ""}\n${model.body}`;
-  const tree = renderTree(model.body, path, model.bodyStart, all, "ld-", { documentText, topLevel: true, softBreaks: options.softBreaks });
+  const tree = renderTree(model.body, path, model.bodyStart, all, "ld-", { documentText, topLevel: true, softBreaks: options.softBreaks, board: options.board ?? false });
   if (options.frontmatter && model.frontmatterText !== null && model.frontmatterEnd !== null) {
     const fence = "`".repeat(Math.max(3, ...(model.frontmatterText.match(/`+/g) ?? []).map((run) => run.length + 1)));
     const block = renderTree(`${fence}yaml\n${model.frontmatterText}\n${fence}`, path, 0, all, "ld-frontmatter-", { softBreaks: false });
@@ -104,6 +106,7 @@ export function renderDocumentTree(
 /**
  * `documentText`: the whole Document's text, for closing tags (`text` by default). `topLevel`: the pass of the Document
  * itself, not of a `:::compare` or the frontmatter (only it shows a Kanban block). `softBreaks`: the Project setting.
+ * `board`: the View draws the board, so the Kanban block is left out.
  */
 function renderTree(
   text: string,
@@ -111,7 +114,7 @@ function renderTree(
   bodyStart: number,
   labels: RenderLabels,
   clobberPrefix: string,
-  { documentText = text, topLevel = false, softBreaks }: { documentText?: string; topLevel?: boolean; softBreaks: boolean },
+  { documentText = text, topLevel = false, softBreaks, board = false }: { documentText?: string; topLevel?: boolean; softBreaks: boolean; board?: boolean },
 ): Root {
   const regions = compareRegions(text);
   const rendered = regions.map((region, index) => {
@@ -119,9 +122,9 @@ function renderTree(
     const inner = renderTree(source, path, bodyStart + region.innerFrom, labels, `${clobberPrefix}compare-${index}-`, { documentText, softBreaks });
     return compareElement(source, inner, labels);
   });
-  const masked = regions.reduceRight((rest, region) => rest.slice(0, region.from) + placeholder(rest.slice(region.from, region.to)) + rest.slice(region.to), text);
+  const masked = maskCompares(text, regions);
   const compares = new Map(regions.map((region, index) => [region.from, index]));
-  const pass: Pass = { path, bodyStart, compares, rendered, kanban: topLevel, text, documentText, softBreaks };
+  const pass: Pass = { path, bodyStart, compares, rendered, kanban: topLevel, board, text, documentText, softBreaks };
   return pipeline(labels, clobberPrefix).processSync({ value: masked, data: pass }).result as Root;
 }
 
@@ -157,6 +160,10 @@ export function compareRegions(text: string): CompareRegion[] {
   }
   return regions;
 }
+
+/** `text` with each of its `:::compare` `regions` turned into a comment as long, so that it counts as nothing there. */
+const maskCompares = (text: string, regions: CompareRegion[]): string =>
+  regions.reduceRight((rest, region) => rest.slice(0, region.from) + placeholder(rest.slice(region.from, region.to)) + rest.slice(region.to), text);
 
 /** An HTML comment as long as `region`, newlines kept: the rest of the text keeps its offsets and its lines. */
 const placeholder = (region: string): string => "<!--" + region.slice(4, -3).replace(/[^\n]/g, " ") + "-->";
@@ -326,36 +333,52 @@ function remarkDirectives() {
   return (tree: MdastRoot, file: { data: object }) => {
     const { compares } = file.data as Pass;
     columns(tree);
-    if ((file.data as Pass).kanban) kanbanPreview(tree);
+    if ((file.data as Pass).kanban) kanbanPreview(tree, (file.data as Pass).board);
     tagMarkers(tree, file.data as Pass);
     directives(tree, compares);
   };
 }
 
-/** Replaces the first Kanban block of the tree (an `html` flow node) by a read-only preview of its columns. */
-function kanbanPreview(root: MdastRoot): void {
-  const find = (parent: Parents): boolean => {
+/** The first Kanban block of the tree (an `html` flow node, in a quote or a list too), where it stands and what it says. */
+function findKanban(root: MdastRoot): { parent: Parents; index: number; block: KanbanBlock } | null {
+  const find = (parent: Parents): { parent: Parents; index: number; block: KanbanBlock } | null => {
     for (const [index, node] of (parent.children as Nodes[]).entries()) {
-      const board = node.type === "html" ? parseKanbanBlock((node as Html).value) : null;
-      if (board) {
-        const column = (label: string, color: string) => ({
-          type: "ldKanbanColumn",
-          children: [{ type: "ldKanbanTitle", children: [{ type: "text", value: label }], data: { hName: "div", hProperties: { className: ["ld-kanban-column-title"] } } }],
-          data: { hName: "div", hProperties: { className: ["ld-kanban-column", `ld-kanban-${color}`] } },
-        });
-        parent.children[index] = {
-          type: "ldKanban",
-          children: board.columns.map((each) => column(each.label, each.color)),
-          position: node.position,
-          data: { hName: "div", hProperties: { className: ["ld-kanban"], dataKanban: "" } },
-        } as never;
-        return true;
-      }
-      if ("children" in node && find(node as Parents)) return true;
+      const block = node.type === "html" ? parseKanbanBlock((node as Html).value) : null;
+      if (block) return { parent, index, block };
+      const inner = "children" in node ? find(node as Parents) : null;
+      if (inner) return inner;
     }
-    return false;
+    return null;
   };
-  find(root);
+  return find(root);
+}
+
+/** The Kanban block that makes the Document a board, by the rule its rendering uses; null when it is not a board. */
+export function kanbanBlockOf(model: DocumentModel): KanbanBlock | null {
+  const masked = maskCompares(model.body, compareRegions(model.body));
+  return findKanban(unified().use(remarkParse).use(remarkGfm).parse(masked))?.block ?? null;
+}
+
+/** Replaces the first Kanban block of the tree by a read-only preview of its columns, or removes it when `leaveOut`. */
+function kanbanPreview(root: MdastRoot, leaveOut: boolean): void {
+  const found = findKanban(root);
+  if (!found) return;
+  const { parent, index, block } = found;
+  if (leaveOut) {
+    parent.children.splice(index, 1);
+    return;
+  }
+  const column = (label: string, color: string) => ({
+    type: "ldKanbanColumn",
+    children: [{ type: "ldKanbanTitle", children: [{ type: "text", value: label }], data: { hName: "div", hProperties: { className: ["ld-kanban-column-title"] } } }],
+    data: { hName: "div", hProperties: { className: ["ld-kanban-column", `ld-kanban-${color}`] } },
+  });
+  parent.children[index] = {
+    type: "ldKanban",
+    children: block.columns.map((each) => column(each.label, each.color)),
+    position: parent.children[index]!.position,
+    data: { hName: "div", hProperties: { className: ["ld-kanban"], dataKanban: "" } },
+  } as never;
 }
 
 // ---- Tag markers: lone tags of unknown names, found on the Markdown tree so code and comments never hold one ----

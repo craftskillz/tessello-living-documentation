@@ -11,6 +11,7 @@
     editing,
     saving,
     readOnly,
+    board,
     lines,
     whiteBackground,
     tocOpen,
@@ -39,6 +40,8 @@
     editing: boolean;
     saving: boolean;
     readOnly: boolean;
+    /** The Document is a Kanban board: only Favorite, Edit, Copy path and Delete. */
+    board: boolean;
     lines: boolean;
     whiteBackground: boolean;
     tocOpen: boolean;
@@ -77,11 +80,14 @@
   {:else}
     {#if readOnly}<span class="badge">{t("readOnly")}</span>{/if}
     <button onclick={oncopypath}>{t("copyPath")}</button>
+    {#if !board}
     <button aria-pressed={lines} title={t("linesHint")} onclick={onlines}>{t("lines")}</button>
     <button aria-pressed={whiteBackground} title={t("whiteBackgroundHint")} onclick={onwhite}>{t("whiteBackground")}</button>
     <button aria-pressed={tocOpen} onclick={ontoc}>{t("toc")}</button>
     <Settings {treeLabels} filter={labelFilter} {softBreaks} {onlabels} {onfilter} {onsoftbreaks} />
+    {/if}
     {#if !readOnly}
+      {#if !board}
       <button class="marker" data-state={marker} title={t("markerHint")} aria-pressed={marker === "active" ? true : marker === "hidden" ? "mixed" : false} onclick={onmarker}>
         <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3" /><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />{#if marker === "hidden"}<path d="m3 3 18 18" />{/if}</svg>
         {t("marker")}
@@ -93,6 +99,7 @@
         </button>
       {:else}
         <button title={t("htmlGenerateHint")} onclick={onhtml}>{t("htmlGenerate")}</button>
+      {/if}
       {/if}
       <button aria-pressed={favorite} title={favorite ? t("removeFavorite") : t("addFavorite")} onclick={onfavorite}>
         <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill={favorite ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z" /></svg>

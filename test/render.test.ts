@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { parseDocument } from "../src/lib/document.ts";
-import { renderDocument } from "../src/lib/render.ts";
+import { kanbanBlockOf, renderDocument } from "../src/lib/render.ts";
 
 const render = (text: string, path = "guide/intro.md") => renderDocument(parseDocument(text, path), path, {}, { softBreaks: false });
 
@@ -201,6 +201,50 @@ describe("Kanban preview", () => {
     const html = render(`${block("First")}\n\n${block("Second")}\n`);
     assert.match(html, /First/);
     assert.doesNotMatch(html, /Second/);
+  });
+});
+
+describe("kanbanBlockOf", () => {
+  const block = (columns: string) => `<div data-ld-kanban data-columns="${columns}" data-colors="sky"></div>`;
+  const of = (text: string) => kanbanBlockOf(parseDocument(text, "board.md"));
+
+  test("a real block, at the top level, in a quote or in a list", () => {
+    const expected = { columns: [{ label: "To do", color: "sky" }] };
+    assert.deepEqual(of(`Intro\n\n${block("To do")}\n`), expected);
+    assert.deepEqual(of(`> ${block("To do")}\n`), expected);
+    assert.deepEqual(of(`- ${block("To do")}\n`), expected);
+  });
+
+  test("not in code, nor in a paragraph with text", () => {
+    assert.equal(of("```html\n" + block("A") + "\n```\n"), null);
+    assert.equal(of("    " + block("A") + "\n"), null);
+    assert.equal(of("`" + block("A") + "`"), null);
+    assert.equal(of(`Text ${block("A")} more\n`), null);
+  });
+
+  test("not inside a :::compare", () => {
+    assert.equal(of(`:::compare\n${block("A")}\n:::\n`), null);
+  });
+
+  test("the first block of the Document", () => {
+    assert.deepEqual(of(`${block("First")}\n\n${block("Second")}\n`)?.columns.map((c) => c.label), ["First"]);
+  });
+
+  test("not in the frontmatter", () => {
+    assert.equal(of(`---\ndescription: '${block("A")}'\n---\nText\n`), null);
+  });
+});
+
+describe("board rendering", () => {
+  const block = '<div data-ld-kanban data-columns="To do" data-colors="sky"></div>';
+  const model = parseDocument(`Intro\n\n${block}\n`, "board.md");
+
+  test("with board, the Kanban block is left out and the text stays", () => {
+    assert.equal(renderDocument(model, "board.md", {}, { softBreaks: false, board: true }), '<p data-src="0-5">Intro</p>');
+  });
+
+  test("by default the read-only preview shows", () => {
+    assert.match(renderDocument(model, "board.md", {}, { softBreaks: false }), /class="ld-kanban"/);
   });
 });
 

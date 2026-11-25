@@ -848,9 +848,6 @@
   margin: 1em 0;
 }
 .document .ld-kanban-column {
-  --kanban-bg: #f8fafc;
-  --kanban-border: #cbd5e1;
-  --kanban-title: #334155;
   min-height: 120px;
   padding: 0.6rem 0.75rem;
   border: 1px solid var(--kanban-border);
@@ -858,19 +855,20 @@
   background: var(--kanban-bg);
 }
 .document .ld-kanban-column-title { font-weight: 600; font-size: 0.9em; color: var(--kanban-title); }
-.document .ld-kanban-sky { --kanban-bg: #f0f9ff; --kanban-border: #bae6fd; --kanban-title: #075985; }
-.document .ld-kanban-amber { --kanban-bg: #fffbeb; --kanban-border: #fde68a; --kanban-title: #92400e; }
-.document .ld-kanban-emerald { --kanban-bg: #ecfdf5; --kanban-border: #a7f3d0; --kanban-title: #065f46; }
-.document .ld-kanban-rose { --kanban-bg: #fff1f2; --kanban-border: #fecdd3; --kanban-title: #9f1239; }
-.document .ld-kanban-violet { --kanban-bg: #f5f3ff; --kanban-border: #ddd6fe; --kanban-title: #5b21b6; }
-.document .ld-kanban-slate { --kanban-bg: #f8fafc; --kanban-border: #cbd5e1; --kanban-title: #334155; }
-:root[data-mode="dark"]:not(.ld-white-background) .document .ld-kanban-column {
+/* The six column colors, shared by the reading preview and the board: background, border and title. */
+.ld-kanban-sky { --kanban-bg: #f0f9ff; --kanban-border: #bae6fd; --kanban-title: #075985; }
+.ld-kanban-amber { --kanban-bg: #fffbeb; --kanban-border: #fde68a; --kanban-title: #92400e; }
+.ld-kanban-emerald { --kanban-bg: #ecfdf5; --kanban-border: #a7f3d0; --kanban-title: #065f46; }
+.ld-kanban-rose { --kanban-bg: #fff1f2; --kanban-border: #fecdd3; --kanban-title: #9f1239; }
+.ld-kanban-violet { --kanban-bg: #f5f3ff; --kanban-border: #ddd6fe; --kanban-title: #5b21b6; }
+.ld-kanban-slate { --kanban-bg: #f8fafc; --kanban-border: #cbd5e1; --kanban-title: #334155; }
+:root[data-mode="dark"]:not(.ld-white-background) :is(.ld-kanban-sky, .ld-kanban-amber, .ld-kanban-emerald, .ld-kanban-rose, .ld-kanban-violet, .ld-kanban-slate) {
   --kanban-bg: rgb(30 41 59 / 0.5);
   --kanban-border: rgb(100 116 139 / 0.5);
   --kanban-title: #e2e8f0;
 }
-:root[data-mode="dark"]:not(.ld-white-background) .document .ld-kanban-sky { --kanban-bg: rgb(12 74 110 / 0.4); --kanban-border: rgb(3 105 161 / 0.6); }
-:root[data-mode="dark"]:not(.ld-white-background) .document .ld-kanban-amber { --kanban-bg: rgb(120 53 15 / 0.35); --kanban-border: rgb(180 83 9 / 0.6); }
-:root[data-mode="dark"]:not(.ld-white-background) .document .ld-kanban-emerald { --kanban-bg: rgb(6 78 59 / 0.4); --kanban-border: rgb(4 120 87 / 0.6); }
-:root[data-mode="dark"]:not(.ld-white-background) .document .ld-kanban-rose { --kanban-bg: rgb(136 19 55 / 0.35); --kanban-border: rgb(190 18 60 / 0.6); }
-:root[data-mode="dark"]:not(.ld-white-background) .document .ld-kanban-violet { --kanban-bg: rgb(76 29 149 / 0.35); --kanban-border: rgb(109 40 217 / 0.6); }
+:root[data-mode="dark"]:not(.ld-white-background) .ld-kanban-sky { --kanban-bg: rgb(12 74 110 / 0.4); --kanban-border: rgb(3 105 161 / 0.6); }
+:root[data-mode="dark"]:not(.ld-white-background) .ld-kanban-amber { --kanban-bg: rgb(120 53 15 / 0.35); --kanban-border: rgb(180 83 9 / 0.6); }
+:root[data-mode="dark"]:not(.ld-white-background) .ld-kanban-emerald { --kanban-bg: rgb(6 78 59 / 0.4); --kanban-border: rgb(4 120 87 / 0.6); }
+:root[data-mode="dark"]:not(.ld-white-background) .ld-kanban-rose { --kanban-bg: rgb(136 19 55 / 0.35); --kanban-border: rgb(190 18 60 / 0.6); }
+:root[data-mode="dark"]:not(.ld-white-background) .ld-kanban-violet { --kanban-bg: rgb(76 29 149 / 0.35); --kanban-border: rgb(109 40 217 / 0.6); }

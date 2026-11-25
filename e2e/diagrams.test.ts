@@ -47,17 +47,18 @@ describe("diagrams", () => {
 describe("Kanban", () => {
   const block = '<div data-ld-kanban data-columns="To do|Doing|Done" data-colors="sky|amber|emerald"></div>';
 
-  test("a Kanban block shows its columns side by side; in a code block it stays code", async () => {
+  test("a Kanban block shows the board of its columns side by side; in a code block it stays code", async () => {
     const { page } = await withProject({ "a.md": `# Alpha\n\n${block}\n`, "b.md": `# Beta\n\n\`\`\`html\n${block}\n\`\`\`\n` });
     const address = page.url();
     await open(page);
-    await page.locator(".ld-kanban").waitFor();
-    const titles = page.locator(".ld-kanban .ld-kanban-column-title");
-    assert.deepEqual(await titles.allTextContents(), ["To do", "Doing", "Done"]);
-    const boxes = await page.locator(".ld-kanban-column").evaluateAll((each) => each.map((el) => el.getBoundingClientRect().toJSON()));
+    await page.getByRole("list", { name: "To do" }).waitFor();
+    assert.equal(await page.locator(".ld-kanban").count(), 0, "the board replaces the preview");
+    const titles = page.locator(".board-label");
+    assert.deepEqual((await titles.allTextContents()).map((each) => each.toLowerCase()), ["to do", "doing", "done"]);
+    const boxes = await page.locator(".board .column").evaluateAll((each) => each.map((el) => el.getBoundingClientRect().toJSON()));
     assert.ok(boxes[1].x > boxes[0].x + boxes[0].width - 1 && boxes[2].x > boxes[1].x + boxes[1].width - 1, "side by side");
     assert.ok(Math.abs(boxes[0].y - boxes[2].y) < 2, "one row");
-    assert.ok(boxes[0].height >= 100, "a board has some height");
+    assert.ok(boxes[0].height >= 50, "a board has some height");
 
     await open(page, "b.md");
     await page.locator("pre code").waitFor();
