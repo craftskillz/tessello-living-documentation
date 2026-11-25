@@ -205,6 +205,23 @@ describe("the Tree's dates", () => {
   });
 });
 
+describe("clicking anywhere on a highlighted row", () => {
+  test("the date under a Document's name opens it, and the space beside an other file's name opens its preview", async () => {
+    const { page } = await withProject({ "a.md": "# Alpha\n", "b.md": "# Bee\n", "notes.txt": "hello" });
+    const address = page.url();
+    await page.getByRole("link", { name: "b.md" }).waitFor();
+
+    await tree(page).locator('[data-entry="b.md"] .date').click();
+    await page.getByRole("heading", { level: 1, name: "Bee" }).waitFor();
+
+    const row = tree(page).locator('[data-entry="notes.txt"]');
+    const box = (await row.boundingBox())!;
+    await page.mouse.click(box.x + box.width - 4, box.y + box.height - 3);
+    await page.getByText("hello", { exact: true }).waitFor();
+    assert.equal(page.url(), address);
+  });
+});
+
 const tree = (page: Page) => page.getByRole("navigation", { name: "Documents" });
 /** The Folder's row in the Tree (its summary). */
 const folderRow = (page: Page, name: string) => tree(page).locator("summary", { hasText: name });

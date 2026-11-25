@@ -122,6 +122,12 @@
   }
 
   const markOf = (path: string) => (drag.mark?.path === path ? drag.mark.position : null);
+
+  /**
+   * Whether a click on a row landed beside its link (the date, an excerpt, the margins): the whole highlighted row opens
+   * the entry, the link itself already does (and the keyboard goes through it).
+   */
+  const besideEntry = (event: MouseEvent) => !(event.target as Element).closest(".entry");
 </script>
 
 <ul>
@@ -155,7 +161,8 @@
           <Tree entries={entry.children} {current} {open} {onfile} {drag} {label} {searching} {excerpts} />
         </details>
       {:else if entry.kind === "manifest"}
-        <div class="row hidden" class:current={entry.path === current} data-entry={entry.path}>
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="row hidden" class:current={entry.path === current} data-entry={entry.path} onclick={(event) => besideEntry(event) && open(entry.path)}>
           <span class="lock" aria-hidden="true">🔒</span>
           <span
             class="entry"
@@ -167,7 +174,8 @@
           >
         </div>
       {:else if entry.kind === "file"}
-        <div class="row" class:hidden={entry.hidden} data-entry={entry.path}>
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="row" class:hidden={entry.hidden} data-entry={entry.path} onclick={(event) => besideEntry(event) && onfile(entry.path)}>
           <span class="spacer"></span>
           <span
             class="entry"
@@ -179,11 +187,12 @@
         </div>
       {:else}
         {@const shown = label(entry)}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div
           class="row"
           class:hidden={entry.hidden}
           class:current={entry.path === current}
+          onclick={(event) => besideEntry(event) && open(entry.path)}
           data-entry={entry.path}
           title={fullName(entry, shown)}
           class:before={markOf(entry.path) === "before"}
