@@ -872,3 +872,15 @@
 :root[data-mode="dark"]:not(.ld-white-background) .ld-kanban-emerald { --kanban-bg: rgb(6 78 59 / 0.4); --kanban-border: rgb(4 120 87 / 0.6); }
 :root[data-mode="dark"]:not(.ld-white-background) .ld-kanban-rose { --kanban-bg: rgb(136 19 55 / 0.35); --kanban-border: rgb(190 18 60 / 0.6); }
 :root[data-mode="dark"]:not(.ld-white-background) .ld-kanban-violet { --kanban-bg: rgb(76 29 149 / 0.35); --kanban-border: rgb(109 40 217 / 0.6); }
+
+/* ── Read aloud: the spoken sentence, or the whole announced block ── */
+::highlight(ld-reading) {
+  background-color: rgb(250 204 21 / 0.45);
+}
+:root[data-mode="dark"]:not(.ld-white-background) ::highlight(ld-reading) {
+  background-color: rgb(250 204 21 / 0.3);
+}
+.document .ld-reading-block {
+  outline: 3px solid rgb(250 204 21 / 0.7);
+  background-color: rgb(250 204 21 / 0.2);
+}

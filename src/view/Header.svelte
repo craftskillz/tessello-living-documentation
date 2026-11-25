@@ -5,6 +5,7 @@
   import type { LabelFilter } from "../lib/labels.ts";
   import type { MarkerState } from "../lib/annotations.ts";
   import type { TreeLabels } from "../lib/projects.ts";
+  import type { Snippet } from "svelte";
   import Settings from "./Settings.svelte";
 
   let {
@@ -36,6 +37,7 @@
     ondelete,
     ondone,
     onrevert,
+    listen,
   }: {
     editing: boolean;
     saving: boolean;
@@ -69,6 +71,8 @@
     ondelete: () => void;
     ondone: () => void;
     onrevert: () => void;
+    /** Listen (read aloud), shown on an ordinary Document while reading. */
+    listen?: Snippet;
   } = $props();
 </script>
 
@@ -88,6 +92,7 @@
     {/if}
     {#if !readOnly}
       {#if !board}
+      {@render listen?.()}
       <button class="marker" data-state={marker} title={t("markerHint")} aria-pressed={marker === "active" ? true : marker === "hidden" ? "mixed" : false} onclick={onmarker}>
         <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3" /><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />{#if marker === "hidden"}<path d="m3 3 18 18" />{/if}</svg>
         {t("marker")}

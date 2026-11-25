@@ -1,5 +1,7 @@
 // The English and French catalogs of Living Documentation. The language follows the Host's `locale`; English otherwise.
 
+import type { ReadingLabels } from "./readingScript.ts";
+
 const en = {
   title: "Living Documentation",
   intro: "Keep your documentation as Markdown files in your project, where your coding agents can read them too.",
@@ -252,6 +254,26 @@ const en = {
   boardColumnFailed: "The folder of the column “{column}” could not be created.",
   boardMoveTaken: "“{name}” cannot move to {column}: a card with this name is already there.",
   boardMoveFailed: "Could not move the card “{name}”.",
+  listen: "Listen",
+  listenHint: "Read aloud",
+  readingPause: "Pause reading",
+  readingResume: "Resume reading",
+  readingNext: "Next section",
+  readingStop: "Stop reading",
+  readingControls: "Read aloud",
+  readingLanguageTitle: "Reading language",
+  readingLanguageText: "This document has no language in its frontmatter. Choose the language to write in it before reading.",
+  readingLanguageNone: "No language has a voice on this computer.",
+  readingRetry: "Retry",
+  readingNoVoice: "No voice for “{language}” on this computer. Install one in your system's speech settings, or change the document's language.",
+  readingLanguageChanged: "This document changed on disk. Try again.",
+  readingLanguageFailed: "Could not write the reading language: {reason}",
+  readingFailed: "Reading aloud stopped: the browser's voice failed. Try again.",
+  readingCode: "Code block.",
+  readingTable: "Table.",
+  readingDiagram: "Diagram.",
+  readingImage: "Image: {alt}.",
+  readingImageNoAlt: "Image.",
 };
 
 type Messages = typeof en;
@@ -508,6 +530,26 @@ const fr: Messages = {
   boardColumnFailed: "Le dossier de la colonne « {column} » n’a pas pu être créé.",
   boardMoveTaken: "« {name} » ne peut pas aller dans {column} : une carte de ce nom s’y trouve déjà.",
   boardMoveFailed: "La carte « {name} » n’a pas pu être déplacée.",
+  listen: "Écouter",
+  listenHint: "Lire à voix haute",
+  readingPause: "Mettre en pause",
+  readingResume: "Reprendre la lecture",
+  readingNext: "Section suivante",
+  readingStop: "Arrêter la lecture",
+  readingControls: "Lecture à voix haute",
+  readingLanguageTitle: "Langue de lecture",
+  readingLanguageText: "Ce document n’a pas de langue dans son frontmatter. Choisissez la langue à y écrire avant la lecture.",
+  readingLanguageNone: "Aucune langue n’a de voix sur cet ordinateur.",
+  readingRetry: "Réessayer",
+  readingNoVoice: "Aucune voix pour « {language} » sur cet ordinateur. Installez-en une dans les réglages de synthèse vocale de votre système, ou changez la langue du document.",
+  readingLanguageChanged: "Ce document a changé sur le disque. Réessayez.",
+  readingLanguageFailed: "La langue de lecture n’a pas pu être écrite : {reason}",
+  readingFailed: "La lecture à voix haute s’est arrêtée : la voix du navigateur a échoué. Réessayez.",
+  readingCode: "Bloc de code.",
+  readingTable: "Tableau.",
+  readingDiagram: "Diagramme.",
+  readingImage: "Image : {alt}.",
+  readingImageNoAlt: "Image.",
 };
 
 export type MessageKey = keyof Messages;
@@ -535,4 +577,10 @@ type PluralKey = MessageKey extends infer K ? (K extends `${infer Base}_one` ? B
 export function tn(key: PluralKey, count: number, values: Record<string, string | number> = {}): string {
   const form = new Intl.PluralRules(language).select(count) === "one" ? "one" : "other";
   return t(`${key}_${form}` as MessageKey, { ...values, count });
+}
+
+/** The read-aloud announcements in `language` ("en" or "fr"), whatever the interface language (docs/spec/read-aloud.md, rule 7). */
+export function readingLabels(language: "en" | "fr"): ReadingLabels {
+  const catalog = language === "fr" ? fr : en;
+  return { code: catalog.readingCode, table: catalog.readingTable, diagram: catalog.readingDiagram, image: catalog.readingImage, imageNoAlt: catalog.readingImageNoAlt };
 }

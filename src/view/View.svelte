@@ -34,6 +34,8 @@
   import Editor from "./Editor.svelte";
   import Favorites from "./Favorites.svelte";
   import Header from "./Header.svelte";
+  import ReadAloud from "./ReadAloud.svelte";
+  import { readingLanguage } from "../lib/readingScript.ts";
   import ResizeHandle from "./ResizeHandle.svelte";
   import Toc, { type Heading } from "./Toc.svelte";
   import Tree, { type Dragging, type DropPosition } from "./Tree.svelte";
@@ -281,6 +283,26 @@
         if (reason.theirs && path === asked) current = reason.theirs;
         report(t("typeChangedOnDisk"));
       } else report(t("typeSaveFailed", { reason: reason instanceof Error ? reason.message : String(reason) }));
+    }
+  }
+
+  /** Writes `language: <code>` in place, version-checked; resolves to a translated failure, or null when written (docs/spec/read-aloud.md, rules 4–5). */
+  async function saveLanguage(code: string): Promise<string | null> {
+    if (!current || !path || !project) return t("failed");
+    const edit = setField(current.text, "language", code);
+    if (!edit) return t("htmlFixFrontmatter");
+    const asked = path;
+    const text = applyEdits(current.text, [edit]);
+    try {
+      const version = await project.save(asked, text, current.version);
+      if (path === asked) current = { text, version };
+      return null;
+    } catch (reason) {
+      if (reason instanceof Conflict) {
+        if (reason.theirs && path === asked) current = reason.theirs;
+        return t("readingLanguageChanged");
+      }
+      return t("readingLanguageFailed", { reason: reason instanceof Error ? reason.message : String(reason) });
     }
   }
 
@@ -1653,7 +1675,17 @@
           ondelete={() => void askDeletion({ kind: "document", name: nameOf(path!), path: path! })}
           ondone={() => void done()}
           onrevert={() => void revert()}
-        />
+        >
+          {#snippet listen()}
+            <ReadAloud
+              {article}
+              language={readingLanguage(model.frontmatter.fields)}
+              content={`${path}\n${html}`}
+              savelanguage={saveLanguage}
+              onfail={report}
+            />
+          {/snippet}
+        </Header>
         </div>
         {#if conflict}
           <div class="banner" role="alert">

@@ -51,10 +51,11 @@ export interface Opened {
 }
 
 /** Opens the View on a Test Host of its own, with the Module's Permissions. */
-export async function openView(options: { storage?: TestHostOptions["storage"]; locale?: string; host?: TestHost } = {}): Promise<Opened> {
+export async function openView(options: { storage?: TestHostOptions["storage"]; locale?: string; host?: TestHost; init?: (page: Page) => Promise<void> } = {}): Promise<Opened> {
   const host = options.host ?? createTestHost({ module, permissions: manifest.permissions, storage: options.storage, locale: options.locale });
   const page = await (await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] })).newPage();
   await slowDownCpu(page);
+  await options.init?.(page);
   const surface = await host.attach(page, { surface: "view" });
   await page.goto(`${server.url}/${manifest.view.entry}`);
   return { page, host, surface };
@@ -63,9 +64,9 @@ export async function openView(options: { storage?: TestHostOptions["storage"]; 
 /** The View with a Project connected on a folder holding `files`, as the User does on a first visit. */
 export async function withProject(
   files: Record<string, string | Uint8Array>,
-  options: { locale?: string } = {},
+  options: { locale?: string; init?: (page: Page) => Promise<void> } = {},
 ): Promise<Opened & { disk: TestFolder }> {
-  const opened = await openView({ locale: options.locale });
+  const opened = await openView({ locale: options.locale, init: options.init });
   const disk = opened.host.folders.create("docs", files);
   opened.host.folders.choose(disk);
   await opened.page.getByRole("button", { name: options.locale === "fr" ? "Connecter un dossier" : "Connect a folder" }).click();
