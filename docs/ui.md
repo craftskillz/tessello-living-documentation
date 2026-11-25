@@ -15,6 +15,8 @@ Every settings panel, dialog or form puts the `ld-form` class on its root (the p
 - checkboxes and radios inside `<label class="check">` (a radio's label needs no class), in the accent colour;
 - `<p class="hint muted">` for help under a field or group, `<p class="invalid" role="alert">` for an error.
 
+A dialog too tall for one column (Project settings) lays its fieldsets out in columns, its zones marked by a grey rule (`1px solid var(--line)`) between the columns and above a fieldset that runs across; the fieldsets themselves keep no border. One column in a narrow View.
+
 A component's own `<style>` holds only its layout: position, width, padding, shadow, the actions row. Svelte scopes component styles, so a `dialog` gets nothing from `View.svelte`: give it `color: var(--ink)`, `background: var(--panel)`, `border: 1px solid var(--line)` and `border-radius: 8px` itself. A new form control (`textarea`, `select`, a range…) gets its look in `.ld-form`, so every panel shares it.
 
 ## Names

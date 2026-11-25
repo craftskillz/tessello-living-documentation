@@ -201,8 +201,18 @@
     column-gap: 2rem;
     align-items: start;
   }
+  /* Grey rules mark the zones: one between the two columns, one above the shared settings, across. */
+  .columns > :nth-child(2) {
+    border-left: 1px solid var(--line);
+    padding-left: 2rem;
+    align-self: stretch;
+    align-content: start;
+  }
   .wide {
     grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+    padding-top: 0.9rem;
+    margin-top: 0.4rem;
   }
   .restore {
     margin-bottom: 0.75rem;
@@ -211,6 +221,10 @@
   @media (max-width: 44rem) {
     .columns {
       grid-template-columns: minmax(0, 1fr);
+    }
+    .columns > :nth-child(2) {
+      border-left: 0;
+      padding-left: 0;
     }
   }
 </style>
