@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human (built in 12c940b, Host side in ../tessello bb8aca1; awaiting the trial in the local Host)
+**Status:** ready-for-human (built in 12c940b and bd44fdb, Host side in ../tessello bb8aca1; awaiting the trial in the local Host)
 
 - [x] Project switcher: switch, connect, remove, reconnect
 - [x] Overlap refused (decision recorded in an ADR)
