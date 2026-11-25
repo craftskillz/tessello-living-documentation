@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Reading: links, images and the document stylesheet)
 
-**Status:** ready-for-human (built in e978d3a; awaiting the trial in the local Host)
+**Status:** done (e978d3a)
 
 - [x] Controls and highlight
 - [x] Language rules and the dialog writing `language` in place
@@ -13,7 +13,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
