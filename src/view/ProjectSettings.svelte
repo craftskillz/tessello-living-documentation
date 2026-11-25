@@ -67,6 +67,7 @@
   <header>
     <h2 id="project-settings-title">{t("projectSettingsTitle")}</h2>
   </header>
+  <div class="columns">
   <fieldset>
     <legend>{t("projectIdentity")}</legend>
     <p class="folder"><span class="muted">{t("projectFolder")}</span> <strong>{folderName}</strong></p>
@@ -117,10 +118,14 @@
     {#if failure}<p class="invalid" role="alert">{failure}</p>{/if}
     <p class="hint muted">{t("repositoryKeptHint")}</p>
   </fieldset>
-  <fieldset>
+  <fieldset class="wide">
     <legend>{t("sharedSettings")}</legend>
+    <div class="columns">
+    <div>
     <label class="check"><input type="checkbox" checked={softBreaks} onchange={(event) => onsoftbreaks(event.currentTarget.checked)} /> {t("softBreaks")}</label>
     <p class="hint muted">{t("softBreaksHint")}</p>
+    </div>
+    <div>
     <label class="field">
       {t("treeShown")}
       <input
@@ -136,7 +141,7 @@
       />
     </label>
     <p class="hint muted">{t("treeShownHint", { list: formatList(DEFAULT_VISIBILITY.shownExtensions) })}</p>
-    <div><button type="button" aria-label={t("restoreDefaultsOf", { field: t("treeShown") })} onclick={() => onshown(DEFAULT_VISIBILITY.shownExtensions)}>{t("restoreDefaults")}</button></div>
+    <div class="restore"><button type="button" aria-label={t("restoreDefaultsOf", { field: t("treeShown") })} onclick={() => onshown(DEFAULT_VISIBILITY.shownExtensions)}>{t("restoreDefaults")}</button></div>
     <label class="field">
       {t("treeExcluded")}
       <input
@@ -152,15 +157,20 @@
       />
     </label>
     <p class="hint muted">{t("treeExcludedHint", { list: formatList(DEFAULT_VISIBILITY.excluded) })}</p>
-    <div><button type="button" aria-label={t("restoreDefaultsOf", { field: t("treeExcluded") })} onclick={() => onexcluded(DEFAULT_VISIBILITY.excluded)}>{t("restoreDefaults")}</button></div>
+    <div class="restore"><button type="button" aria-label={t("restoreDefaultsOf", { field: t("treeExcluded") })} onclick={() => onexcluded(DEFAULT_VISIBILITY.excluded)}>{t("restoreDefaults")}</button></div>
+    </div>
+    </div>
   </fieldset>
+  </div>
   <div class="actions"><button type="button" onclick={onclose}>{t("close")}</button></div>
 </dialog>
 
 <style>
   /* The form look comes from .ld-form (base.css, docs/ui.md); only the dialog's own layout is here. */
   dialog {
-    width: min(92vw, 28rem);
+    width: min(94vw, 60rem);
+    max-height: 94vh;
+    overflow: auto;
     padding: 1rem 1.25rem;
     color: var(--ink);
     background: var(--panel);
@@ -183,5 +193,24 @@
   .actions {
     display: flex;
     justify-content: flex-end;
+  }
+  /* Side by side: this Project's identity and its repository, then the shared settings across, in two columns of their own. */
+  .columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 2rem;
+    align-items: start;
+  }
+  .wide {
+    grid-column: 1 / -1;
+  }
+  .restore {
+    margin-bottom: 0.75rem;
+  }
+  /* A narrow View: one column. */
+  @media (max-width: 44rem) {
+    .columns {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 </style>
