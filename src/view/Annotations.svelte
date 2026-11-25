@@ -5,8 +5,8 @@
   // reading only.
   import { untrack } from "svelte";
   import { type Annotation, type AnnotationDraft, type MarkerState, excerpt, normalizeSpaces, type Placement, placeAnnotations } from "../lib/annotations.ts";
-  import { currentLocale, t } from "../lib/i18n.ts";
-  import { Refused } from "../lib/project.ts";
+  import { currentLocale, type MessageKey, t } from "../lib/i18n.ts";
+  import { Conflict, Refused } from "../lib/project.ts";
   import { applyHighlights, articleText, clearHighlights, draftOfRange } from "./highlights.ts";
 
   let {
@@ -18,6 +18,8 @@
     changeCount,
     read,
     add,
+    edit,
+    remove,
     fail,
   }: {
     article: HTMLElement | undefined;
@@ -31,6 +33,8 @@
     changeCount: number;
     read: () => Promise<Annotation[]>;
     add: (draft: AnnotationDraft) => Promise<Annotation>;
+    edit: (id: string, note: string) => Promise<Annotation>;
+    remove: (id: string) => Promise<void>;
     fail: (message: string, reason?: unknown) => void;
   } = $props();
 
@@ -79,12 +83,26 @@
   let readingHeight = $state(0);
   let closing: ReturnType<typeof setTimeout> | undefined;
 
+  /** The popup reads; or it holds the edit form or the delete confirmation, which nothing closes but their own buttons and Escape. */
+  let mode = $state<"read" | "edit" | "delete">("read");
+  let editNote = $state("");
+  let busy = $state(false);
+  let editField = $state<HTMLTextAreaElement>();
+  let confirmCancel = $state<HTMLButtonElement>();
+
   const cancelClose = () => clearTimeout(closing);
   const scheduleClose = () => {
     cancelClose();
+    if (mode !== "read") return;
     closing = setTimeout(() => (reading = null), CLOSE_DELAY);
   };
+  function closeReading() {
+    cancelClose();
+    mode = "read";
+    reading = null;
+  }
   function show(id: string, element: Element, from: Opened["from"]) {
+    if (mode !== "read") return;
     cancelClose();
     const box = element.getBoundingClientRect();
     reading = { id, left: box.left, top: box.top, bottom: box.bottom, right: box.right, from };
@@ -98,10 +116,74 @@
     return `left:${clamp(reading.left, window.innerWidth - POPUP_WIDTH - 8)}px;top:${clamp(reading.bottom + 6, window.innerHeight - readingHeight - 8)}px`;
   });
 
-  const dateOf = (annotation: Annotation) => {
-    const date = new Date(annotation.createdAt);
+  /** The message of a failed annotation write: the file keeps changing, is not valid, or the annotation is gone; else `fallback`. */
+  function failureOf(reason: unknown, fallback: MessageKey): string {
+    if (reason instanceof Conflict) return t("annotationsBusy");
+    if (reason instanceof Refused && reason.reason === "invalidAnnotations") return t("annotationsInvalid");
+    if (reason instanceof Refused && reason.reason === "missing") return t("annotationMissing");
+    return t(fallback);
+  }
+
+  const formatDate = (iso: string) => {
+    const date = new Date(iso);
     return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(currentLocale(), { dateStyle: "medium" }).format(date);
   };
+  /** The creation date, and the last edit's when there is one. */
+  const datesOf = (annotation: Annotation) => {
+    const edited = annotation.updated ? formatDate(annotation.updated) : "";
+    return formatDate(annotation.createdAt) + (edited ? t("annotationEdited", { date: edited }) : "");
+  };
+
+  function startEdit(annotation: Annotation) {
+    cancelClose();
+    editNote = annotation.note;
+    mode = "edit";
+  }
+  $effect(() => {
+    if (mode === "edit") editField?.focus();
+  });
+  $effect(() => {
+    if (mode === "delete") confirmCancel?.focus();
+  });
+  // Escape cancels the form or the confirmation.
+  $effect(() => {
+    if (mode === "read") return;
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeReading();
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  });
+
+  async function saveEdit() {
+    if (!reading || !editNote.trim() || busy) return;
+    busy = true;
+    try {
+      await edit(reading.id, editNote);
+      await reload();
+      closeReading();
+    } catch (reason) {
+      const missing = reason instanceof Refused && reason.reason === "missing";
+      fail(failureOf(reason, "annotationSaveFailed"), reason);
+      if (missing) await reload();
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function confirmDelete() {
+    if (!reading || busy) return;
+    busy = true;
+    try {
+      await remove(reading.id);
+      await reload();
+      closeReading();
+    } catch (reason) {
+      fail(failureOf(reason, "annotationDeleteFailed"), reason);
+    } finally {
+      busy = false;
+    }
+  }
 
   // Hovering a mark shows its popup; leaving it starts the delay; scrolling closes at once.
   $effect(() => {
@@ -115,7 +197,7 @@
       if ((event.target as Element).closest("mark.ld-annotation")) scheduleClose();
     };
     const scrolled = (event: Event) => {
-      if (event.target instanceof Node && readingElement?.contains(event.target)) return;
+      if (mode !== "read" || (event.target instanceof Node && readingElement?.contains(event.target))) return;
       cancelClose();
       reading = null;
     };
@@ -126,8 +208,7 @@
       root.removeEventListener("mouseover", over);
       root.removeEventListener("mouseout", out);
       document.removeEventListener("scroll", scrolled, true);
-      cancelClose();
-      reading = null;
+      closeReading();
     };
   });
 
@@ -211,7 +292,7 @@
       await reload();
       cancel();
     } catch (reason) {
-      fail(reason instanceof Refused && reason.reason === "invalidAnnotations" ? t("annotationsInvalid") : t("annotationSaveFailed"), reason);
+      fail(failureOf(reason, "annotationSaveFailed"), reason);
     } finally {
       saving = false;
     }
@@ -237,26 +318,70 @@
   </div>
 {/if}
 
-{#if reading && shown}
-  <div
-    class="popup reading"
-    role="tooltip"
-    style={readingStyle}
-    bind:this={readingElement}
-    bind:offsetHeight={readingHeight}
-    onmouseenter={cancelClose}
-    onmouseleave={scheduleClose}
-  >
-    <p class="date">✎ {dateOf(shown.annotation)}</p>
-    {#if shown.state === "surroundingChanged"}<p class="changed">{t("annotationChanged")}</p>{/if}
-    {#if shown.state === "orphan"}<p class="orphan">{t("annotationOrphan")}</p>{/if}
-    <p class="note">{shown.annotation.note}</p>
-  </div>
+{#if reading && (shown || mode !== "read")}
+  {#if mode === "read" && shown}
+    <div
+      class="popup reading"
+      role="tooltip"
+      style={readingStyle}
+      bind:this={readingElement}
+      bind:offsetHeight={readingHeight}
+      onmouseenter={cancelClose}
+      onmouseleave={scheduleClose}
+    >
+      <p class="date">✎ {datesOf(shown.annotation)}</p>
+      {#if shown.state === "surroundingChanged"}<p class="changed">{t("annotationChanged")}</p>{/if}
+      {#if shown.state === "orphan"}<p class="orphan">{t("annotationOrphan")}</p>{/if}
+      <p class="note">{shown.annotation.note}</p>
+      <div class="actions">
+        <button type="button" onclick={() => startEdit(shown.annotation)}>{t("annotationEdit")}</button>
+        <button type="button" class="danger" onclick={() => { cancelClose(); mode = "delete"; }}>{t("annotationDelete")}</button>
+      </div>
+    </div>
+  {:else if mode === "edit"}
+    <div
+      class="ld-form popup form"
+      role="dialog"
+      aria-label={t("annotationEditTitle")}
+      tabindex="-1"
+      style={readingStyle}
+      bind:this={readingElement}
+      bind:offsetHeight={readingHeight}
+      onkeydown={(event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void saveEdit();
+      }}
+    >
+      <strong>{t("annotationEditTitle")}</strong>
+      <label class="field">
+        <textarea rows="4" aria-label={t("annotationReading")} placeholder={t("annotationPlaceholder")} bind:value={editNote} bind:this={editField}></textarea>
+      </label>
+      <div class="actions">
+        <button type="button" onclick={closeReading}>{t("cancel")}</button>
+        <button type="button" class="primary" disabled={!editNote.trim() || busy} onclick={() => void saveEdit()}>{t("annotationSave")}</button>
+      </div>
+    </div>
+  {:else if mode === "delete"}
+    <div
+      class="ld-form popup form"
+      role="dialog"
+      aria-label={t("annotationDeleteTitle")}
+      tabindex="-1"
+      style={readingStyle}
+      bind:this={readingElement}
+      bind:offsetHeight={readingHeight}
+    >
+      <strong>{t("annotationDeleteAsk")}</strong>
+      <div class="actions">
+        <button type="button" bind:this={confirmCancel} onclick={closeReading}>{t("cancel")}</button>
+        <button type="button" class="danger" disabled={busy} onclick={() => void confirmDelete()}>{t("delete")}</button>
+      </div>
+    </div>
+  {/if}
 {/if}
 
 {#if creating}
   <div
-    class="ld-form popup creating"
+    class="ld-form popup form"
     role="dialog"
     aria-label={t("annotationNew")}
     tabindex="-1"
@@ -360,7 +485,7 @@
     overflow-y: auto;
     line-height: 1.4;
   }
-  .creating {
+  .form {
     display: grid;
     gap: 0.5rem;
   }
@@ -368,6 +493,10 @@
     color: var(--muted, #777);
     overflow-wrap: anywhere;
     font-size: 0.9em;
+  }
+  .danger {
+    color: light-dark(#c0392b, #f87171);
+    border-color: light-dark(#c0392b, #f87171);
   }
   .actions {
     display: flex;

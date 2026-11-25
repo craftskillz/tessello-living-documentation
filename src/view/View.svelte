@@ -14,7 +14,7 @@
   import { decorateCollapsible } from "./collapsible.ts";
   import { drawDiagrams } from "./mermaid.ts";
   import Annotations from "./Annotations.svelte";
-  import { addAnnotation, ANNOTATIONS_FILE, type MarkerState, NEXT_MARKER, readAnnotations } from "../lib/annotations.ts";
+  import { addAnnotation, ANNOTATIONS_FILE, editAnnotation, removeAnnotation, type MarkerState, NEXT_MARKER, readAnnotations } from "../lib/annotations.ts";
   import { loadImages } from "../lib/images.ts";
   import { t, tn, type MessageKey } from "../lib/i18n.ts";
   import { previewOf, type FilePreview } from "../lib/otherFiles.ts";
@@ -1668,6 +1668,8 @@
               changeCount={annotationsChanged}
               read={() => readAnnotations(project!, path!)}
               add={(draft) => addAnnotation(project!, path!, draft)}
+              edit={(id, note) => editAnnotation(project!, path!, id, note)}
+              remove={(id) => removeAnnotation(project!, path!, id)}
               fail={report}
             />
           {/if}

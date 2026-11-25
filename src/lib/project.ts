@@ -4,6 +4,7 @@
 import { type ConnectedModule, type Folder, type FolderEntry, TesselloError } from "@tessello/sdk";
 import { parse, stringify } from "yaml";
 import { parseDocument } from "./document.ts";
+import { ANNOTATIONS_FILE, keysDropped, keysMoved } from "./annotationKeys.ts";
 import { entryMapper, type PathMapper, rewriteLinks, unlinkDeletedLinks } from "./links.ts";
 import { isImageName } from "./otherFiles.ts";
 
@@ -312,6 +313,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       throw isCode(error, "conflict") ? new Refused("taken") : error;
     }
     await afterwards();
+    await update(ANNOTATIONS_FILE, (text) => (text === null ? null : keysMoved(text, from, to, isFolder)));
     const map = entryMapper(from, to, isFolder);
     for (const entry of before) if (map(entry.path) !== null) gone.add(entry.path);
     await followLinks(before, map);
@@ -519,6 +521,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       const goes = deletedBy(path, isFolder);
       await module.files.delete(folder, path);
       await update(manifestPathOf(parent), (text) => (text && removedFrom(text, name)) ?? null);
+      await update(ANNOTATIONS_FILE, (text) => (text === null ? null : keysDropped(text, path, isFolder)));
       for (const entry of before) {
         if (entry.kind !== "file" || goes(entry.path) || !isDocument(nameOf(entry.path))) continue;
         await update(entry.path, (text) => (text === null ? null : unlinkDeletedLinks(text, entry.path, goes)));

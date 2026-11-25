@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import { connect } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
 import { Conflict, openProject, Refused } from "../src/lib/project.ts";
-import { ANNOTATIONS_FILE, type Annotation, addAnnotation, annotationKey, excerpt, normalizeSpaces, placeAnnotations, readAnnotations } from "../src/lib/annotations.ts";
+import { ANNOTATIONS_FILE, type Annotation, addAnnotation, annotationKey, editAnnotation, excerpt, normalizeSpaces, placeAnnotations, readAnnotations, removeAnnotation } from "../src/lib/annotations.ts";
 
 describe("text helpers", () => {
   test("a Document's key is its path without .md", () => {
@@ -126,6 +126,19 @@ describe("reading a Document's annotations", () => {
   });
 });
 
+/** The Project, whose first `times` saves find the file written by someone else (an agent) first. */
+function interrupted(host: Awaited<ReturnType<typeof projectOf>>["host"], disk: Awaited<ReturnType<typeof projectOf>>["disk"], project: Awaited<ReturnType<typeof projectOf>>["project"], times: number, into = "agent") {
+  const save = project.save.bind(project);
+  let left = times;
+  project.save = async (path, text, version) => {
+    if (left-- > 0) {
+      const current = JSON.parse(host.folders.read(disk, ANNOTATIONS_FILE) as string);
+      host.folders.write(disk, ANNOTATIONS_FILE, JSON.stringify({ ...current, [into]: [...(current[into] ?? []), { ...stored, id: `agent${times - left}` }] }, null, 2));
+    }
+    return save(path, text, version);
+  };
+}
+
 describe("adding an annotation", () => {
   test("creates the file, 2-space indented without a trailing newline, keys in the original's order, and resolves with it", async () => {
     const { host, disk, project } = await projectOf();
@@ -175,19 +188,6 @@ describe("adding an annotation", () => {
     }
   });
 
-  /** The Project, whose first `times` saves find the file written by someone else (an agent) first. */
-  function interrupted(host: Awaited<ReturnType<typeof projectOf>>["host"], disk: Awaited<ReturnType<typeof projectOf>>["disk"], project: Awaited<ReturnType<typeof projectOf>>["project"], times: number) {
-    const save = project.save.bind(project);
-    let left = times;
-    project.save = async (path, text, version) => {
-      if (left-- > 0) {
-        const current = JSON.parse(host.folders.read(disk, ANNOTATIONS_FILE) as string);
-        host.folders.write(disk, ANNOTATIONS_FILE, JSON.stringify({ ...current, agent: [...(current.agent ?? []), { ...stored, id: `agent${times - left}` }] }, null, 2));
-      }
-      return save(path, text, version);
-    };
-  }
-
   test("after a Conflict, re-reads the file and applies only its own append", async () => {
     const { host, disk, project } = await projectOf({ [ANNOTATIONS_FILE]: JSON.stringify({ a: [stored] }, null, 2) });
     interrupted(host, disk, project, 1);
@@ -215,6 +215,161 @@ describe("adding an annotation", () => {
     const { project } = await projectOf({ [ANNOTATIONS_FILE]: "{}" });
     await project.check();
     await addAnnotation(project, "a.md", draft);
+    assert.deepEqual(await project.check(), { tree: false, documents: [] });
+  });
+});
+
+describe("editing an annotation", () => {
+  const later = { now: () => new Date("2026-03-04T05:06:07.000Z") };
+  const file = (extra: object = {}) => ({ [ANNOTATIONS_FILE]: JSON.stringify({ a: [stored, { ...stored, id: "u2", note: "Second" }], other: [{ ...stored, id: "x" }], ...extra }, null, 2) });
+
+  test("changes the note, keeps createdAt, puts `updated` last, and leaves the rest as written", async () => {
+    const { host, disk, project } = await projectOf(file());
+    const edited = await editAnnotation(project, "a.md", "u1", "  New\n\n  note \n", later);
+    assert.deepEqual(edited, { ...stored, note: "New\n\n  note", updated: "2026-03-04T05:06:07.000Z" });
+    const raw = host.folders.read(disk, ANNOTATIONS_FILE) as string;
+    assert.deepEqual(Object.keys(JSON.parse(raw).a[0]), ["id", "selectedText", "contextBefore", "contextAfter", "note", "createdAt", "updated"]);
+    assert.equal(raw, JSON.stringify({ a: [edited, { ...stored, id: "u2", note: "Second" }], other: [{ ...stored, id: "x" }] }, null, 2));
+  });
+
+  test("an annotation edited again gets the new `updated` date, still last", async () => {
+    const { project } = await projectOf({ [ANNOTATIONS_FILE]: JSON.stringify({ a: [{ ...stored, updated: "2026-01-02T00:00:00.000Z" }] }) });
+    const edited = await editAnnotation(project, "a.md", "u1", "Again", later);
+    assert.equal(edited.updated, "2026-03-04T05:06:07.000Z");
+    assert.deepEqual(await readAnnotations(project, "a.md"), [edited]);
+  });
+
+  test("uses the current date by default", async () => {
+    const { project } = await projectOf(file());
+    const edited = await editAnnotation(project, "a.md", "u1", "x");
+    assert.ok(Math.abs(Date.now() - Date.parse(edited.updated!)) < 5000);
+  });
+
+  test("a blank note is refused, nothing written", async () => {
+    const { host, disk, project } = await projectOf(file());
+    const before = host.folders.read(disk, ANNOTATIONS_FILE);
+    await assert.rejects(editAnnotation(project, "a.md", "u1", " \n "), (error) => error instanceof Refused && error.reason === "empty");
+    assert.equal(host.folders.read(disk, ANNOTATIONS_FILE), before);
+  });
+
+  test("an annotation that is gone, or no file, is refused as missing", async () => {
+    const { project } = await projectOf(file());
+    await assert.rejects(editAnnotation(project, "a.md", "nope", "x"), (error) => error instanceof Refused && error.reason === "missing");
+    await assert.rejects(editAnnotation(project, "b.md", "u1", "x"), (error) => error instanceof Refused && error.reason === "missing");
+    const empty = await projectOf();
+    await assert.rejects(editAnnotation(empty.project, "a.md", "u1", "x"), (error) => error instanceof Refused && error.reason === "missing");
+    assert.notEqual(typeof empty.host.folders.read(empty.disk, ANNOTATIONS_FILE), "string");
+  });
+
+  test("a malformed file or entry is refused, the file untouched", async () => {
+    for (const content of ["{not json", "[1]", "null", '{"a":"nope"}', '{"a":{}}']) {
+      const { host, disk, project } = await projectOf({ [ANNOTATIONS_FILE]: content });
+      await assert.rejects(editAnnotation(project, "a.md", "u1", "x"), (error) => error instanceof Refused && error.reason === "invalidAnnotations", content);
+      assert.equal(host.folders.read(disk, ANNOTATIONS_FILE), content);
+    }
+  });
+
+  test("concurrent writes do not lose others' annotations: an agent's add between read and write survives", async () => {
+    const { host, disk, project } = await projectOf(file());
+    interrupted(host, disk, project, 1, "a");
+    const edited = await editAnnotation(project, "a.md", "u1", "Mine", later);
+    const after = JSON.parse(host.folders.read(disk, ANNOTATIONS_FILE) as string);
+    assert.deepEqual(after.a.map((each: Annotation) => each.id), ["u1", "u2", "agent1"]);
+    assert.equal(after.a[0].note, edited.note);
+  });
+
+  test("gives up with the Conflict after 3 attempts, succeeds on the third", async () => {
+    const failing = await projectOf(file());
+    interrupted(failing.host, failing.disk, failing.project, 3);
+    await assert.rejects(editAnnotation(failing.project, "a.md", "u1", "x"), Conflict);
+    const third = await projectOf(file());
+    interrupted(third.host, third.disk, third.project, 2);
+    await editAnnotation(third.project, "a.md", "u1", "x");
+    assert.equal((await readAnnotations(third.project, "a.md"))[0]!.note, "x");
+  });
+
+  test("when someone else deleted the annotation meanwhile, the edit is refused as missing", async () => {
+    const { host, disk, project } = await projectOf(file());
+    const save = project.save.bind(project);
+    let once = true;
+    project.save = async (path, text, version) => {
+      if (once) {
+        once = false;
+        host.folders.write(disk, ANNOTATIONS_FILE, JSON.stringify({ a: [{ ...stored, id: "u2", note: "Second" }] }));
+      }
+      return save(path, text, version);
+    };
+    await assert.rejects(editAnnotation(project, "a.md", "u1", "x"), (error) => error instanceof Refused && error.reason === "missing");
+  });
+
+  test("the Module's own write is not reported as an outside change", async () => {
+    const { project } = await projectOf(file());
+    await project.check();
+    await editAnnotation(project, "a.md", "u1", "x");
+    assert.deepEqual(await project.check(), { tree: false, documents: [] });
+  });
+});
+
+describe("removing an annotation", () => {
+  const file = (a: object[] = [stored, { ...stored, id: "u2" }]) => ({ [ANNOTATIONS_FILE]: JSON.stringify({ a, other: [{ ...stored, id: "x" }] }, null, 2) });
+
+  test("deletes it and keeps the others as written", async () => {
+    const { host, disk, project } = await projectOf(file());
+    await removeAnnotation(project, "a.md", "u1");
+    assert.equal(host.folders.read(disk, ANNOTATIONS_FILE), JSON.stringify({ a: [{ ...stored, id: "u2" }], other: [{ ...stored, id: "x" }] }, null, 2));
+  });
+
+  test("the Document's key goes when its list becomes empty", async () => {
+    const { host, disk, project } = await projectOf(file([stored]));
+    await removeAnnotation(project, "a.md", "u1");
+    assert.equal(host.folders.read(disk, ANNOTATIONS_FILE), JSON.stringify({ other: [{ ...stored, id: "x" }] }, null, 2));
+  });
+
+  test("an annotation already gone, or no file, resolves without writing", async () => {
+    const { host, disk, project } = await projectOf(file());
+    const before = host.folders.read(disk, ANNOTATIONS_FILE);
+    await removeAnnotation(project, "a.md", "nope");
+    await removeAnnotation(project, "b.md", "u1");
+    assert.equal(host.folders.read(disk, ANNOTATIONS_FILE), before);
+    const empty = await projectOf();
+    await removeAnnotation(empty.project, "a.md", "u1");
+    assert.notEqual(typeof empty.host.folders.read(empty.disk, ANNOTATIONS_FILE), "string");
+  });
+
+  test("a malformed file or entry is refused, the file untouched", async () => {
+    for (const content of ["{not json", "[1]", "null", '{"a":"nope"}', '{"a":{}}']) {
+      const { host, disk, project } = await projectOf({ [ANNOTATIONS_FILE]: content });
+      await assert.rejects(removeAnnotation(project, "a.md", "u1"), (error) => error instanceof Refused && error.reason === "invalidAnnotations", content);
+      assert.equal(host.folders.read(disk, ANNOTATIONS_FILE), content);
+    }
+  });
+
+  test("concurrent writes do not lose others' annotations: an agent's add between read and write survives", async () => {
+    const { host, disk, project } = await projectOf(file());
+    interrupted(host, disk, project, 1, "a");
+    await removeAnnotation(project, "a.md", "u1");
+    const after = JSON.parse(host.folders.read(disk, ANNOTATIONS_FILE) as string);
+    assert.deepEqual(after.a.map((each: Annotation) => each.id), ["u2", "agent1"]);
+  });
+
+  test("an agent's add to another Document survives, and an agent's add to an emptied Document keeps its key", async () => {
+    const { host, disk, project } = await projectOf(file([stored]));
+    interrupted(host, disk, project, 1, "agentDoc");
+    await removeAnnotation(project, "a.md", "u1");
+    const after = JSON.parse(host.folders.read(disk, ANNOTATIONS_FILE) as string);
+    assert.deepEqual(Object.keys(after), ["other", "agentDoc"]);
+  });
+
+  test("gives up with the Conflict after 3 attempts", async () => {
+    const { host, disk, project } = await projectOf(file());
+    interrupted(host, disk, project, 3);
+    await assert.rejects(removeAnnotation(project, "a.md", "u1"), Conflict);
+  });
+
+  test("the Module's own write is not reported as an outside change", async () => {
+    const { project } = await projectOf(file());
+    await project.check();
+    await removeAnnotation(project, "a.md", "u1");
     assert.deepEqual(await project.check(), { tree: false, documents: [] });
   });
 });

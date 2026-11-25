@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { type ConnectedModule, connect, TesselloError } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
+import { ANNOTATIONS_FILE, readAnnotations } from "../src/lib/annotations.ts";
 import { Conflict, NotFound, openProject, Refused, refusalOf, isReservedFolder, type TreeEntry } from "../src/lib/project.ts";
 
 /** A Project opened on a folder holding `files`, with the Test Host to change its disk as an agent would. */
@@ -1253,5 +1254,104 @@ describe("the Types used in the Project", () => {
   test("is empty when no Document has a Type", async () => {
     const { project } = await projectOf({ "a.md": "# A\n" });
     assert.deepEqual(await project.types(), []);
+  });
+});
+
+describe("annotations follow a rename, a move or a deletion", () => {
+  const entry = (id: string) => ({ id, selectedText: "Hi", contextBefore: "", contextAfter: "", note: id, createdAt: "2026-01-01T10:00:00.000Z" });
+  const store = (keys: string[], extra: object = {}) => ({ ...Object.fromEntries(keys.map((key) => [key, [entry(key)]])), ...extra });
+  const written = (host: Awaited<ReturnType<typeof projectOf>>["host"], disk: Awaited<ReturnType<typeof projectOf>>["disk"]) => host.folders.read(disk, ANNOTATIONS_FILE) as string;
+  const tree = { "a.md": "# A\n", "b.md": "# B\n", "dest/liv-doc-main.md": EMPTY_MANIFEST, "f/liv-doc-main.md": EMPTY_MANIFEST, "f/x.md": "# X\n", "f/sub/y.md": "# Y\n", "fx/z.md": "# Z\n" };
+  const withFile = (data: object) => ({ ...tree, [ANNOTATIONS_FILE]: JSON.stringify(data, null, 2) });
+
+  test("renaming a Document remaps its key in place; other keys and content stay as written", async () => {
+    const data = store(["a", "b"], { extra: { deep: [1] } });
+    const { host, disk, project } = await projectOf(withFile(data));
+    await project.rename("a.md", "renamed");
+    assert.equal(written(host, disk), JSON.stringify({ renamed: data.a, b: data.b, extra: data.extra }, null, 2));
+    assert.deepEqual(await readAnnotations(project, "renamed.md"), [entry("a")]);
+  });
+
+  test("moving a Document remaps its key to the new path", async () => {
+    const { host, disk, project } = await projectOf(withFile(store(["f/x", "b"])));
+    await project.move("f/x.md", "dest");
+    assert.deepEqual(Object.keys(JSON.parse(written(host, disk))), ["dest/x", "b"]);
+  });
+
+  test("renaming a Folder remaps every key under it, nested ones too, and not a sibling with the same prefix", async () => {
+    const { host, disk, project } = await projectOf(withFile(store(["f/x", "f/sub/y", "fx/z", "a"])));
+    await project.rename("f", "g");
+    assert.deepEqual(Object.keys(JSON.parse(written(host, disk))), ["g/x", "g/sub/y", "fx/z", "a"]);
+  });
+
+  test("moving a Folder remaps every key under it", async () => {
+    const { host, disk, project } = await projectOf(withFile(store(["f/x", "f/sub/y", "b"])));
+    await project.move("f", "dest");
+    assert.deepEqual(Object.keys(JSON.parse(written(host, disk))), ["dest/f/x", "dest/f/sub/y", "b"]);
+  });
+
+  test("deleting a Document drops its key only", async () => {
+    const data = store(["a", "b"]);
+    const { host, disk, project } = await projectOf(withFile(data));
+    await project.remove("a.md");
+    assert.equal(written(host, disk), JSON.stringify({ b: data.b }, null, 2));
+  });
+
+  test("deleting a Folder drops every key under it", async () => {
+    const { host, disk, project } = await projectOf(withFile(store(["f/x", "f/sub/y", "fx/z", "a"])));
+    await project.remove("f");
+    assert.deepEqual(Object.keys(JSON.parse(written(host, disk))), ["fx/z", "a"]);
+  });
+
+  test("deleting a Folder keeps the annotations of a Document named like it", async () => {
+    const { host, disk, project } = await projectOf({ ...withFile(store(["f/x", "f", "a"])), "f.md": "# F\n" });
+    await project.remove("f");
+    assert.deepEqual(Object.keys(JSON.parse(written(host, disk))), ["f", "a"]);
+  });
+
+  test("a Document without annotations leaves the file byte for byte as it was", async () => {
+    const { host, disk, project } = await projectOf(withFile(store(["b"])));
+    const before = written(host, disk);
+    await project.rename("a.md", "c");
+    await project.remove("c.md");
+    assert.equal(written(host, disk), before);
+  });
+
+  test("without a file none is created", async () => {
+    const { host, disk, project } = await projectOf(tree);
+    await project.rename("a.md", "c");
+    await project.move("c.md", "dest");
+    await project.remove("dest/c.md");
+    assert.notEqual(typeof host.folders.read(disk, ANNOTATIONS_FILE), "string");
+  });
+
+  test("a malformed file is left untouched and the operation succeeds", async () => {
+    for (const content of ["{not json", "[1]", "null"]) {
+      const { host, disk, project } = await projectOf({ ...tree, [ANNOTATIONS_FILE]: content });
+      assert.equal(await project.rename("a.md", "c"), "c.md");
+      assert.equal(await project.move("c.md", "dest"), "dest/c.md");
+      await project.remove("dest/c.md");
+      assert.equal(written(host, disk), content);
+    }
+  });
+
+  test("the cascade write is not reported as an outside change", async () => {
+    const { project } = await projectOf(withFile(store(["a", "f/x"])));
+    await project.check();
+    await project.rename("a.md", "c");
+    await project.remove("f");
+    assert.deepEqual(await project.check(), { tree: true, documents: [] });
+  });
+
+  test("a Document renamed on disk by an agent keeps its annotations in the file, and they come back with it", async () => {
+    const { host, disk, project } = await projectOf(withFile(store(["a"])));
+    const before = written(host, disk);
+    host.folders.write(disk, "elsewhere.md", "# A\n");
+    host.folders.remove(disk, "a.md");
+    assert.deepEqual(await readAnnotations(project, "a.md"), [entry("a")]);
+    assert.equal(written(host, disk), before);
+    host.folders.write(disk, "a.md", "# A\n");
+    host.folders.remove(disk, "elsewhere.md");
+    assert.deepEqual(await readAnnotations(project, "a.md"), [entry("a")]);
   });
 });

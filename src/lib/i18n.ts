@@ -236,6 +236,15 @@ const en = {
   annotationsLoadFailed: "The annotations could not be read.",
   annotationsInvalid: "The file .annotations.json is not valid JSON. Fix it, then try again.",
   annotationSaveFailed: "The annotation could not be saved. Try again.",
+  annotationEdit: "✎ Edit",
+  annotationDelete: "🗑 Delete",
+  annotationEditTitle: "Edit annotation",
+  annotationDeleteTitle: "Delete annotation",
+  annotationDeleteAsk: "Delete this annotation?",
+  annotationEdited: " · edited {date}",
+  annotationMissing: "This annotation was deleted meanwhile.",
+  annotationDeleteFailed: "The annotation could not be deleted. Try again.",
+  annotationsBusy: "The annotations file kept changing while saving (an agent or another window is writing it). Try again.",
 };
 
 type Messages = typeof en;
@@ -476,6 +485,15 @@ const fr: Messages = {
   annotationsLoadFailed: "Les annotations n’ont pas pu être lues.",
   annotationsInvalid: "Le fichier .annotations.json n’est pas du JSON valide. Corrigez-le, puis réessayez.",
   annotationSaveFailed: "L’annotation n’a pas pu être enregistrée. Réessayez.",
+  annotationEdit: "✎ Modifier",
+  annotationDelete: "🗑 Supprimer",
+  annotationEditTitle: "Modifier l’annotation",
+  annotationDeleteTitle: "Supprimer l’annotation",
+  annotationDeleteAsk: "Supprimer cette annotation ?",
+  annotationEdited: " · modifié le {date}",
+  annotationMissing: "Cette annotation a été supprimée entre-temps.",
+  annotationDeleteFailed: "L’annotation n’a pas pu être supprimée. Réessayez.",
+  annotationsBusy: "Le fichier des annotations changeait sans cesse pendant l’enregistrement (un agent ou une autre fenêtre l’écrit). Réessayez.",
 };
 
 export type MessageKey = keyof Messages;

@@ -311,3 +311,150 @@ describe("in French", () => {
     await popup.getByRole("button", { name: "Enregistrer" }).waitFor();
   });
 });
+
+describe("editing and deleting", () => {
+  const popup = (page: Page) => page.getByRole("tooltip");
+  const form = (page: Page, name = "Edit annotation") => page.getByRole("dialog", { name });
+  const confirmation = (page: Page) => page.getByRole("dialog", { name: "Delete annotation" });
+  const hoverMark = async (page: Page) => {
+    await marks(page).first().waitFor();
+    await marks(page).first().hover();
+    await popup(page).waitFor();
+  };
+
+  test("edit a note: the file keeps createdAt and gains updated; the popup shows the new note and edited; Save is off when blank; Cancel changes nothing", async () => {
+    const { page, host, disk } = await withProject({ "a.md": doc, [FILE]: stored(note()) });
+    await hoverMark(page);
+    await popup(page).getByRole("button", { name: /Delete/ }).waitFor();
+    await popup(page).getByRole("button", { name: /Edit/ }).click();
+
+    const edit = form(page);
+    const text = edit.getByRole("textbox");
+    await text.waitFor();
+    assert.equal(await text.inputValue(), "Which fox?\nBe precise.");
+    assert.equal(await text.evaluate((el) => el === document.activeElement), true);
+    await text.fill("Changed, then cancelled");
+    await edit.getByRole("button", { name: "Cancel" }).click();
+    await edit.waitFor({ state: "detached" });
+    assert.equal(read(host, disk).a[0].note, "Which fox?\nBe precise.");
+    assert.equal(read(host, disk).a[0].updated, undefined);
+
+    await hoverMark(page);
+    await popup(page).getByRole("button", { name: /Edit/ }).click();
+    await text.fill("   ");
+    assert.equal(await edit.getByRole("button", { name: "Save" }).isDisabled(), true);
+    await text.fill("Which fox?\nThe red one.");
+    await edit.getByRole("button", { name: "Save" }).click();
+    await edit.waitFor({ state: "detached" });
+
+    const [saved] = read(host, disk).a;
+    assert.equal(saved.note, "Which fox?\nThe red one.");
+    assert.equal(saved.createdAt, "2026-03-05T12:00:00.000Z");
+    assert.equal(typeof saved.updated, "string");
+
+    await page.mouse.move(5, 5);
+    await hoverMark(page);
+    await popup(page).getByText("The red one.").waitFor();
+    await popup(page).getByText(/Mar 5, 2026 · edited /).waitFor();
+  });
+
+  test("delete: the confirmation shows, Cancel keeps it, Delete removes it from the file, the mark and the column button", async () => {
+    const { page, host, disk } = await withProject({ "a.md": doc, [FILE]: stored(note()) });
+    await hoverMark(page);
+    await popup(page).getByRole("button", { name: /Delete/ }).click();
+    await confirmation(page).getByText("Delete this annotation?").waitFor();
+    await confirmation(page).getByRole("button", { name: "Cancel" }).click();
+    await confirmation(page).waitFor({ state: "detached" });
+    assert.equal(read(host, disk).a.length, 1);
+    assert.equal(await marks(page).count(), 1);
+
+    await page.mouse.move(5, 5);
+    await hoverMark(page);
+    await popup(page).getByRole("button", { name: /Delete/ }).click();
+    await confirmation(page).getByRole("button", { name: "Delete" }).click();
+    await confirmation(page).waitFor({ state: "detached" });
+    await until(async () => (await marks(page).count()) === 0, "mark gone");
+    assert.equal(await column(page).count(), 0);
+    assert.equal(read(host, disk).a, undefined);
+  });
+
+  test("an orphan is deleted from its column button", async () => {
+    const { page, host, disk } = await withProject({ "a.md": doc, [FILE]: stored(note({ selectedText: "purple cat" })) });
+    const button = columnButtons(page).first();
+    await button.waitFor();
+    await button.hover();
+    await popup(page).getByRole("button", { name: /Delete/ }).click();
+    await confirmation(page).getByRole("button", { name: "Delete" }).click();
+    await column(page).waitFor({ state: "detached" });
+    assert.equal(read(host, disk).a, undefined);
+  });
+
+  test("editing an annotation an agent deleted meanwhile shows a translated message and keeps the form open", async () => {
+    const { page, host, disk } = await withProject({ "a.md": doc, [FILE]: stored(note()) });
+    await hoverMark(page);
+    await popup(page).getByRole("button", { name: /Edit/ }).click();
+    const edit = form(page);
+    await edit.getByRole("textbox").fill("Too late");
+    host.folders.write(disk, FILE, "{}");
+    await edit.getByRole("button", { name: "Save" }).click();
+    await page.getByText("This annotation was deleted meanwhile.").waitFor();
+    assert.equal(await edit.count(), 1);
+  });
+
+  test("the edit form and the confirmation stay open after 2 s off the popup, and Escape closes them", async () => {
+    const { page } = await withProject({ "a.md": doc, [FILE]: stored(note(), note({ id: "n2", selectedText: "lazy dog", contextBefore: "jumps over the", contextAfter: "" })) });
+    await hoverMark(page);
+    await popup(page).getByRole("button", { name: /Edit/ }).click();
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(2000);
+    assert.equal(await form(page).count(), 1);
+    await columnButtons(page).nth(1).hover();
+    assert.equal(await form(page).getByRole("textbox").inputValue(), "Which fox?\nBe precise.");
+    await page.keyboard.press("Escape");
+    await form(page).waitFor({ state: "detached" });
+
+    await page.mouse.move(5, 5);
+    await hoverMark(page);
+    await popup(page).getByRole("button", { name: /Delete/ }).click();
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(2000);
+    assert.equal(await confirmation(page).count(), 1);
+    await page.keyboard.press("Escape");
+    await confirmation(page).waitFor({ state: "detached" });
+    assert.equal(await marks(page).count(), 2);
+  });
+
+  test("in French: Modifier, Supprimer and the confirmation", async () => {
+    const { page } = await withProject({ "a.md": doc, [FILE]: stored(note()) }, { locale: "fr" });
+    await hoverMark(page);
+    await popup(page).getByRole("button", { name: /Modifier/ }).waitFor();
+    await popup(page).getByRole("button", { name: /Supprimer/ }).click();
+    const sure = page.getByRole("dialog", { name: "Supprimer l’annotation" });
+    await sure.getByText("Supprimer cette annotation ?").waitFor();
+    await sure.getByRole("button", { name: "Annuler" }).waitFor();
+    await sure.getByRole("button", { name: "Supprimer" }).waitFor();
+  });
+});
+
+describe("annotations follow the Tree", () => {
+  test("renaming the open Document keeps its annotations shown; deleting it removes its key", async () => {
+    const { page, host, disk } = await withProject({ "a.md": doc, "b.md": "# B\n", [FILE]: stored(note()) });
+    await marks(page).first().waitFor();
+    await page.getByRole("link", { name: "a.md" }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Rename" }).click();
+    const dialog = page.getByRole("dialog", { name: "Rename document" });
+    const field = dialog.getByRole("textbox", { name: "New name" });
+    await field.fill("z");
+    await field.press("Enter");
+    await dialog.waitFor({ state: "detached" });
+    await page.getByRole("link", { name: "z.md" }).waitFor();
+    await marks(page).first().waitFor();
+    await until(() => Object.keys(read(host, disk) ?? {}).join() === "z", "key renamed");
+
+    await page.getByRole("button", { name: "Delete" }).click();
+    const sure = page.getByRole("dialog", { name: "Delete document" });
+    await sure.getByRole("button", { name: "Delete" }).click();
+    await sure.waitFor({ state: "detached" });
+    await until(() => Object.keys(read(host, disk) ?? {}).length === 0, "key removed");
+  });
+});

@@ -2,10 +2,10 @@
 // original application's format (docs/adr/0003, docs/spec/annotations.md): other keys and Documents' entries stay as written.
 
 import type { Json } from "@tessello/sdk";
+import { ANNOTATIONS_FILE } from "./annotationKeys.ts";
 import { Conflict, NotFound, type Project, Refused } from "./project.ts";
 
-/** The Project's annotations file, shared with the original application. */
-export const ANNOTATIONS_FILE = ".annotations.json";
+export { ANNOTATIONS_FILE };
 
 export interface Annotation {
   id: string;
@@ -125,15 +125,39 @@ export async function readAnnotations(project: Project, path: string): Promise<A
   return Array.isArray(entries) ? entries.flatMap((entry) => toAnnotation(entry) ?? []) : [];
 }
 
-/** Writes tried in total when the file keeps changing under an add. */
+/** Writes tried in total when the file keeps changing under a change. */
 const ATTEMPTS = 3;
+
+/**
+ * Reads the file, lets `change` rewrite the Document's list (given the list, returning the new list, or null for no write), and writes it at the version read. On a Conflict the file is read again and only this change
+ * re-applied, up to 3 attempts, then the Conflict is rethrown (docs/spec/annotations.md rule 2). Refused("invalidAnnotations")
+ * when the file is not a JSON object or the Document's entry is not an array, the file untouched. An emptied list drops its key.
+ */
+async function change(project: Project, path: string, apply: (list: Json[]) => Json[] | null): Promise<void> {
+  const key = annotationKey(path);
+  for (let attempt = 1; ; attempt++) {
+    const file = await readFile(project);
+    const store = file ? parseStore(file.text) : {};
+    const list = store?.[key];
+    if (!store || (list !== undefined && !Array.isArray(list))) throw new Refused("invalidAnnotations");
+    const next = apply(list ?? []);
+    if (next === null) return;
+    const { [key]: _gone, ...others } = store;
+    const written = next.length === 0 ? others : { ...store, [key]: next };
+    try {
+      await project.save(ANNOTATIONS_FILE, JSON.stringify(written, null, 2), file?.version ?? null);
+      return;
+    } catch (error) {
+      if (!(error instanceof Conflict) || attempt >= ATTEMPTS) throw error;
+    }
+  }
+}
 
 /**
  * Appends an annotation to the Document's list and resolves with it. The passage and its surrounding text have their
  * spaces normalized; the note is trimmed but keeps its line breaks. Rejects with Refused("empty") for a blank passage or
  * note, and with Refused("invalidAnnotations"), the file untouched, when the file is not a JSON object or the Document's
- * entry is not an array. Written at the version read; on a Conflict the file is read again and only this append re-applied,
- * up to 3 attempts, then the Conflict is rethrown (docs/spec/annotations.md rule 2).
+ * entry is not an array. Version-checked and retried as `change` does.
  */
 export async function addAnnotation(project: Project, path: string, draft: AnnotationDraft, options: { now?: () => Date; id?: () => string } = {}): Promise<Annotation> {
   const selectedText = normalizeSpaces(draft.selectedText);
@@ -147,18 +171,37 @@ export async function addAnnotation(project: Project, path: string, draft: Annot
     note,
     createdAt: (options.now ?? (() => new Date()))().toISOString(),
   };
-  const key = annotationKey(path);
-  for (let attempt = 1; ; attempt++) {
-    const file = await readFile(project);
-    const store = file ? parseStore(file.text) : {};
-    const list = store?.[key];
-    if (!store || (list !== undefined && !Array.isArray(list))) throw new Refused("invalidAnnotations");
-    const next = { ...store, [key]: [...(list ?? []), annotation as unknown as Json] };
-    try {
-      await project.save(ANNOTATIONS_FILE, JSON.stringify(next, null, 2), file?.version ?? null);
-      return annotation;
-    } catch (error) {
-      if (!(error instanceof Conflict) || attempt >= ATTEMPTS) throw error;
-    }
-  }
+  await change(project, path, (list) => [...list, annotation as unknown as Json]);
+  return annotation;
+}
+
+/**
+ * Changes an annotation's note (trimmed, inner line breaks kept); its createdAt stays and `updated` is set to now, last in
+ * the entry. Resolves with the annotation as written. Refused("empty") for a blank note, Refused("missing") when the
+ * annotation is not there (deleted meanwhile, or no file), Refused("invalidAnnotations") for a malformed file. Version-checked
+ * and retried as `change` does: others' adds, edits and deletes are kept.
+ */
+export async function editAnnotation(project: Project, path: string, id: string, note: string, options: { now?: () => Date } = {}): Promise<Annotation> {
+  const text = note.trim();
+  if (!text) throw new Refused("empty");
+  const updated = (options.now ?? (() => new Date()))().toISOString();
+  let written: Annotation | null = null;
+  await change(project, path, (list) => {
+    const at = list.findIndex((entry) => isObject(entry) && entry.id === id);
+    if (at === -1) throw new Refused("missing");
+    const { updated: _old, ...entry } = list[at] as Record<string, Json>;
+    const next = { ...entry, note: text, updated };
+    written = toAnnotation(next);
+    if (!written) throw new Refused("invalidAnnotations");
+    return list.map((each, i) => (i === at ? next : each));
+  });
+  return written!;
+}
+
+/** Deletes an annotation; the Document's key goes when its list becomes empty. An annotation already gone resolves without writing. */
+export async function removeAnnotation(project: Project, path: string, id: string): Promise<void> {
+  await change(project, path, (list) => {
+    const kept = list.filter((entry) => !(isObject(entry) && entry.id === id));
+    return kept.length === list.length ? null : kept;
+  });
 }
