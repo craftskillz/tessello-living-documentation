@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Reading: links, images and the document stylesheet)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** ready-for-human (built in 0fbb673; awaiting the trial in the local Host)
 
 - [x] Header shows title, description, Tag pills, both dates
 - [x] Setting, changing and clearing the Type writes only that field, in place, every other byte kept
