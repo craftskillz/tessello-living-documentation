@@ -37,7 +37,8 @@ export function showsPreview(kind: SnippetKind): boolean {
 }
 
 export type Swatch = "info" | "success" | "warning" | "danger" | "note" | "neutral";
-export type TableStyle = "" | "compact" | "striped" | "full";
+export type TableStyle = "" | "compact" | "intermediate";
+export type TableFill = "" | "striped" | "full";
 export type TableColor = "" | "info" | "success" | "warning" | "danger" | "note";
 export type Width = "" | "full" | "3/4" | "2/3" | "1/2" | "1/3" | "1/4";
 export type Align = "" | "left" | "center" | "right";
@@ -83,7 +84,7 @@ export type SnippetData =
   | { kind: "separator" }
   | { kind: "collapsible"; summary: string; body: string }
   | { kind: "unordered-list" | "ordered-list"; items: string }
-  | { kind: "table"; style: TableStyle; bordered: boolean; color: TableColor; rows: string[][] }
+  | { kind: "table"; style: TableStyle; fill: TableFill; bordered: boolean; rounded: boolean; color: TableColor; rows: string[][] }
   | { kind: "kanban"; columns: { label: string; color: KanbanColor }[] }
   | { kind: "tree"; items: { name: string; depth: number }[] }
   | { kind: "code-block"; language: string; code: string; width: Width; align: Align }
@@ -103,7 +104,8 @@ export const KANBAN_COLORS: readonly KanbanColor[] = ["sky", "amber", "emerald",
 const KANBAN_MAX_COLUMNS = 6;
 export const WIDTHS: readonly Exclude<Width, "">[] = ["full", "3/4", "2/3", "1/2", "1/3", "1/4"];
 export const ALIGNS: readonly Exclude<Align, "">[] = ["left", "center", "right"];
-export const TABLE_STYLES: readonly Exclude<TableStyle, "">[] = ["compact", "striped", "full"];
+export const TABLE_STYLES: readonly Exclude<TableStyle, "">[] = ["intermediate", "compact"];
+export const TABLE_FILLS: readonly Exclude<TableFill, "">[] = ["striped", "full"];
 export const TABLE_COLORS: readonly Exclude<TableColor, "">[] = ["info", "success", "warning", "danger", "note"];
 export const QUOTE_TYPES: readonly Exclude<QuoteType, "">[] = ["info", "success", "warning", "error"];
 /** Whether `value` is one of `options`. */
@@ -147,7 +149,7 @@ export function newSnippet(kind: SnippetKind, texts: SnippetTexts): SnippetData 
     case "collapsible": return { kind, summary: texts.collapsibleSummary, body: "" };
     case "unordered-list": return { kind, items: exampleUnordered(texts) };
     case "ordered-list": return { kind, items: exampleOrdered(texts) };
-    case "table": return { kind, style: "", bordered: false, color: "", rows: [[`${texts.tableHeader} 1`, `${texts.tableHeader} 2`], ["", ""]] };
+    case "table": return { kind, style: "", fill: "", bordered: false, rounded: false, color: "", rows: [[`${texts.tableHeader} 1`, `${texts.tableHeader} 2`], ["", ""]] };
     case "kanban": return { kind, columns: texts.kanbanColumns.slice(0, KANBAN_MAX_COLUMNS).map((label, index) => ({ label, color: kanbanColor(undefined, index) })) };
     case "tree": return { kind, items: [{ name: texts.treeFolder, depth: 0 }, { name: texts.treeFile, depth: 1 }] };
     case "code-block": return { kind, language: "", code: "", width: "", align: "" };
@@ -193,7 +195,9 @@ const escapeCell = (cell: string) => cell.replace(/\r?\n/g, " ").replace(/\|/g, 
 function buildTable(data: Extract<SnippetData, { kind: "table" }>): string {
   const directives = [
     data.style ? `<!-- table-style: ${data.style} -->` : "",
+    data.fill ? `<!-- table-fill: ${data.fill} -->` : "",
     data.bordered ? "<!-- table-border: bordered -->" : "",
+    data.rounded ? "<!-- table-rounded -->" : "",
     data.color ? `<!-- table-color: ${data.color} -->` : "",
   ].filter(Boolean);
   const columns = data.rows[0]?.length ?? 0;
@@ -293,7 +297,7 @@ export function buildSnippet(data: SnippetData, texts: SnippetTexts): string {
 
 // --- reading a snippet back into its form ---
 
-const TABLE_DIRECTIVE = /^<!--\s*table-(?:style|border|color):\s*[a-z][a-z0-9_-]*\s*-->$/;
+const TABLE_DIRECTIVE = /^<!--\s*table-(?:(?:style|fill|border|color):\s*[a-z][a-z0-9_-]*|rounded)\s*-->$/;
 const isTableLine = (line: string) => /^\|.*\|$/.test(line.trim());
 const isSeparatorLine = (line: string) => {
   const cells = tableCells(line);
@@ -303,21 +307,27 @@ const tableCells = (line: string) => line.trim().split(/(?<!\\)\|/).slice(1, -1)
 
 function parseTable(markdown: string): SnippetData {
   let style: TableStyle = "";
+  let fill: TableFill = "";
   let bordered = false;
+  let rounded = false;
   let color: TableColor = "";
   for (const line of markdown.split("\n")) {
-    const directive = /^<!--\s*table-(style|border|color):\s*([a-z][a-z0-9_-]*)\s*-->$/.exec(line.trim());
+    const directive = /^<!--\s*table-(?:(style|fill|border|color):\s*([a-z][a-z0-9_-]*)|(rounded))\s*-->$/.exec(line.trim());
     if (!directive) continue;
-    const [, name, value] = directive;
+    const [, name, value, bare] = directive;
+    if (bare) rounded = true;
     if (name === "style" && isOneOf(TABLE_STYLES, value!)) style = value;
+    if (name === "style" && isOneOf(TABLE_FILLS, value!)) fill = value; // legacy: table-style: striped | full
+    if (name === "style" && value === "full") rounded = true; // the old Full had rounded corners
     if (name === "style" && value === "bordered") bordered = true;
+    if (name === "fill" && isOneOf(TABLE_FILLS, value!)) fill = value;
     if (name === "border" && value === "bordered") bordered = true;
     if (name === "color" && isOneOf(TABLE_COLORS, value!)) color = value;
   }
   const rows = markdown.split("\n").filter(isTableLine).filter((line) => !isSeparatorLine(line)).map((line) => tableCells(line).map((cell) => cell.replace(/\\\|/g, "|")));
   const columns = Math.max(0, ...rows.map((row) => row.length));
   for (const row of rows) while (row.length < columns) row.push("");
-  return { kind: "table", style, bordered, color, rows };
+  return { kind: "table", style, fill, bordered, rounded, color, rows };
 }
 
 function parseTree(markdown: string): SnippetData {

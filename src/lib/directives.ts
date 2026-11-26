@@ -21,25 +21,38 @@ const oneOf = (allowed: readonly string[], value: string | null): string | null 
 // ---- tables ----
 
 export interface TableAttrs {
-  style: string | null;
+  /** The density; null is the default one. */
+  style: "compact" | "intermediate" | null;
+  fill: "striped" | "full" | null;
   border: string | null;
+  rounded: boolean;
   color: string | null;
 }
 
-const TABLE_STYLES = ["compact", "striped", "full"];
+const TABLE_DENSITIES = ["compact", "intermediate"];
+const TABLE_FILLS = ["striped", "full"];
 const TABLE_BORDERS = ["bordered", "borderless"];
 const TABLE_COLORS = ["info", "success", "warning", "danger", "note"];
 
-/** `table-style`, `table-border` and `table-color`; invalid values are ignored, the last valid one wins. */
+/**
+ * `table-style` (density), `table-fill`, `table-border`, the bare `table-rounded` and `table-color`; invalid values are
+ * ignored, the last valid one wins per attribute. The original's `table-style` also carried the fill and the border:
+ * `striped` and `full` (which was rounded) set the fill, `bordered` and `borderless` the border.
+ */
 export function tableAttrs(directives: Directive[]): TableAttrs {
-  const attrs: TableAttrs = { style: null, border: null, color: null };
+  const attrs: TableAttrs = { style: null, fill: null, border: null, rounded: false, color: null };
   for (const { name, value } of directives) {
     const word = value === null ? null : value.trim();
     if (name === "table-style") {
-      attrs.style = oneOf(TABLE_STYLES, word) ?? attrs.style;
+      attrs.style = (oneOf(TABLE_DENSITIES, word) as TableAttrs["style"]) ?? attrs.style;
+      const legacyFill = oneOf(TABLE_FILLS, word) as TableAttrs["fill"];
+      attrs.fill = legacyFill ?? attrs.fill;
+      if (legacyFill === "full") attrs.rounded = true;
       attrs.border = oneOf(TABLE_BORDERS, word) ?? attrs.border; // legacy: table-style: bordered
     }
+    if (name === "table-fill") attrs.fill = (oneOf(TABLE_FILLS, word) as TableAttrs["fill"]) ?? attrs.fill;
     if (name === "table-border") attrs.border = oneOf(TABLE_BORDERS, word) ?? attrs.border;
+    if (name === "table-rounded" && value === null) attrs.rounded = true;
     if (name === "table-color") attrs.color = oneOf(TABLE_COLORS, word) ?? attrs.color;
   }
   return attrs;

@@ -724,14 +724,22 @@ function decorate(node: Nodes, found: Directive[]): void {
     };
   }
   if (node.type === "table") {
-    const { style, border, color } = tableAttrs(found);
-    const classes = [style && `table-style-${style}`, border && `table-border-${border}`, color && `table-color-${color}`].filter((each): each is string => !!each);
+    const { style, fill, border, rounded, color } = tableAttrs(found);
+    const classes = [
+      style && `table-style-${style}`,
+      fill && `table-fill-${fill}`,
+      border && `table-border-${border}`,
+      rounded && "table-rounded",
+      color && `table-color-${color}`,
+    ].filter((each): each is string => !!each);
     if (classes.length === 0) return;
     node.data = {
       hProperties: {
         className: classes,
         ...(style && { dataTableStyle: style }),
+        ...(fill && { dataTableFill: fill }),
         ...(border && { dataTableBorder: border }),
+        ...(rounded && { dataTableRounded: "" }),
         ...(color && { dataTableColor: color }),
       },
     };

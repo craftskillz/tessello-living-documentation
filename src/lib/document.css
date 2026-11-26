@@ -448,64 +448,114 @@
   padding: 0.2rem 0.5rem;
 }
 
-.document table.table-style-striped tbody tr:nth-child(odd) {
-  background-color: var(--tbl-accent-stripe, rgb(243 244 246));
+.document table.table-style-intermediate {
+  font-size: 0.875em;
+  line-height: 1.5;
 }
-:root[data-mode="dark"]:not(.ld-white-background) .document table.table-style-striped tbody tr:nth-child(odd) {
-  background-color: var(--tbl-accent-stripe, rgb(55 65 81));
+.document table.table-style-intermediate :is(th, td) {
+  padding: 0.4rem 0.75rem;
 }
 
-/* Full: filled cells on a uniform grid with rounded outer corners; one line color drives the whole grid. */
-.document table.table-style-full {
+.document table.table-fill-striped tbody tr:nth-child(odd) {
+  background-color: var(--tbl-accent-stripe, rgb(243 244 246));
+}
+
+/* Full: filled cells on a uniform grid with a square outer edge (the rounded frame is Rounded's job); one line color drives the grid. */
+.document table.table-fill-full {
   --tbl-full-line: var(--tbl-accent-soft, rgb(226 232 240));
   border-collapse: separate;
   border-spacing: 0;
-  border: 1px solid var(--tbl-full-line);
-  border-radius: 0.5rem;
-  overflow: hidden;
 }
-:root[data-mode="dark"]:not(.ld-white-background) .document table.table-style-full {
-  --tbl-full-line: var(--tbl-accent-soft, rgb(51 65 85));
-}
-.document table.table-style-full.table-border-bordered {
+.document table.table-fill-full.table-border-bordered {
   --tbl-full-line: color-mix(in srgb, var(--tbl-accent, rgb(148 163 184)) 45%, var(--tbl-accent-soft, rgb(226 232 240)));
 }
-:root[data-mode="dark"]:not(.ld-white-background) .document table.table-style-full.table-border-bordered {
-  --tbl-full-line: color-mix(in srgb, var(--tbl-accent, rgb(100 116 139)) 45%, var(--tbl-accent-soft, rgb(51 65 85)));
-}
-.document table.table-style-full :is(th, td),
-.document table.table-style-full thead th {
+.document table.table-fill-full :is(th, td),
+.document table.table-fill-full thead th {
   border: none;
   border-right: 1px solid var(--tbl-full-line);
   border-bottom: 1px solid var(--tbl-full-line);
   background-color: var(--tbl-accent-stripe, rgb(248 250 252));
 }
-:root[data-mode="dark"]:not(.ld-white-background) .document table.table-style-full :is(th, td),
-:root[data-mode="dark"]:not(.ld-white-background) .document table.table-style-full thead th {
-  background-color: var(--tbl-accent-stripe, rgb(30 41 59));
-}
-.document table.table-style-full tr > *:last-child {
+.document table.table-fill-full tr > *:last-child {
   border-right: none;
 }
-.document table.table-style-full tbody tr:last-child > * {
+.document table.table-fill-full tbody tr:last-child > * {
   border-bottom: none;
 }
 
-.document table.table-border-bordered:not(.table-style-full) {
+.document table.table-border-bordered:not(.table-fill-full):not(.table-rounded) {
   border-collapse: collapse;
 }
-.document table.table-border-bordered:not(.table-style-full),
-.document table.table-border-bordered:not(.table-style-full) :is(th, td) {
+.document table.table-border-bordered:not(.table-fill-full):not(.table-rounded),
+.document table.table-border-bordered:not(.table-fill-full):not(.table-rounded) :is(th, td) {
   border: 1px solid var(--tbl-accent, rgb(209 213 219));
-}
-:root[data-mode="dark"]:not(.ld-white-background) .document table.table-border-bordered:not(.table-style-full),
-:root[data-mode="dark"]:not(.ld-white-background) .document table.table-border-bordered:not(.table-style-full) :is(th, td) {
-  border-color: var(--tbl-accent, rgb(75 85 99));
 }
 .document table.table-border-borderless :is(th, td) {
   border-left: none;
   border-right: none;
   border-top: none;
+}
+
+/* Rounded: an outer frame clipped to rounded corners, on top of any density, fill and color.
+   Alone it keeps the horizontal separators; with Borders the whole grid sits inside the frame. The frame replaces the
+   last row's bottom line and the last column's right line, so no edge is drawn twice. */
+.document table.table-rounded {
+  --tbl-frame: var(--tbl-accent-soft, rgb(226 232 240));
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--tbl-frame);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.document table.table-rounded.table-border-bordered {
+  --tbl-frame: var(--tbl-accent, rgb(209 213 219));
+}
+.document table.table-rounded.table-fill-full {
+  --tbl-frame: var(--tbl-full-line);
+}
+.document table.table-rounded.table-border-bordered :is(th, td) {
+  border-right: 1px solid var(--tbl-frame);
+  border-bottom: 1px solid var(--tbl-frame);
+}
+.document table.table-rounded tbody tr:last-child > * {
+  border-bottom: none;
+}
+.document table.table-rounded.table-border-bordered tr > *:last-child {
+  border-right: none;
+}
+.document table.table-rounded.table-border-borderless :is(th, td) {
+  border-right: none;
+}
+
+:root[data-mode="dark"]:not(.ld-white-background) .document table.table-fill-striped tbody tr:nth-child(odd) {
+  background-color: var(--tbl-accent-stripe, rgb(55 65 81));
+}
+:root[data-mode="dark"]:not(.ld-white-background) .document table.table-fill-full {
+  --tbl-full-line: var(--tbl-accent-soft, rgb(51 65 85));
+}
+:root[data-mode="dark"]:not(.ld-white-background) .document table.table-fill-full.table-border-bordered {
+  --tbl-full-line: color-mix(in srgb, var(--tbl-accent, rgb(100 116 139)) 45%, var(--tbl-accent-soft, rgb(51 65 85)));
+}
+:root[data-mode="dark"]:not(.ld-white-background) .document table.table-fill-full :is(th, td) {
+  background-color: var(--tbl-accent-stripe, rgb(30 41 59));
+}
+:root[data-mode="dark"]:not(.ld-white-background) .document table.table-fill-full thead th {
+  background-color: var(--tbl-accent-stripe, rgb(30 41 59));
+}
+:root[data-mode="dark"]:not(.ld-white-background) .document table.table-border-bordered:not(.table-fill-full):not(.table-rounded) {
+  border-color: var(--tbl-accent, rgb(75 85 99));
+}
+:root[data-mode="dark"]:not(.ld-white-background) .document table.table-border-bordered:not(.table-fill-full):not(.table-rounded) :is(th, td) {
+  border-color: var(--tbl-accent, rgb(75 85 99));
+}
+:root[data-mode="dark"]:not(.ld-white-background) .document table.table-rounded {
+  --tbl-frame: var(--tbl-accent-soft, rgb(51 65 85));
+}
+:root[data-mode="dark"]:not(.ld-white-background) .document table.table-rounded.table-border-bordered {
+  --tbl-frame: var(--tbl-accent, rgb(75 85 99));
+}
+:root[data-mode="dark"]:not(.ld-white-background) .document table.table-rounded.table-fill-full {
+  --tbl-frame: var(--tbl-full-line);
 }
 
 /* ── Callouts (quote-type / quote-title / quote-icon comments) ── */

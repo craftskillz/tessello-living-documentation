@@ -128,49 +128,85 @@ table.table-style-compact :is(th,
 td) {
   padding: 0.2rem 0.5rem;
 }
-table.table-style-striped tbody tr:nth-child(odd) {
+table.table-style-intermediate {
+  font-size: 0.875em;
+  line-height: 1.5;
+}
+table.table-style-intermediate :is(th, td) {
+  padding: 0.4rem 0.75rem;
+}
+
+table.table-fill-striped tbody tr:nth-child(odd) {
   background-color: var(--tbl-accent-stripe, rgb(243 244 246));
 }
-/* Full: filled cells on a uniform grid with rounded outer corners; one line color drives the whole grid. */
-table.table-style-full {
+
+/* Full: filled cells on a uniform grid with a square outer edge (the rounded frame is Rounded's job); one line color drives the grid. */
+table.table-fill-full {
   --tbl-full-line: var(--tbl-accent-soft, rgb(226 232 240));
   border-collapse: separate;
   border-spacing: 0;
-  border: 1px solid var(--tbl-full-line);
-  border-radius: 0.5rem;
-  overflow: hidden;
 }
-table.table-style-full.table-border-bordered {
+table.table-fill-full.table-border-bordered {
   --tbl-full-line: color-mix(in srgb, var(--tbl-accent, rgb(148 163 184)) 45%, var(--tbl-accent-soft, rgb(226 232 240)));
 }
-table.table-style-full :is(th,
-td),
-table.table-style-full thead th {
+table.table-fill-full :is(th, td),
+table.table-fill-full thead th {
   border: none;
   border-right: 1px solid var(--tbl-full-line);
   border-bottom: 1px solid var(--tbl-full-line);
   background-color: var(--tbl-accent-stripe, rgb(248 250 252));
 }
-table.table-style-full tr > *:last-child {
+table.table-fill-full tr > *:last-child {
   border-right: none;
 }
-table.table-style-full tbody tr:last-child > * {
+table.table-fill-full tbody tr:last-child > * {
   border-bottom: none;
 }
-table.table-border-bordered:not(.table-style-full) {
+
+table.table-border-bordered:not(.table-fill-full):not(.table-rounded) {
   border-collapse: collapse;
 }
-table.table-border-bordered:not(.table-style-full),
-table.table-border-bordered:not(.table-style-full) :is(th,
-td) {
+table.table-border-bordered:not(.table-fill-full):not(.table-rounded),
+table.table-border-bordered:not(.table-fill-full):not(.table-rounded) :is(th, td) {
   border: 1px solid var(--tbl-accent, rgb(209 213 219));
 }
-table.table-border-borderless :is(th,
-td) {
+table.table-border-borderless :is(th, td) {
   border-left: none;
   border-right: none;
   border-top: none;
 }
+
+/* Rounded: an outer frame clipped to rounded corners, on top of any density, fill and color.
+   Alone it keeps the horizontal separators; with Borders the whole grid sits inside the frame. The frame replaces the
+   last row's bottom line and the last column's right line, so no edge is drawn twice. */
+table.table-rounded {
+  --tbl-frame: var(--tbl-accent-soft, rgb(226 232 240));
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--tbl-frame);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+table.table-rounded.table-border-bordered {
+  --tbl-frame: var(--tbl-accent, rgb(209 213 219));
+}
+table.table-rounded.table-fill-full {
+  --tbl-frame: var(--tbl-full-line);
+}
+table.table-rounded.table-border-bordered :is(th, td) {
+  border-right: 1px solid var(--tbl-frame);
+  border-bottom: 1px solid var(--tbl-frame);
+}
+table.table-rounded tbody tr:last-child > * {
+  border-bottom: none;
+}
+table.table-rounded.table-border-bordered tr > *:last-child {
+  border-right: none;
+}
+table.table-rounded.table-border-borderless :is(th, td) {
+  border-right: none;
+}
+
 /* ── Callouts (quote-type / quote-title / quote-icon comments) ── */
 blockquote.ld-callout {
   --callout-accent: #9ca3af;

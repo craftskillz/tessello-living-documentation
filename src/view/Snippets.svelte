@@ -4,7 +4,7 @@
   import { onMount, tick } from "svelte";
   import { searchEmojis, EMOJI_GROUPS } from "../lib/emojis.ts";
   import { t, type MessageKey } from "../lib/i18n.ts";
-  import { ALIGNS, buildSnippet, KANBAN_COLORS, newSnippet, QUOTE_TYPES, SNIPPET_CATEGORIES, showsPreview, SWATCHES, type Swatch, type SnippetData, type SnippetKind, TABLE_COLORS, WIDTHS } from "../lib/snippets.ts";
+  import { ALIGNS, buildSnippet, KANBAN_COLORS, newSnippet, QUOTE_TYPES, SNIPPET_CATEGORIES, showsPreview, SWATCHES, type Swatch, type SnippetData, type SnippetKind, TABLE_COLORS, TABLE_FILLS, TABLE_STYLES, WIDTHS } from "../lib/snippets.ts";
   import { snippetTexts, type Heading, type SnippetFailure } from "./snippetDialog.ts";
 
   let {
@@ -273,12 +273,16 @@
             {t("snTableStyle")}
             <select bind:value={table.style}>
               <option value="">{t("snStyleDefault")}</option>
-              <option value="compact">{t("snStyleCompact")}</option>
-              <option value="striped">{t("snStyleStriped")}</option>
-              <option value="full">{t("snStyleFull")}</option>
+              {#each TABLE_STYLES as style (style)}<option value={style}>{t(`snStyle_${style}`)}</option>{/each}
             </select>
           </label>
-          <label class="check"><input type="checkbox" bind:checked={table.bordered} /> {t("snBorders")}</label>
+          <div class="checks">
+            <label class="check"><input type="checkbox" bind:checked={table.bordered} /> {t("snBorders")}</label>
+            <label class="check"><input type="checkbox" bind:checked={table.rounded} /> {t("snRounded")}</label>
+            {#each TABLE_FILLS as fill (fill)}
+              <label class="check"><input type="checkbox" checked={table.fill === fill} onchange={(event) => (table.fill = event.currentTarget.checked ? fill : "")} /> {t(`snFill_${fill}`)}</label>
+            {/each}
+          </div>
           <label class="field">
             {t("snTableColor")}
             <select bind:value={table.color}>
@@ -287,12 +291,22 @@
             </select>
           </label>
           <div class="document grid" bind:this={grid} role="group" aria-label={t("snGrid")}>
-            <table class:table-style-compact={table.style === "compact"} class:table-style-striped={table.style === "striped"} class:table-style-full={table.style === "full"} class:table-border-bordered={table.bordered} class={table.color ? `table-color-${table.color}` : ""}>
-              <tbody>
-                {#each table.rows as row, r (r)}
+            <table
+              class:table-style-compact={table.style === "compact"}
+              class:table-style-intermediate={table.style === "intermediate"}
+              class:table-fill-striped={table.fill === "striped"}
+              class:table-fill-full={table.fill === "full"}
+              class:table-border-bordered={table.bordered}
+              class:table-rounded={table.rounded}
+              class={table.color ? `table-color-${table.color}` : ""}
+            >
+              {#each [{ tag: "thead", from: 0, to: 1 }, { tag: "tbody", from: 1, to: table.rows.length }] as part (part.tag)}
+                <svelte:element this={part.tag}>
+                {#each table.rows.slice(part.from, part.to) as row, i (i)}
+                  {@const r = part.from + i}
                   <tr>
                     {#each row as _cell, c (c)}
-                      <td class:head={r === 0}>
+                      <svelte:element this={r === 0 ? "th" : "td"}>
                         <input
                           type="text"
                           data-cell="{r}-{c}"
@@ -304,11 +318,12 @@
                             menu = { x: event.clientX, y: event.clientY, row: r, column: c };
                           }}
                         />
-                      </td>
+                      </svelte:element>
                     {/each}
                   </tr>
                 {/each}
-              </tbody>
+                </svelte:element>
+              {/each}
             </table>
           </div>
           <p class="hint muted">{t("snTableHint")}</p>
@@ -611,16 +626,33 @@
   .grid table {
     margin: 0;
   }
-  .grid td {
-    padding: 0.15rem;
+  .grid :is(th, td) {
+    cursor: text;
   }
+  /* The inputs take the look of the cell they sit in: the Document's styles decide the rest. */
   .grid input {
+    display: block;
     width: 100%;
     min-width: 6rem;
+    margin: 0;
+    padding: 0;
     box-sizing: border-box;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    outline-offset: 2px;
   }
-  .grid td.head input {
-    font-weight: 700;
+  .grid input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
   }
   .menu {
     position: fixed;

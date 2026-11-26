@@ -12,13 +12,41 @@ const TABLE = "| a | b |\n|---|---|\n| 1 | 2 |\n";
 const TABLE_HTML = "<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</tbody>\n</table></div>";
 
 describe("table directives", () => {
-  test("style, border and color become classes and data attributes, in a scroll wrapper", () => {
-    const text = `<!-- table-style: striped -->\n<!-- table-border: bordered -->\n<!-- table-color: info -->\n${TABLE}`;
+  test("style, fill, border, rounded and color become classes and data attributes, in a scroll wrapper", () => {
+    const text = `<!-- table-style: intermediate -->\n<!-- table-fill: striped -->\n<!-- table-border: bordered -->\n<!-- table-rounded -->\n<!-- table-color: info -->\n${TABLE}`;
     const start = text.indexOf("| a");
     assert.equal(
       render(text),
-      `<div class="overflow-x-auto"><table class="table-style-striped table-border-bordered table-color-info" data-table-style="striped" data-table-border="bordered" data-table-color="info" data-src="${start}-${text.length - 1}">\n${TABLE_HTML}`,
+      `<div class="overflow-x-auto"><table class="table-style-intermediate table-fill-striped table-border-bordered table-rounded table-color-info" data-table-style="intermediate" data-table-fill="striped" data-table-border="bordered" data-table-rounded="" data-table-color="info" data-src="${start}-${text.length - 1}">\n${TABLE_HTML}`,
     );
+  });
+
+  test("rounded works alone, without borders", () => {
+    const html = render(`<!-- table-rounded -->\n${TABLE}`);
+    assert.match(html, /<table class="table-rounded" data-table-rounded="" /);
+  });
+
+  test("the fill reads from table-fill", () => {
+    assert.match(render(`<!-- table-fill: full -->\n${TABLE}`), /<table class="table-fill-full" data-table-fill="full" /);
+  });
+
+  test("the legacy table-style: striped sets the fill", () => {
+    assert.match(render(`<!-- table-style: striped -->\n${TABLE}`), /<table class="table-fill-striped" data-table-fill="striped" /);
+  });
+
+  test("the legacy table-style: full sets the full fill and rounded", () => {
+    assert.match(render(`<!-- table-style: full -->\n${TABLE}`), /<table class="table-fill-full table-rounded" data-table-fill="full" data-table-rounded="" /);
+  });
+
+  test("a density and a legacy fill are read independently", () => {
+    assert.match(
+      render(`<!-- table-style: compact -->\n<!-- table-style: striped -->\n${TABLE}`),
+      /<table class="table-style-compact table-fill-striped" data-table-style="compact" data-table-fill="striped" /,
+    );
+  });
+
+  test("a table-rounded with a value, or an unknown fill, is ignored", () => {
+    assert.doesNotMatch(render(`<!-- table-rounded: yes -->\n<!-- table-fill: dotted -->\n${TABLE}`), /table-rounded|table-fill/);
   });
 
   test("a table without directives is only wrapped", () => {

@@ -28,8 +28,10 @@ describe("the snippet picker", () => {
 
     await dialog.getByRole("button", { name: "← Back" }).waitFor();
     await dialog.getByRole("button", { name: "Insert", exact: true }).waitFor();
-    await dialog.getByLabel("Table style").selectOption({ label: "Striped" });
+    await dialog.getByLabel("Table style").selectOption({ label: "Intermediate" });
+    await dialog.getByRole("checkbox", { name: "Striped" }).check();
     await dialog.getByRole("checkbox", { name: "Borders" }).check();
+    await dialog.getByRole("checkbox", { name: "Rounded" }).check();
     await dialog.getByLabel("Color").selectOption({ label: "Info (blue)" });
     await dialog.getByRole("textbox", { name: "Row 1, column 1" }).fill("Name");
     await dialog.getByRole("textbox", { name: "Row 1, column 2" }).fill("Role");
@@ -46,7 +48,7 @@ describe("the snippet picker", () => {
     await dialog.getByRole("button", { name: "Insert", exact: true }).click();
 
     const expected =
-      "# A\n\nFirst.\n\n<!-- table-style: striped -->\n<!-- table-border: bordered -->\n<!-- table-color: info -->\n" +
+      "# A\n\nFirst.\n\n<!-- table-style: intermediate -->\n<!-- table-fill: striped -->\n<!-- table-border: bordered -->\n<!-- table-rounded -->\n<!-- table-color: info -->\n" +
       "| Name | Role | Note |\n| ---- | ---- | ---- |\n| Ann  | Dev  |      |\n|      |      |      |\n";
     await until(() => host.folders.read(disk, "a.md") === expected, "the table on disk");
     assert.equal(await page.getByRole("dialog").count(), 0);
@@ -110,6 +112,54 @@ describe("the snippet picker", () => {
     await cell.fill("changed");
     await dialog.getByRole("button", { name: "Insert", exact: true }).click();
     await until(() => host.folders.read(disk, "a.md") === "| H1  | H2      |\n| --- | ------- |\n| a   | changed |\n", "the table replaced");
+    assert.equal(page.url(), address);
+  });
+
+  test("Striped and Full are exclusive: checking one unchecks the other", async () => {
+    const { page } = await withProject({ "a.md": "# A\n" });
+    const address = page.url();
+    await startEditing(page);
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("button", { name: "Table", exact: true }).click();
+    const striped = dialog.getByRole("checkbox", { name: "Striped" });
+    const full = dialog.getByRole("checkbox", { name: "Full" });
+    await striped.check();
+    await full.check();
+    assert.equal(await striped.isChecked(), false);
+    assert.equal(await full.isChecked(), true);
+    await striped.check();
+    assert.equal(await full.isChecked(), false);
+    assert.deepEqual(await dialog.getByLabel("Table style").locator("option").allTextContents(), ["Default", "Intermediate", "Compact"]);
+    assert.equal(page.url(), address);
+  });
+
+  test("the grid of the Table form looks like the table of the Document", async () => {
+    const source = "<!-- table-style: intermediate -->\n<!-- table-fill: striped -->\n<!-- table-rounded -->\n<!-- table-color: info -->\n| H1 | H2 |\n| -- | -- |\n| a  | b  |\n| c  | d  |\n";
+    const { page } = await withProject({ "a.md": source });
+    const address = page.url();
+    const read = (locator: ReturnType<Page["locator"]>, cell: string) =>
+      locator.evaluate((table, cellSelector) => {
+        const style = (each: Element) => getComputedStyle(each);
+        const body = [...table.querySelectorAll(cellSelector)];
+        const row = (index: number) => body[index]!;
+        return {
+          radius: style(table).borderTopLeftRadius,
+          frame: style(table).borderTopWidth,
+          overflow: style(table).overflow,
+          padding: style(row(0)).padding,
+          font: style(row(0)).fontSize,
+          headFill: style(row(0)).backgroundColor,
+          stripe: style(row(2)).backgroundColor,
+          plain: style(row(4)).backgroundColor,
+        };
+      }, cell);
+    const rendered = await read(page.locator(".document table").first(), "th, td");
+    await page.getByRole("cell", { name: "a", exact: true }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit table" }).click();
+    const grid = await read(page.getByRole("dialog").locator(".grid table"), "th, td");
+    assert.notEqual(rendered.radius, "0px", "the Document table is rounded");
+    assert.deepEqual(grid, rendered);
     assert.equal(page.url(), address);
   });
 

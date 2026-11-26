@@ -56,7 +56,7 @@ describe("layout and tables", () => {
 
     await page.locator(".ld-callout .ld-callout-title", { hasText: "Heads up" }).waitFor();
     const classes = await page.locator("table").getAttribute("class");
-    assert.match(classes!, /table-style-striped/);
+    assert.match(classes!, /table-fill-striped/);
     assert.match(classes!, /table-color-info/);
     const header = await page.locator("table thead th").first().evaluate((th) => getComputedStyle(th).backgroundColor);
     assert.notEqual(header, "rgba(0, 0, 0, 0)", "the colored table tints its header");
