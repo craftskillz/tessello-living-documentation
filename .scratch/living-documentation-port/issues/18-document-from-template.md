@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 (Tree: new Document and new Folder), 17 (Template library)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** ready-for-human (built in c0975a7; awaiting the trial in the local Host)
 
 - [x] Frontmatter, heading and placeholders as specified
 - [x] Links and images rewritten for the new location
