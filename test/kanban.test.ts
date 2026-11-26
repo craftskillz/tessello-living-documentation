@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { boardColumns, cardDescription, columnFolder, parseKanbanBlock } from "../src/lib/kanban.ts";
+import { boardColumns, cardDescription, cardText, columnFolder, columnsProblem, kanbanBlockText, parseKanbanBlock } from "../src/lib/kanban.ts";
 
 describe("parseKanbanBlock", () => {
   test("columns and colors", () => {
@@ -110,5 +110,71 @@ describe("cardDescription", () => {
   test("nothing after the title is an empty description", () => {
     assert.equal(cardDescription("# Card\n"), "");
     assert.equal(cardDescription(""), "");
+  });
+});
+
+describe("kanbanBlockText", () => {
+  test("the block line of the columns", () => {
+    assert.equal(
+      kanbanBlockText([{ label: "To do", color: "sky" }, { label: "Doing", color: "amber" }]),
+      '<div data-ld-kanban data-columns="To do|Doing" data-colors="sky|amber"></div>',
+    );
+  });
+
+  test("labels are trimmed and a pipe becomes a space", () => {
+    assert.equal(
+      kanbanBlockText([{ label: "  A|B ", color: "rose" }]),
+      '<div data-ld-kanban data-columns="A B" data-colors="rose"></div>',
+    );
+  });
+
+  test("ampersand and quote are escaped and read back exactly", () => {
+    const text = kanbanBlockText([{ label: 'Q&A "hot"', color: "violet" }, { label: "&amp;", color: "slate" }]);
+    assert.equal(text, '<div data-ld-kanban data-columns="Q&amp;A &quot;hot&quot;|&amp;amp;" data-colors="violet|slate"></div>');
+    assert.deepEqual(parseKanbanBlock(text)?.columns.map((c) => c.label), ['Q&A "hot"', "&amp;"]);
+  });
+});
+
+describe("columnsProblem", () => {
+  test("no problem for usable labels", () => {
+    assert.equal(columnsProblem(["To do", "To-do", "Done"]), null);
+  });
+
+  test("fewer than 1 or more than 6 labels", () => {
+    assert.deepEqual(columnsProblem([]), { kind: "count" });
+    assert.deepEqual(columnsProblem(["1", "2", "3", "4", "5", "6", "7"]), { kind: "count" });
+    assert.equal(columnsProblem(["1", "2", "3", "4", "5", "6"]), null);
+  });
+
+  test("the first label without a folder name", () => {
+    assert.deepEqual(columnsProblem(["A", "  ", "???"]), { kind: "noFolder", index: 1 });
+  });
+
+  test("two labels with the same folder ignoring case and accents", () => {
+    assert.deepEqual(columnsProblem(["Prêt", "Doing", "Pret"]), { kind: "sameFolder", first: 0, second: 2 });
+    assert.deepEqual(columnsProblem(["To do", "To/do"]), { kind: "sameFolder", first: 0, second: 1 });
+    assert.deepEqual(columnsProblem(["Done", "DONE"]), { kind: "sameFolder", first: 0, second: 1 });
+  });
+
+  test("the count is checked before the folders", () => {
+    assert.deepEqual(columnsProblem(["", "", "", "", "", "", ""]), { kind: "count" });
+  });
+
+  test("a folder problem is reported for the earliest second index", () => {
+    assert.deepEqual(columnsProblem(["a", "b", "B", "a"]), { kind: "sameFolder", first: 1, second: 2 });
+  });
+});
+
+describe("cardText", () => {
+  test("a new card: frontmatter, title, description, content", () => {
+    assert.equal(
+      cardText("Fix login", { description: "Users cannot log in.", contentHeading: "Content", content: "Steps:\n- one" }, new Date("2026-03-04T05:06:07.000Z")),
+      "---\ntimestamp: 2026-03-04T05:06:07.000Z\n---\n# Fix login\n\nUsers cannot log in.\n\n## Content\n\nSteps:\n- one\n",
+    );
+  });
+
+  test("its description reads back", () => {
+    const text = cardText("T", { description: "Short **text**.", contentHeading: "Contenu", content: "x" }, new Date(0));
+    assert.equal(cardDescription(text), "Short text.");
   });
 });

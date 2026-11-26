@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { parseDocument } from "../src/lib/document.ts";
-import { htmlWrappers, kanbanBlockOf, renderDocument } from "../src/lib/render.ts";
+import { kanbanBlockText } from "../src/lib/kanban.ts";
+import { htmlWrappers, kanbanBlockAt, kanbanBlockOf, renderDocument } from "../src/lib/render.ts";
 
 const render = (text: string, path = "guide/intro.md") => renderDocument(parseDocument(text, path), path, {}, { softBreaks: false });
 
@@ -465,5 +466,49 @@ describe("raw HTML snippets", () => {
       { kind: "colored-section", from: 0, to: 95 },
       { kind: "collapsible", from: 42, to: 87 },
     ]);
+  });
+});
+
+describe("kanbanBlockAt", () => {
+  const line = '<div data-ld-kanban data-columns="To do|Doing" data-colors="sky|amber"></div>';
+  const replaced = (text: string): string | null => {
+    const found = kanbanBlockAt(parseDocument(text, "board.md"));
+    return found && text.slice(0, found.range.from) + "NEW" + text.slice(found.range.to);
+  };
+
+  test("the range covers the block line exactly, at the top level", () => {
+    assert.equal(replaced(`Intro\n\n${line}\n\nEnd\n`), "Intro\n\nNEW\n\nEnd\n");
+  });
+
+  test("with a frontmatter the range counts it", () => {
+    assert.equal(replaced(`---\ntitle: T\n---\nIntro\n\n${line}\n`), "---\ntitle: T\n---\nIntro\n\nNEW\n");
+  });
+
+  test("in a quote or a list the marker stays out of the range", () => {
+    assert.equal(replaced(`> ${line}\n`), "> NEW\n");
+    assert.equal(replaced(`- ${line}\n`), "- NEW\n");
+  });
+
+  test("after a :::compare region the offsets still hold", () => {
+    assert.equal(replaced(`:::compare\nleft\n---\nright\n:::\n\n${line}\n`), ":::compare\nleft\n---\nright\n:::\n\nNEW\n");
+  });
+
+  test("a block in a code fence is ignored, the next real one counts", () => {
+    assert.equal(kanbanBlockAt(parseDocument("```html\n" + line + "\n```\n", "board.md")), null);
+    assert.equal(replaced("```html\n" + line + "\n```\n\n" + line + "\n"), "```html\n" + line + "\n```\n\nNEW\n");
+  });
+
+  test("gives the block too, and null for no board", () => {
+    assert.deepEqual(kanbanBlockAt(parseDocument(`${line}\n`, "b.md"))?.block, {
+      columns: [{ label: "To do", color: "sky" }, { label: "Doing", color: "amber" }],
+    });
+    assert.equal(kanbanBlockAt(parseDocument("Just text\n", "b.md")), null);
+  });
+
+  test("replacing the range by kanbanBlockText gives the new board", () => {
+    const text = `---\ntitle: T\n---\n> ${line}\n`;
+    const found = kanbanBlockAt(parseDocument(text, "board.md"))!;
+    const next = text.slice(0, found.range.from) + kanbanBlockText([{ label: "Q&A", color: "rose" }]) + text.slice(found.range.to);
+    assert.equal(next, '---\ntitle: T\n---\n> <div data-ld-kanban data-columns="Q&amp;A" data-colors="rose"></div>\n');
   });
 });

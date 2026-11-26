@@ -6,7 +6,8 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import { parseDocument } from "./document.ts";
-import { parseKanbanBlock, type KanbanColor } from "./kanban.ts";
+import { KANBAN_COLORS, MAX_COLUMNS as KANBAN_MAX_COLUMNS, parseKanbanBlock, type KanbanColor } from "./kanban.ts";
+export { KANBAN_COLORS };
 import { headingId } from "./links.ts";
 import { compareRegions } from "./render.ts";
 
@@ -101,8 +102,6 @@ export type SnippetData =
   | { kind: "image"; alt: string; url: string; width: Width; align: Align };
 
 /** The options of the forms, in the order the dialog offers them (the empty value, "default" or "none", left out). */
-export const KANBAN_COLORS: readonly KanbanColor[] = ["sky", "amber", "emerald", "rose", "violet", "slate"];
-const KANBAN_MAX_COLUMNS = 6;
 export const WIDTHS: readonly Exclude<Width, "">[] = ["full", "3/4", "2/3", "1/2", "1/3", "1/4"];
 export const ALIGNS: readonly Exclude<Align, "">[] = ["left", "center", "right"];
 export const TABLE_STYLES: readonly Exclude<TableStyle, "">[] = ["intermediate", "compact"];

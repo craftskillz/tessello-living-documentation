@@ -7,8 +7,8 @@ export interface KanbanBlock {
   columns: { label: string; color: KanbanColor }[];
 }
 
-const COLORS: readonly KanbanColor[] = ["sky", "amber", "emerald", "rose", "violet", "slate"];
-const MAX_COLUMNS = 6;
+export const KANBAN_COLORS: readonly KanbanColor[] = ["sky", "amber", "emerald", "rose", "violet", "slate"];
+export const MAX_COLUMNS = 6;
 
 const attribute = (html: string, name: string): string[] => {
   const value = new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, "i").exec(html)?.[1] ?? "";
@@ -20,7 +20,7 @@ export function parseKanbanBlock(html: string): KanbanBlock | null {
   if (!/^<div\s+data-ld-kanban\b[^\n]*<\/div>[ \t]*$/i.test(html.trim())) return null;
   const colors = attribute(html, "data-colors").map((each) => each.trim().toLowerCase());
   const columns = attribute(html, "data-columns")
-    .map((label, index) => ({ label: label.trim(), color: COLORS.find((each) => each === colors[index]) ?? COLORS[index % COLORS.length]! }))
+    .map((label, index) => ({ label: label.trim(), color: KANBAN_COLORS.find((each) => each === colors[index]) ?? KANBAN_COLORS[index % KANBAN_COLORS.length]! }))
     .filter((column) => column.label !== "")
     .slice(0, MAX_COLUMNS);
   return { columns };
@@ -85,4 +85,41 @@ export function cardDescription(text: string): string {
     .join(" ");
   const one = withoutMarks(line).replace(/\s+/g, " ").trim();
   return one.length > DESCRIPTION_LENGTH ? `${one.slice(0, DESCRIPTION_LENGTH)}…` : one;
+}
+
+const escapeAttribute = (value: string): string => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+
+/** The block line for these columns: `<div data-ld-kanban data-columns="A|B" data-colors="sky|amber"></div>`. */
+export function kanbanBlockText(columns: { label: string; color: KanbanColor }[]): string {
+  const labels = columns.map(({ label }) => escapeAttribute(label.replace(/\|/g, " ").trim()));
+  return `<div data-ld-kanban data-columns="${labels.join("|")}" data-colors="${columns.map(({ color }) => color).join("|")}"></div>`;
+}
+
+export type ColumnsProblem =
+  | { kind: "count" }
+  | { kind: "noFolder"; index: number }
+  | { kind: "sameFolder"; first: number; second: number };
+
+/** What makes these labels unusable as a board's columns (Edit columns refuses them), null when none. */
+export function columnsProblem(labels: string[]): ColumnsProblem | null {
+  if (labels.length < 1 || labels.length > MAX_COLUMNS) return { kind: "count" };
+  const folders = labels.map((label) => columnFolder(label).toLowerCase());
+  const index = folders.findIndex((folder) => folder === "");
+  if (index >= 0) return { kind: "noFolder", index };
+  for (let second = 1; second < folders.length; second++) {
+    const first = folders.indexOf(folders[second]!);
+    if (first < second) return { kind: "sameFolder", first, second };
+  }
+  return null;
+}
+
+export interface CardTexts {
+  description: string;
+  contentHeading: string;
+  content: string;
+}
+
+/** A new card's text: frontmatter with the timestamp, the title, the description, then the content under its heading. */
+export function cardText(name: string, texts: CardTexts, now: Date): string {
+  return `---\ntimestamp: ${now.toISOString()}\n---\n# ${name}\n\n${texts.description}\n\n## ${texts.contentHeading}\n\n${texts.content}\n`;
 }

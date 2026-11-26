@@ -4,10 +4,11 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { connect } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
-import { loadBoard, moveCard } from "../src/lib/board.ts";
+import { createCard, InvalidColumns, loadBoard, moveCard, saveColumns, type ColumnEdit } from "../src/lib/board.ts";
 import { parseKanbanBlock } from "../src/lib/kanban.ts";
-import { FOLDER_MANIFEST, openProject, Refused } from "../src/lib/project.ts";
+import { Conflict, FOLDER_MANIFEST, openProject, Refused } from "../src/lib/project.ts";
 import { createProjects } from "../src/lib/projects.ts";
+import { openTemplates } from "../src/lib/templates.ts";
 
 const MODULE = { id: "@craftskillz/living-documentation", version: "0.0.1" };
 
@@ -220,5 +221,190 @@ describe("moving a card", () => {
     await moveCard(project, columns, "Todo/a.md", "Done");
 
     assert.deepEqual((await projects.favorites(info)).map((each) => each.path), ["Done/a.md"]);
+  });
+});
+
+describe("creating a card", () => {
+  const texts = { description: "Why.", contentHeading: "Content", content: "Body" };
+  const now = new Date("2026-03-04T14:30:12.000Z");
+
+  test("writes the card at the end of the column's custom order", async () => {
+    const { host, disk, project } = await projectOf({ "Todo/a.md": "# A", "Todo/b.md": "# B", [`Todo/${FOLDER_MANIFEST}`]: manifest("b.md", "a.md") });
+
+    const path = await createCard(project, openTemplates(project), { folder: "Todo", cards: [] }, "New card", texts, null, now);
+
+    assert.equal(path, "Todo/New card.md");
+    assert.equal(host.folders.read(disk, "Todo/New card.md"), "---\ntimestamp: 2026-03-04T14:30:12.000Z\n---\n# New card\n\nWhy.\n\n## Content\n\nBody\n");
+    assert.match(host.folders.read(disk, `Todo/${FOLDER_MANIFEST}`)!, /b\.md[\s\S]*a\.md[\s\S]*New card\.md/);
+  });
+
+  test("writes the card last even when the column folder has no custom order yet", async () => {
+    const { project } = await projectOf({ "board.md": "# B", "Todo/x.md": "# X", "Todo/y.md": "# Y" });
+    const [column] = await loadBoard(project, "board.md", block("Todo"));
+
+    await createCard(project, openTemplates(project), column!, "Alpha", texts, null, now);
+
+    const [after] = await loadBoard(project, "board.md", block("Todo"));
+    assert.deepEqual(after!.cards.map((card) => card.name), ["x.md", "y.md", "Alpha.md"]);
+  });
+
+  test("from a template, fills it", async () => {
+    const { host, disk, project } = await projectOf({ "Todo/a.md": "# A", ".templates/Bug.md": "# {{title}}\n\nSteps\n" });
+
+    const path = await createCard(project, openTemplates(project, { now: () => now }), { folder: "Todo", cards: [] }, "Crash", texts, ".templates/Bug.md", now);
+
+    assert.equal(path, "Todo/Crash.md");
+    assert.match(host.folders.read(disk, "Todo/Crash.md")!, /# Crash\n\nSteps/);
+  });
+
+  test("refuses a taken name, and a missing template", async () => {
+    const { project } = await projectOf({ "Todo/a.md": "# A" });
+    const templates = openTemplates(project);
+
+    await assert.rejects(createCard(project, templates, { folder: "Todo", cards: [] }, "a", texts, null, now), (e) => e instanceof Refused && e.reason === "taken");
+    await assert.rejects(createCard(project, templates, { folder: "Todo", cards: [] }, "x", texts, ".templates/None.md", now), (e) => (e as Error).name === "NotFound");
+  });
+});
+
+describe("saving the columns", () => {
+  const BLOCK = (labels: string, colors: string) => `<div data-ld-kanban data-columns="${labels}" data-colors="${colors}"></div>`;
+  const row = (label: string, from: string | null, color: ColumnEdit["color"] = "sky"): ColumnEdit => ({ label, color, from });
+
+  /** A board "board.md" with columns To do, Doing, Done (and `files`), loaded as the View does. */
+  async function boardOf(files: Record<string, string> = {}) {
+    const made = await projectOf({ "board.md": `# Board\n\n${BLOCK("To do|Doing|Done", "sky|amber|emerald")}\n\nAfter.\n`, ...files });
+    const base = await made.project.read("board.md");
+    const columns = await loadBoard(made.project, "board.md", parseKanbanBlock(BLOCK("To do|Doing|Done", "sky|amber|emerald"))!);
+    return { ...made, base, columns };
+  }
+  const save = (b: Awaited<ReturnType<typeof boardOf>>, rows: ColumnEdit[], removals: Parameters<typeof saveColumns>[5] = {}) =>
+    saveColumns(b.project, "board.md", b.base, b.columns, rows, removals);
+  const kept = [row("To do", "To_do"), row("Doing", "Doing"), row("Done", "Done")];
+
+  test("rewrites only the Kanban block of the Document, and resolves with its new version", async () => {
+    const b = await boardOf();
+
+    const result = await save(b, [row("Backlog", "To_do", "rose"), row("Doing", "Doing"), row("Done", "Done"), row("Review", null, "violet")]);
+
+    assert.equal(b.host.folders.read(b.disk, "board.md"), `# Board\n\n${BLOCK("Backlog|Doing|Done|Review", "rose|sky|sky|violet")}\n\nAfter.\n`);
+    assert.equal(result.version, (await b.project.read("board.md")).version);
+    assert.deepEqual(result.failures, []);
+  });
+
+  test("renames the folder of a renamed column, and the links to its cards follow", async () => {
+    const b = await boardOf({ "To_do/a.md": "# A", "notes.md": "See [A](To_do/a.md)." });
+
+    await save(b, [row("Backlog", "To_do"), kept[1]!, kept[2]!]);
+
+    assert.ok(!exists(b.host, b.disk, "To_do/a.md"));
+    assert.equal(b.host.folders.read(b.disk, "Backlog/a.md"), "# A");
+    assert.equal(b.host.folders.read(b.disk, "notes.md"), "See [A](Backlog/a.md).");
+  });
+
+  test("renames a column whose folder name changes only by case", async () => {
+    const b = await boardOf({ "Doing/a.md": "# A" });
+
+    const { failures } = await save(b, [kept[0]!, row("DOING", "Doing"), kept[2]!]);
+
+    assert.deepEqual(failures, []);
+    assert.ok(exists(b.host, b.disk, "DOING/a.md"));
+  });
+
+  test("refuses a rename onto a folder that exists (ignoring case), writing nothing", async () => {
+    const b = await boardOf({ "archive/x.md": "# X" });
+
+    await assert.rejects(save(b, [row("Archive", "To_do"), kept[1]!, kept[2]!]), (e) => e instanceof Refused && e.reason === "taken" && (e as Refused & { label: string }).label === "Archive");
+
+    assert.equal(b.host.folders.read(b.disk, "board.md"), b.base.text);
+    assert.ok(exists(b.host, b.disk, `To_do/${FOLDER_MANIFEST}`));
+  });
+
+  test("rejects InvalidColumns writing nothing", async () => {
+    const b = await boardOf();
+
+    await assert.rejects(save(b, [row("A b", "To_do"), row("A_b", "Doing")]), (e) => e instanceof InvalidColumns && e.problem.kind === "sameFolder");
+
+    assert.equal(b.host.folders.read(b.disk, "board.md"), b.base.text);
+    assert.ok(exists(b.host, b.disk, `To_do/${FOLDER_MANIFEST}`));
+  });
+
+  test("a Conflict propagates and nothing else is written", async () => {
+    const b = await boardOf({ "To_do/a.md": "# A" });
+    await b.project.save("board.md", `${b.base.text}Edited elsewhere.\n`, b.base.version);
+
+    await assert.rejects(save(b, [row("Backlog", "To_do"), kept[1]!, kept[2]!]), (e) => e instanceof Conflict);
+
+    assert.ok(exists(b.host, b.disk, "To_do/a.md"));
+    assert.ok(!exists(b.host, b.disk, "Backlog/a.md"));
+  });
+
+  test("refuses a Document without a Kanban block", async () => {
+    const b = await boardOf();
+
+    await assert.rejects(saveColumns(b.project, "board.md", { text: "# Plain\n", version: b.base.version }, b.columns, kept, {}), (e) => e instanceof Refused && e.reason === "missing");
+  });
+
+  test("a removed empty column loses its folder; a folder with an extra file stays", async () => {
+    const b = await boardOf({ "Done/notes.txt": "keep me" });
+
+    const { failures } = await save(b, [kept[0]!]);
+
+    assert.deepEqual(failures, []);
+    assert.ok(!exists(b.host, b.disk, `Doing/${FOLDER_MANIFEST}`));
+    assert.ok(exists(b.host, b.disk, "Done/notes.txt"));
+  });
+
+  test("moves the cards of a removed column, in order, to the end of a kept column (renamed too), then removes its folder", async () => {
+    const b = await boardOf({ "To_do/x.md": "# X", [`To_do/${FOLDER_MANIFEST}`]: manifest("x.md"), "Doing/b.md": "# B", "Doing/a.md": "# A", [`Doing/${FOLDER_MANIFEST}`]: manifest("b.md", "a.md") });
+
+    const { failures } = await save(b, [row("Backlog", "To_do"), kept[2]!], { Doing: { moveTo: "To_do" } });
+
+    assert.deepEqual(failures, []);
+    assert.ok(!exists(b.host, b.disk, `Doing/${FOLDER_MANIFEST}`));
+    const [backlog] = await loadBoard(b.project, "board.md", parseKanbanBlock(BLOCK("Backlog", "sky"))!);
+    assert.deepEqual(backlog!.cards.map((card) => card.path), ["Backlog/x.md", "Backlog/b.md", "Backlog/a.md"]);
+  });
+
+  test("moved cards go after the kept column's cards even when its folder has no custom order yet", async () => {
+    const b = await boardOf({ "To_do/x.md": "# X", "To_do/y.md": "# Y", "Doing/b.md": "# B", "Doing/a.md": "# A", [`Doing/${FOLDER_MANIFEST}`]: manifest("b.md", "a.md") });
+
+    await save(b, [kept[0]!, kept[2]!], { Doing: { moveTo: "To_do" } });
+
+    const [todo] = await loadBoard(b.project, "board.md", parseKanbanBlock(BLOCK("To do", "sky"))!);
+    assert.deepEqual(todo!.cards.map((card) => card.path), ["To_do/x.md", "To_do/y.md", "To_do/b.md", "To_do/a.md"]);
+  });
+
+  test("a card whose name is taken in the target is a move failure: it stays, with its folder, and the others move", async () => {
+    const b = await boardOf({ "To_do/a.md": "# Mine", "Doing/a.md": "# Theirs", "Doing/z.md": "# Z" });
+
+    const { failures } = await save(b, [kept[0]!, kept[2]!], { Doing: { moveTo: "To_do" } });
+
+    assert.deepEqual(failures.map((f) => [f.step, f.path, (f.reason as Refused).reason]), [["move", "Doing/a.md", "taken"]]);
+    assert.equal(b.host.folders.read(b.disk, "Doing/a.md"), "# Theirs");
+    assert.equal(b.host.folders.read(b.disk, "To_do/a.md"), "# Mine");
+    assert.ok(exists(b.host, b.disk, "To_do/z.md"));
+  });
+
+  test('"keep" leaves the removed column folder and its cards untouched', async () => {
+    const b = await boardOf({ "Doing/a.md": "# A" });
+
+    await save(b, [kept[0]!, kept[2]!], { Doing: "keep" });
+
+    assert.ok(exists(b.host, b.disk, "Doing/a.md"));
+  });
+
+  test("makes the favorites follow a renamed column", async () => {
+    const host = createTestHost({ module: MODULE, permissions: { folders: true } });
+    const text = `# Board\n\n${BLOCK("To do", "sky")}\n`;
+    host.folders.choose(host.folders.create("docs", { "board.md": text, "To_do/a.md": "# A" }));
+    const projects = createProjects(await connect({ transport: host.mount({ surface: "view" }).transport }));
+    const info = (await projects.connect())!;
+    await projects.setFavorites(info, [{ path: "To_do/a.md", title: "A" }]);
+    const project = projects.open(info);
+    const columns = await loadBoard(project, "board.md", parseKanbanBlock(BLOCK("To do", "sky"))!);
+
+    await saveColumns(project, "board.md", await project.read("board.md"), columns, [row("Backlog", "To_do")], {});
+
+    assert.deepEqual((await projects.favorites(info)).map((each) => each.path), ["Backlog/a.md"]);
   });
 });

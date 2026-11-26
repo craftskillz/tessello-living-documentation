@@ -4,12 +4,16 @@
   import type { CardPlace, Column } from "../lib/board.ts";
   import { formatTreeDate } from "../lib/dates.ts";
   import { currentLocale, t } from "../lib/i18n.ts";
+  import type { TemplateFolder } from "../lib/templates.ts";
 
   let {
     columns,
     onopen,
     onmove,
     failure,
+    templates,
+    onadding,
+    oncreate,
   }: {
     columns: Column[];
     onopen: (path: string) => void;
@@ -17,7 +21,33 @@
     onmove: (card: { path: string; name: string }, column: Column, place?: CardPlace) => void;
     /** The message for a column whose folder could not be created. */
     failure: (column: Column) => string;
+    /** The Project's template library, for a new card's Template. */
+    templates: TemplateFolder[];
+    /** A new-card form opened: the library is read again. */
+    onadding: () => void;
+    /** Creates a card named `name` in the column, from the template at that path or none; resolves with the translated reason it was refused, null when created. */
+    oncreate: (column: Column, name: string, template: string | null) => Promise<string | null>;
   } = $props();
+
+  /** The new-card form of one column: a name, an optional template, and why the last try failed. */
+  let adding = $state<{ folder: string; name: string; template: string; failure: string | null; running: boolean } | null>(null);
+  function toggleAdding(column: Column) {
+    if (adding?.folder === column.folder) adding = null;
+    else {
+      adding = { folder: column.folder, name: "", template: "", failure: null, running: false };
+      onadding();
+    }
+  }
+  async function submit(column: Column) {
+    const form = adding;
+    if (!form || form.running || form.name.trim() === "") return;
+    form.running = true;
+    form.failure = null;
+    const failure = await oncreate(column, form.name, form.template === "" ? null : form.template);
+    form.running = false;
+    if (failure === null) adding = null;
+    else form.failure = failure;
+  }
 
   /** The card being dragged, and where a drop would land: a column, and in it a position relative to a card. */
   let dragging = $state<{ path: string; name: string; folder: string } | null>(null);
@@ -75,7 +105,29 @@
       }}
       ondrop={(event) => drop(event, column)}
     >
-      <h2 class="board-column-title"><span class="board-label">{column.label}</span><span class="count">{column.cards.length}</span></h2>
+      <h2 class="board-column-title"><span class="board-label">{column.label}</span><span class="count">{column.cards.length}</span><button type="button" class="add" aria-label={t("addCard")} title={t("addCard")} aria-expanded={adding?.folder === column.folder} onclick={() => toggleAdding(column)}>+</button></h2>
+      {#if adding?.folder === column.folder}
+        <form
+          class="ld-form new-card"
+          onsubmit={(event) => {
+            event.preventDefault();
+            void submit(column);
+          }}
+        >
+          <!-- svelte-ignore a11y_autofocus -->
+          <input type="text" aria-label={t("cardName")} placeholder={t("cardNamePlaceholder")} autocomplete="off" spellcheck="false" autofocus bind:value={adding.name} oninput={() => adding && (adding.failure = null)} />
+          <select aria-label={t("template")} bind:value={adding.template} onchange={() => adding && (adding.failure = null)}>
+            <option value="">{t("noTemplate")}</option>
+            {#each templates.filter((each) => each.templates.length > 0) as folder (folder.name)}
+              <optgroup label={folder.name}>
+                {#each folder.templates as entry (entry.path)}<option value={entry.path}>{entry.name}</option>{/each}
+              </optgroup>
+            {/each}
+          </select>
+          {#if adding.failure}<p class="invalid" role="alert">{adding.failure}</p>{/if}
+          <div class="actions"><button type="submit" class="primary" disabled={adding.name.trim() === "" || adding.running}>{t("create")}</button></div>
+        </form>
+      {/if}
       {#if column.failure !== null}<p class="problem" role="alert">{failure(column)}</p>{/if}
       <ul aria-label={column.label}>
         {#each column.cards as card (card.path)}
@@ -132,6 +184,28 @@
     text-transform: uppercase;
     color: var(--kanban-title);
     overflow-wrap: anywhere;
+  }
+  .add {
+    padding: 0 0.5em;
+    line-height: 1.4;
+    font-weight: 700;
+  }
+  .new-card {
+    overflow-wrap: anywhere;
+    display: grid;
+    gap: 0.4rem;
+    margin: 0 0 0.5rem;
+    padding: 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--ink);
+    text-transform: none;
+    letter-spacing: normal;
+  }
+  .new-card .actions {
+    display: flex;
+    justify-content: flex-end;
   }
   .count {
     border-radius: 999px;

@@ -34,6 +34,7 @@
     ontoc,
     onfavorite,
     onedit,
+    oneditcolumns,
     ondelete,
     ondone,
     onrevert,
@@ -43,7 +44,7 @@
     editing: boolean;
     saving: boolean;
     readOnly: boolean;
-    /** The Document is a Kanban board: only Favorite, Edit, Copy path and Delete. */
+    /** The Document is a Kanban board: only Favorite, Edit columns, Edit, Copy path and Delete. */
     board: boolean;
     lines: boolean;
     whiteBackground: boolean;
@@ -69,6 +70,8 @@
     ontoc: () => void;
     onfavorite: () => void;
     onedit: () => void;
+    /** Opens Edit columns, on a board. */
+    oneditcolumns: () => void;
     ondelete: () => void;
     ondone: () => void;
     onrevert: () => void;
@@ -114,6 +117,7 @@
         <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill={favorite ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z" /></svg>
         {t("favorite")}
       </button>
+      {#if board}<button onclick={oneditcolumns}><span aria-hidden="true">⚙</span> {t("editColumns")}</button>{/if}
       <button onclick={onedit}>{t("edit")}</button>
       <button onclick={ondelete}>{t("delete")}</button>
     {/if}

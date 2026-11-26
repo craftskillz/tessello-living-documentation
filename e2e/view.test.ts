@@ -10,6 +10,7 @@ describe("a first visit", () => {
     const { page } = await withProject({ "zeta.md": "# Zeta\n", "guide/intro.md": "# Introduction\n\nWelcome.\n" });
 
     const tree = page.getByRole("navigation", { name: "Documents" });
+    await tree.getByRole("link", { name: "zeta.md" }).waitFor();
     assert.deepEqual(await tree.getByRole("link").allInnerTexts(), ["intro.md", "zeta.md"]);
     await page.getByRole("heading", { level: 1, name: "Introduction" }).waitFor();
     await page.getByText("Welcome.").waitFor();

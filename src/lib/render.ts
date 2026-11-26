@@ -13,6 +13,7 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import type { DocumentModel } from "./document.ts";
+import type { TextRange } from "./edits.ts";
 import { calloutIcon, gridTemplate, parseColumnComment, type Directive, parseDirective, quoteAttrs, type QuoteAttrs, sizeAttrs, tableAttrs } from "./directives.ts";
 import { type KanbanBlock, parseKanbanBlock } from "./kanban.ts";
 import { isMarkerName, pillLabel, TAG_SOURCE } from "./tagMarkers.ts";
@@ -480,11 +481,11 @@ export function htmlWrappers(text: string): HtmlWrapper[] {
 }
 
 /** The first Kanban block of the tree (an `html` flow node, in a quote or a list too), where it stands and what it says. */
-function findKanban(root: MdastRoot): { parent: Parents; index: number; block: KanbanBlock } | null {
-  const find = (parent: Parents): { parent: Parents; index: number; block: KanbanBlock } | null => {
+function findKanban(root: MdastRoot): { parent: Parents; index: number; block: KanbanBlock; node: Html } | null {
+  const find = (parent: Parents): { parent: Parents; index: number; block: KanbanBlock; node: Html } | null => {
     for (const [index, node] of (parent.children as Nodes[]).entries()) {
       const block = node.type === "html" ? parseKanbanBlock((node as Html).value) : null;
-      if (block) return { parent, index, block };
+      if (block) return { parent, index, block, node: node as Html };
       const inner = "children" in node ? find(node as Parents) : null;
       if (inner) return inner;
     }
@@ -493,11 +494,20 @@ function findKanban(root: MdastRoot): { parent: Parents; index: number; block: K
   return find(root);
 }
 
-/** The Kanban block that makes the Document a board, by the rule its rendering uses; null when it is not a board. */
-export function kanbanBlockOf(model: DocumentModel): KanbanBlock | null {
+/**
+ * The Kanban block that makes the Document a board, by the rule its rendering uses, and its range in the Document's full
+ * text (the block line itself, not a quote or list marker); null when it is not a board.
+ */
+export function kanbanBlockAt(model: DocumentModel): { block: KanbanBlock; range: TextRange } | null {
   const masked = maskCompares(model.body, compareRegions(model.body));
-  return findKanban(unified().use(remarkParse).use(remarkGfm).parse(masked))?.block ?? null;
+  const found = findKanban(unified().use(remarkParse).use(remarkGfm).parse(masked));
+  const { start, end } = found?.node.position ?? {};
+  if (!found || start?.offset === undefined || end?.offset === undefined) return null;
+  return { block: found.block, range: { from: model.bodyStart + start.offset, to: model.bodyStart + end.offset } };
 }
+
+/** The Kanban block that makes the Document a board, by the rule its rendering uses; null when it is not a board. */
+export const kanbanBlockOf = (model: DocumentModel): KanbanBlock | null => kanbanBlockAt(model)?.block ?? null;
 
 /** Replaces the first Kanban block of the tree by a read-only preview of its columns, or removes it when `leaveOut`. */
 function kanbanPreview(root: MdastRoot, leaveOut: boolean): void {

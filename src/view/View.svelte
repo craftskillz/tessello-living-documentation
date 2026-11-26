@@ -28,7 +28,9 @@
   import ProjectSwitcher from "./ProjectSwitcher.svelte";
   import { createLiveSearch, documentsIn, filterTree, searchProject, titleResults, type SearchResult } from "../lib/search.ts";
   import { renderDocument, kanbanBlockOf } from "../lib/render.ts";
-  import { type CardPlace, loadBoard, moveCard, type Column } from "../lib/board.ts";
+  import { type CardPlace, type ColumnEdit, type ColumnsFailure, createCard, InvalidColumns, loadBoard, moveCard, type Column, type Removal, saveColumns, TakenColumn } from "../lib/board.ts";
+  import { columnFolder, type CardTexts } from "../lib/kanban.ts";
+  import EditColumns from "./EditColumns.svelte";
   import Board from "./Board.svelte";
   import ArticleTools from "./ArticleTools.svelte";
   import { applyLineLabels } from "./lines.ts";
@@ -191,6 +193,74 @@
     column.failure instanceof Refused
       ? `${t("boardColumnFailed", { column: column.label })} ${refusalMessage(column.failure.reason)}`
       : `${t("boardColumnFailed", { column: column.label })} ${t("detail", { reason: column.failure instanceof Error ? column.failure.message : String(column.failure) })}`;
+
+  // Edit columns: the dialog over the open board.
+  let editingColumns = $state<{ saving: boolean; failure: string | null } | null>(null);
+
+  /** The reason a column-folder step failed, as a message naming its path. */
+  const columnsFailureMessage = (each: ColumnsFailure) =>
+    `${t(each.step === "rename" ? "columnsRenameFailed" : each.step === "move" ? "columnsMoveFailed" : "columnsRemoveFolderFailed", { path: each.path })} ${each.reason instanceof Refused ? refusalMessage(each.reason.reason, true) : each.reason instanceof Error ? t("detail", { reason: each.reason.message }) : ""}`.trim();
+
+  async function saveBoardColumns(rows: ColumnEdit[], removals: Record<string, Removal>) {
+    const shown = board;
+    const base = current;
+    const at = path;
+    const asking = editingColumns;
+    if (!shown || !base || !at || !project || !asking || asking.saving) return;
+    asking.saving = true;
+    asking.failure = null;
+    if (!(await beforeChange())) {
+      editingColumns = null;
+      return;
+    }
+    let result: Awaited<ReturnType<typeof saveColumns>>;
+    try {
+      result = await saveColumns(project, at, base, shown.columns, rows, removals);
+    } catch (reason) {
+      asking.saving = false;
+      if (reason instanceof TakenColumn) {
+        asking.failure = t("columnsTaken", { name: `“${reason.label}”`, folder: columnFolder(reason.label) });
+      } else if (reason instanceof Conflict) {
+        editingColumns = null;
+        report(t("columnsChanged"));
+        current = reason.theirs ?? (await project.read(at).catch(() => current));
+        await refreshBoard(true);
+      } else if (reason instanceof InvalidColumns) {
+        asking.failure = t("columnsSaveFailed");
+      } else asking.failure = `${t("columnsSaveFailed")} ${failureText(reason, true)}`;
+      return;
+    }
+    editingColumns = null;
+    await afterChange(at, at, false);
+    await refreshBoard(false);
+    if (result.failures.length > 0) report(result.failures.map(columnsFailureMessage).join(" "));
+  }
+
+  /** The library's folders and templates, for the New card forms of the board. */
+  let cardTemplates = $state.raw<TemplateFolder[]>([]);
+  async function readCardTemplates() {
+    try {
+      cardTemplates = (await templates?.list()) ?? [];
+    } catch (reason) {
+      report(t("templatesReadFailed"), reason);
+    }
+  }
+
+  /** A new card in a column: its file with a skeleton or a template, last in the column; resolves with the reason it was refused, null when created. */
+  async function createBoardCard(column: Column, name: string, template: string | null): Promise<string | null> {
+    if (!project || !templates || !(await beforeChange())) return t("cardCreateFailed");
+    const texts: CardTexts = { description: t("cardDescription"), contentHeading: t("cardContentHeading"), content: t("cardContent") };
+    const shown = board?.columns.find((each) => each.folder === column.folder) ?? column;
+    try {
+      await createCard(project, templates, shown, name, texts, template, new Date());
+    } catch (reason) {
+      if (reason instanceof NotFound) return t("templateNotFound");
+      return `${t("cardCreateFailed")} ${failureText(reason, false)}`;
+    }
+    tree = await loadTree().catch(() => tree);
+    await refreshBoard(false);
+    return null;
+  }
 
   /** A card dropped in a column: its file moves there, before or after another card or at the end. */
   async function moveBoardCard(card: { path: string; name: string }, column: Column, place?: CardPlace) {
@@ -1992,6 +2062,7 @@
           ontoc={() => void setDisplay({ toc: { open: !display.toc.open } })}
           onfavorite={toggleFavorite}
           onedit={startEditing}
+          oneditcolumns={() => (editingColumns = { saving: false, failure: null })}
           ondelete={() => void askDeletion({ kind: "document", name: nameOf(path!), path: path! })}
           ondone={() => void done()}
           onrevert={() => void revert()}
@@ -2051,7 +2122,7 @@
               {@html html}
             </article>
             {#if boardBlock && board?.path === path}
-              <Board columns={board.columns} onopen={(card) => void follow(card, null)} onmove={(card, column, place) => void moveBoardCard(card, column, place)} failure={boardFailure} />
+              <Board columns={board.columns} templates={cardTemplates} onadding={() => void readCardTemplates()} oncreate={createBoardCard} onopen={(card) => void follow(card, null)} onmove={(card, column, place) => void moveBoardCard(card, column, place)} failure={boardFailure} />
             {/if}
             </div>
             {#if display.toc.open && headings.length > 0 && !boardBlock}
@@ -2205,6 +2276,10 @@
     {/if}
   </svg>
 {/snippet}
+
+{#if editingColumns && board?.path === path}
+  <EditColumns columns={board.columns} saving={editingColumns.saving} failure={editingColumns.failure} onsave={(rows, removals) => void saveBoardColumns(rows, removals)} onclose={() => (editingColumns = null)} />
+{/if}
 
 {#if creating}
   <dialog use:modal aria-labelledby="create-title" class="create" oncancel={() => (creating = null)}>
@@ -2397,7 +2472,7 @@
         <span class="badge-icon danger">{@render entryIcon("delete")}</span>
         <h2 id="delete-title">{entry.kind === "document" ? t("deleteDocument") : t("deleteFolder")}</h2>
       </header>
-      <p>{entry.kind === "document" ? t("deleteDocumentText", { name: entry.name }) : t("deleteFolderText", { name: entry.name })}</p>
+      <p>{entry.kind === "document" ? t(boardBlock !== null && entry.path === path ? "deleteBoardText" : "deleteDocumentText", { name: entry.name }) : t("deleteFolderText", { name: entry.name })}</p>
       {#if entry.kind === "folder"}
         <p>{holds(counts) ? t("folderHolds", { list: holds(counts) }) : t("folderEmpty")}</p>
       {/if}
