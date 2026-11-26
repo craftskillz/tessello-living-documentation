@@ -9,7 +9,7 @@ Decided with the User (2026-11-26): the lists are per Project, shared through `.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human (built in bd79a5a; awaiting the trial in the local Host)
+**Status:** done (bd79a5a, c4cd225, e72bf4a)
 
 - [x] Two new keys in `.living-doc.json`, for example `treeShownExtensions` and `treeExcluded` (string arrays; the original ignores keys it does not know). Missing key, malformed file, or a value that is not an array of strings gives the default. An empty array is kept as written: nothing shown by default / nothing excluded. Extensions compared without the dot and ignoring case; names compared exactly. Unit-tested in `test/projectSettings.test.ts`
 - [x] The Tree (`Project.tree`): other files with a shown extension appear at the end of their Folder without **Show hidden items**, and open in the other-file preview as today (ticket 10). Excluded entries are left out without **Show hidden items** and flagged hidden with it. An excluded Folder's content is not listed or read without **Show hidden items**. Unit-tested on the Test Host disk
@@ -21,7 +21,7 @@ Decided with the User (2026-11-26): the lists are per Project, shared through `.
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder), on a Project inside a git repository
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder), on a Project inside a git repository
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs (0003: on-disk format) and `docs/spec/documents-tree.md` first. Prior art: ticket 31 (`markdownSoftBreaks`, `src/lib/projectSettings.ts`), ticket 10 (hidden items, other files). Tests at the five seams of the spec's Testing Decisions.
 
@@ -36,5 +36,5 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - **Restore defaults** (one per field) writes the default list explicitly into `.living-doc.json`, it does not remove the key: a later change of the defaults will not reach that Project.
 - The open other-file panel closes when its file leaves the Tree (a setting change or Show hidden items turned off), no longer every time Show hidden items is turned off.
 - `e2e/tree.test.ts`: two tests follow the new defaults (`notes.txt` shown without Show hidden items; the svg preview test puts its file in `node_modules/`).
-- Not done: the docs/ui.md screenshot beside the cog panel; no e2e for `treeShownExtensions` changed by an agent (the same path as `treeExcluded`, which is tested).
+- After the trial: the Project settings dialog was widened and laid out in columns with grey rules between its zones (c4cd225, e72bf4a), checked by screenshots. A click anywhere on a Tree row now opens its entry (ef6a6a1). Not done: no e2e for `treeShownExtensions` changed by an agent (the same path as `treeExcluded`, which is tested).
 - Review judgement calls left: the two settings fields in `ProjectSettings.svelte` and the failure ladder of `changeVisibility` / `changeSoftBreaks` in `View.svelte` are duplicated in shape.
