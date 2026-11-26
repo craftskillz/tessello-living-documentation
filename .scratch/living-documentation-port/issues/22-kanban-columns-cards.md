@@ -4,7 +4,7 @@
 
 **Blocked by:** 18 (New Document from a template), 21 (Kanban I: the board)
 
-**Status:** ready-for-human (built in 62ac7c8; awaiting the trial in the local Host)
+**Status:** done (62ac7c8, 62bd997)
 
 - [x] Edit columns with the collision refusal
 - [x] Rename and remove column behaviors
@@ -13,7 +13,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -28,4 +28,4 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - Deleting the board removes only its Document; the confirmation reads "Delete the board “…”? Its column folders and their cards are kept."
 - Also fixed: a race in `e2e/view.test.ts` (the Tree read before it rendered) that failed about one run in three.
 - Differences from the original: Edit columns is its own dialog (no snippet form, no Markdown preview, no Delete block; deleting the block is done in Edit); renames carry the folder (Q-049); the skeleton is translated and a template can be chosen (Q-052).
-- Not done: the trial in the local Host.
+- Tried in the local Host by the User on 2026-11-26, with the Tree's New document / New folder in a Folder's menu (09a21bb).
