@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 (Editing, complete)
 
-**Status:** ready-for-agent
+**Status:** ready-for-human (built in d02251c; awaiting the trial in the local Host)
 
 - [x] Templates as files under `.templates/`; Convert to files once
 - [x] Library screen and Templates menu with all actions
