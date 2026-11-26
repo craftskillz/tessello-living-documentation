@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 (Reading: Mermaid, Kanban blocks and Tag marker pills), 12 (Projects and Project settings)
 
-**Status:** ready-for-human (built in 85011a9; awaiting the trial in the local Host)
+**Status:** done (85011a9, ed3758a)
 
 - [x] Insert and Remove at the clicked spot through source ranges
 - [x] Refused where the spec refuses
@@ -13,7 +13,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -28,4 +28,4 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - A click that cannot be mapped (generated text such as footnote numbers or callout titles, raw HTML content) gives "The clicked spot could not be located in the source."
 - Texts: "Insert a Tag marker", "Remove the <name> Tag marker?" (name in lower case, R4); no **b** glyph.
 - Also fixed: the refusal message of `invalidAnnotations` was missing from the View's refusal map.
-- To do: the trial in the local Host (Shift + right-click inside the srcdoc frame, caret lookup).
+- Tried in the local Host by the User on 2026-11-26.
