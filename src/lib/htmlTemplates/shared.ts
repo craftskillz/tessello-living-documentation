@@ -140,6 +140,17 @@ table.table-fill-striped tbody tr:nth-child(odd) {
   background-color: var(--tbl-accent-stripe, rgb(243 244 246));
 }
 
+/* Borders draw their lines in --tbl-line: the color's accent, or with Softened borders its soft tone (else the neutral row separator). */
+table.table-border-bordered {
+  --tbl-line: var(--tbl-accent, rgb(209 213 219));
+}
+table.table-border-soft-bordered {
+  --tbl-line: var(--tbl-accent-soft, var(--line));
+}
+table.table-fill-full.table-border-soft-bordered {
+  --tbl-full-line: var(--tbl-line);
+}
+
 /* Full: filled cells on a uniform grid with a square outer edge (the rounded frame is Rounded's job); one line color drives the grid. */
 table.table-fill-full {
   --tbl-full-line: var(--tbl-accent-soft, rgb(226 232 240));
@@ -163,23 +174,23 @@ table.table-fill-full tbody tr:last-child > * {
   border-bottom: none;
 }
 /* Full with Borders (square): the outer edge is the inner line: the table adds the top and left, the edge cells keep their right and bottom. */
-table.table-fill-full.table-border-bordered:not(.table-rounded) {
+table.table-fill-full:is(.table-border-bordered, .table-border-soft-bordered):not(.table-rounded) {
   border-top: 1px solid var(--tbl-full-line);
   border-left: 1px solid var(--tbl-full-line);
 }
-table.table-fill-full.table-border-bordered:not(.table-rounded) tr > *:last-child {
+table.table-fill-full:is(.table-border-bordered, .table-border-soft-bordered):not(.table-rounded) tr > *:last-child {
   border-right: 1px solid var(--tbl-full-line);
 }
-table.table-fill-full.table-border-bordered:not(.table-rounded) tbody tr:last-child > * {
+table.table-fill-full:is(.table-border-bordered, .table-border-soft-bordered):not(.table-rounded) tbody tr:last-child > * {
   border-bottom: 1px solid var(--tbl-full-line);
 }
 
-table.table-border-bordered:not(.table-fill-full):not(.table-rounded) {
+table:is(.table-border-bordered, .table-border-soft-bordered):not(.table-fill-full):not(.table-rounded) {
   border-collapse: collapse;
 }
-table.table-border-bordered:not(.table-fill-full):not(.table-rounded),
-table.table-border-bordered:not(.table-fill-full):not(.table-rounded) :is(th, td) {
-  border: 1px solid var(--tbl-accent, rgb(209 213 219));
+table:is(.table-border-bordered, .table-border-soft-bordered):not(.table-fill-full):not(.table-rounded),
+table:is(.table-border-bordered, .table-border-soft-bordered):not(.table-fill-full):not(.table-rounded) :is(th, td) {
+  border: 1px solid var(--tbl-line);
 }
 table.table-border-borderless :is(th, td) {
   border-left: none;
@@ -198,28 +209,28 @@ table.table-rounded {
   border-radius: 0.5rem;
   overflow: hidden;
 }
-table.table-rounded.table-border-bordered {
-  --tbl-frame: var(--tbl-accent, rgb(209 213 219));
+table.table-rounded:is(.table-border-bordered, .table-border-soft-bordered) {
+  --tbl-frame: var(--tbl-line);
 }
 table.table-rounded.table-fill-full {
   --tbl-frame: var(--tbl-full-line);
 }
-table.table-rounded.table-border-bordered :is(th, td) {
+table.table-rounded:is(.table-border-bordered, .table-border-soft-bordered) :is(th, td) {
   border-right: 1px solid var(--tbl-frame);
   border-bottom: 1px solid var(--tbl-frame);
 }
 table.table-rounded tbody tr:last-child > * {
   border-bottom: none;
 }
-table.table-rounded.table-border-bordered tr > *:last-child {
+table.table-rounded:is(.table-border-bordered, .table-border-soft-bordered) tr > *:last-child {
   border-right: none;
 }
 table.table-rounded.table-border-borderless :is(th, td) {
   border-right: none;
 }
 /* Rounded without Borders or Full: the header's line is a separator like the others, not the plain table's accent. */
-table.table-rounded:not(.table-border-bordered):not(.table-fill-full) thead th,
-table.table-fill-striped:not(.table-border-bordered) thead th {
+table.table-rounded:not(.table-border-bordered):not(.table-border-soft-bordered):not(.table-fill-full) thead th,
+table.table-fill-striped:not(.table-border-bordered):not(.table-border-soft-bordered) thead th {
   border-bottom-color: var(--tbl-accent-soft, var(--line));
 }
 

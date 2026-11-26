@@ -84,7 +84,7 @@ describe("a new form", () => {
   });
 
   test("the table is 2x2 with an empty row, the tree a folder and an indented file", () => {
-    assert.deepEqual(newSnippet("table", texts), { kind: "table", style: "", fill: "", bordered: false, rounded: false, color: "", rows: [["Header 1", "Header 2"], ["", ""]] });
+    assert.deepEqual(newSnippet("table", texts), { kind: "table", style: "", fill: "", border: "", rounded: false, color: "", rows: [["Header 1", "Header 2"], ["", ""]] });
     assert.deepEqual(newSnippet("tree", texts), { kind: "tree", items: [{ name: "folder/", depth: 0 }, { name: "file.md", depth: 1 }] });
   });
 
@@ -146,22 +146,22 @@ describe("lists (R7)", () => {
 describe("table", () => {
   test("pads cells to the column width, with a separator of at least three dashes", () => {
     assert.equal(
-      build({ kind: "table", style: "", fill: "", bordered: false, rounded: false, color: "", rows: [["Name", "Qty"], ["apple", "1"], ["", ""]] }),
+      build({ kind: "table", style: "", fill: "", border: "", rounded: false, color: "", rows: [["Name", "Qty"], ["apple", "1"], ["", ""]] }),
       ["| Name  | Qty |", "| ----- | --- |", "| apple | 1   |", "|       |     |"].join("\n"),
     );
   });
 
   test("directives come first, in the order style, fill, border, rounded, color, each only when set", () => {
     assert.equal(
-      build({ kind: "table", style: "compact", fill: "striped", bordered: true, rounded: true, color: "info", rows: [["a"]] }),
+      build({ kind: "table", style: "compact", fill: "striped", border: "bordered", rounded: true, color: "info", rows: [["a"]] }),
       "<!-- table-style: compact -->\n<!-- table-fill: striped -->\n<!-- table-border: bordered -->\n<!-- table-rounded -->\n<!-- table-color: info -->\n| a   |\n| --- |",
     );
     assert.equal(
-      build({ kind: "table", style: "", fill: "", bordered: false, rounded: false, color: "note", rows: [["a"]] }),
+      build({ kind: "table", style: "", fill: "", border: "", rounded: false, color: "note", rows: [["a"]] }),
       "<!-- table-color: note -->\n| a   |\n| --- |",
     );
     assert.equal(
-      build({ kind: "table", style: "intermediate", fill: "full", bordered: false, rounded: true, color: "", rows: [["a"]] }),
+      build({ kind: "table", style: "intermediate", fill: "full", border: "", rounded: true, color: "", rows: [["a"]] }),
       "<!-- table-style: intermediate -->\n<!-- table-fill: full -->\n<!-- table-rounded -->\n| a   |\n| --- |",
     );
   });
@@ -172,31 +172,54 @@ describe("table", () => {
   });
 
   test("a pipe in a cell is written \\| and read back as |", () => {
-    const markdown = build({ kind: "table", style: "", fill: "", bordered: false, rounded: false, color: "", rows: [["a|b", "c"], ["d", "e"]] });
+    const markdown = build({ kind: "table", style: "", fill: "", border: "", rounded: false, color: "", rows: [["a|b", "c"], ["d", "e"]] });
     assert.equal(markdown, ["| a\\|b | c   |", "| ---- | --- |", "| d    | e   |"].join("\n"));
-    assert.deepEqual(parseSnippet("table", markdown), { kind: "table", style: "", fill: "", bordered: false, rounded: false, color: "", rows: [["a|b", "c"], ["d", "e"]] });
+    assert.deepEqual(parseSnippet("table", markdown), { kind: "table", style: "", fill: "", border: "", rounded: false, color: "", rows: [["a|b", "c"], ["d", "e"]] });
+  });
+
+  test("writes the softened border at the border's place in the order", () => {
+    assert.equal(
+      build({ kind: "table", style: "compact", fill: "striped", border: "soft-bordered", rounded: true, color: "info", rows: [["a"]] }),
+      "<!-- table-style: compact -->\n<!-- table-fill: striped -->\n<!-- table-border: soft-bordered -->\n<!-- table-rounded -->\n<!-- table-color: info -->\n| a   |\n| --- |",
+    );
+  });
+
+  test("reads the softened border, and the last valid border wins", () => {
+    assert.deepEqual(parseSnippet("table", "<!-- table-border: soft-bordered -->\n| a |\n| --- |"), { kind: "table", style: "", fill: "", border: "soft-bordered", rounded: false, color: "", rows: [["a"]] });
+    assert.equal((parseSnippet("table", "<!-- table-border: bordered -->\n<!-- table-border: soft-bordered -->\n| a |\n| --- |") as { border: string }).border, "soft-bordered");
+    assert.equal((parseSnippet("table", "<!-- table-border: soft-bordered -->\n<!-- table-border: bordered -->\n| a |\n| --- |") as { border: string }).border, "bordered");
+    assert.equal((parseSnippet("table", "<!-- table-border: soft-bordered -->\n<!-- table-border: borderless -->\n| a |\n| --- |") as { border: string }).border, "");
+  });
+
+  test("a table with the softened border is still detected as a table", () => {
+    assert.equal(detectSnippet("<!-- table-border: soft-bordered -->\n| a |\n| --- |"), "table");
+  });
+
+  test("the softened border survives a round trip", () => {
+    const data: SnippetData = { kind: "table", style: "", fill: "", border: "soft-bordered", rounded: false, color: "", rows: [["a", "b"]] };
+    assert.deepEqual(parseSnippet("table", build(data)), data);
   });
 
   test("reads the legacy bordered style as the border", () => {
-    assert.deepEqual(parseSnippet("table", "<!-- table-style: bordered -->\n| a |\n| --- |"), { kind: "table", style: "", fill: "", bordered: true, rounded: false, color: "", rows: [["a"]] });
+    assert.deepEqual(parseSnippet("table", "<!-- table-style: bordered -->\n| a |\n| --- |"), { kind: "table", style: "", fill: "", border: "bordered", rounded: false, color: "", rows: [["a"]] });
   });
 
   test("reads the legacy striped style as the fill", () => {
-    assert.deepEqual(parseSnippet("table", "<!-- table-style: striped -->\n| a |\n| --- |"), { kind: "table", style: "", fill: "striped", bordered: false, rounded: false, color: "", rows: [["a"]] });
+    assert.deepEqual(parseSnippet("table", "<!-- table-style: striped -->\n| a |\n| --- |"), { kind: "table", style: "", fill: "striped", border: "", rounded: false, color: "", rows: [["a"]] });
   });
 
   test("reads the legacy full style as the full fill, rounded", () => {
-    assert.deepEqual(parseSnippet("table", "<!-- table-style: full -->\n| a |\n| --- |"), { kind: "table", style: "", fill: "full", bordered: false, rounded: true, color: "", rows: [["a"]] });
+    assert.deepEqual(parseSnippet("table", "<!-- table-style: full -->\n| a |\n| --- |"), { kind: "table", style: "", fill: "full", border: "", rounded: true, color: "", rows: [["a"]] });
   });
 
   test("a density and a legacy fill are read independently", () => {
-    assert.deepEqual(parseSnippet("table", "<!-- table-style: compact -->\n<!-- table-style: striped -->\n| a |\n| --- |"), { kind: "table", style: "compact", fill: "striped", bordered: false, rounded: false, color: "", rows: [["a"]] });
+    assert.deepEqual(parseSnippet("table", "<!-- table-style: compact -->\n<!-- table-style: striped -->\n| a |\n| --- |"), { kind: "table", style: "compact", fill: "striped", border: "", rounded: false, color: "", rows: [["a"]] });
   });
 
   test("reads every new directive", () => {
     assert.deepEqual(
       parseSnippet("table", "<!-- table-style: intermediate -->\n<!-- table-fill: full -->\n<!-- table-border: bordered -->\n<!-- table-rounded -->\n<!-- table-color: danger -->\n| a |\n| --- |"),
-      { kind: "table", style: "intermediate", fill: "full", bordered: true, rounded: true, color: "danger", rows: [["a"]] },
+      { kind: "table", style: "intermediate", fill: "full", border: "bordered", rounded: true, color: "danger", rows: [["a"]] },
     );
   });
 
@@ -372,7 +395,7 @@ const filled: SnippetData[] = [
   { kind: "collapsible", summary: "More", body: "## Sub\n\nText" },
   { kind: "unordered-list", items: "- a\n  - b" },
   { kind: "ordered-list", items: "1. a\n   1. b" },
-  { kind: "table", style: "intermediate", fill: "full", bordered: true, rounded: true, color: "warning", rows: [["a", "b"], ["c", ""]] },
+  { kind: "table", style: "intermediate", fill: "full", border: "bordered", rounded: true, color: "warning", rows: [["a", "b"], ["c", ""]] },
   { kind: "kanban", columns: [{ label: "A", color: "violet" }, { label: "B", color: "slate" }] },
   { kind: "tree", items: [{ name: "src/", depth: 0 }, { name: "lib/", depth: 1 }, { name: "a.ts", depth: 2 }, { name: "m.ts", depth: 1 }] },
   { kind: "code-block", language: "ts", code: "let a = 1;\nlet b = 2;", width: "2/3", align: "right" },

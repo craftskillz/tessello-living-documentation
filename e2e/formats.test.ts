@@ -145,11 +145,11 @@ describe("language and theme", () => {
 describe("table lines", () => {
   const densities = ["", "intermediate", "compact"];
   const colors = ["", "info"];
-  const directives = (density: string, fill: string, bordered: boolean, rounded: boolean, color: string) =>
+  const directives = (density: string, fill: string, border: string, rounded: boolean, color: string) =>
     [
       density && `<!-- table-style: ${density} -->`,
       fill && `<!-- table-fill: ${fill} -->`,
-      bordered && "<!-- table-border: bordered -->",
+      border && `<!-- table-border: ${border} -->`,
       rounded && "<!-- table-rounded -->",
       color && `<!-- table-color: ${color} -->`,
     ]
@@ -187,14 +187,17 @@ describe("table lines", () => {
 
   for (const fill of ["full", "striped"]) {
     test(`${fill}: the outer border of a bordered table equals its inner lines, and without Borders the header line equals the others (rounded or not), in both themes`, async () => {
-      const cases: { density: string; color: string; bordered: boolean; rounded: boolean }[] = [];
+      const cases: { density: string; color: string; border: string; rounded: boolean }[] = [];
       for (const density of densities)
         for (const color of colors) {
-          cases.push({ density, color, bordered: true, rounded: false });
-          cases.push({ density, color, bordered: false, rounded: true });
-          cases.push({ density, color, bordered: false, rounded: false });
+          for (const border of ["bordered", "soft-bordered"]) {
+            cases.push({ density, color, border, rounded: false });
+            cases.push({ density, color, border, rounded: true });
+          }
+          cases.push({ density, color, border: "", rounded: true });
+          cases.push({ density, color, border: "", rounded: false });
         }
-      const source = ["# Tables", "", ...cases.map((c) => `${directives(c.density, fill, c.bordered, c.rounded, c.color)}\n${grid}`)].join("\n");
+      const source = ["# Tables", "", ...cases.map((c) => `${directives(c.density, fill, c.border, c.rounded, c.color)}\n${grid}`)].join("\n");
       const { page } = await withProject({ "a.md": source });
       const address = page.url();
       await open(page);
@@ -206,9 +209,10 @@ describe("table lines", () => {
         tables.forEach((t, index) => {
           const c = cases[index]!;
           const name = `${mode} ${fill} ${JSON.stringify(c)}`;
-          if (c.bordered) {
+          if (c.border) {
             for (const side of ["top", "left", "right", "bottom"] as const)
               assert.equal(t[side], t.inner, `${name}: outer ${side} equals the inner line`);
+            assert.equal(t.headBottom, t.bodyBottom, `${name}: the header line equals the body lines`);
           } else {
             assert.equal(t.headBottom, t.bodyBottom, `${name}: the header line equals the body lines`);
           }
@@ -219,7 +223,7 @@ describe("table lines", () => {
   }
 
   test("a plain colored table keeps its accented header line", async () => {
-    const source = `# T\n\n${directives("", "", false, false, "info")}\n${grid}\n${directives("", "", false, false, "")}\n${grid}`;
+    const source = `# T\n\n${directives("", "", "", false, "info")}\n${grid}\n${directives("", "", "", false, "")}\n${grid}`;
     const { page } = await withProject({ "a.md": source });
     const address = page.url();
     await open(page);
@@ -227,4 +231,35 @@ describe("table lines", () => {
     for (const t of await measure(page)) assert.notEqual(t.headBottom, t.bodyBottom);
     assert.equal(page.url(), address);
   });
+
+  for (const fill of ["", "full", "striped"]) {
+    test(`${fill || "plain"}: a softened-borders table draws its lines in the soft tone, apart from the bordered one, in both themes`, async () => {
+      const kinds = [
+        { border: "bordered", color: "", fill },
+        { border: "soft-bordered", color: "", fill },
+        { border: "bordered", color: "info", fill },
+        { border: "soft-bordered", color: "info", fill },
+        // References: a plain table's row separator, without and with the color.
+        { border: "", color: "", fill: "" },
+        { border: "", color: "info", fill: "" },
+      ];
+      const source = ["# T", "", ...kinds.map((k) => `${directives("", k.fill, k.border, false, k.color)}\n${grid}`)].join("\n");
+      const { page } = await withProject({ "a.md": source });
+      const address = page.url();
+      await open(page);
+      await page.locator(".document table").first().waitFor();
+      const colorOf = (line: string) => line.split(" ").slice(1).join(" ");
+      for (const mode of ["light", "dark"]) {
+        await page.evaluate((m) => (document.documentElement.dataset.mode = m), mode);
+        const [bordered, soft, borderedInfo, softInfo, separator, separatorInfo] = await measure(page);
+        assert.notEqual(soft!.inner, bordered!.inner, `${mode}: soft differs from bordered`);
+        assert.notEqual(softInfo!.inner, borderedInfo!.inner, `${mode}: soft differs from bordered with Info`);
+        assert.equal(soft!.inner.split(" ")[0], "1px");
+        // The soft tone: the neutral row separator without color, the color's soft accent (the separator under Info) with it.
+        assert.equal(colorOf(soft!.inner), colorOf(separator!.bodyBottom), `${mode}: soft = the row separator`);
+        assert.equal(colorOf(softInfo!.inner), colorOf(separatorInfo!.bodyBottom), `${mode}: Info soft = the soft accent`);
+      }
+      assert.equal(page.url(), address);
+    });
+  }
 });

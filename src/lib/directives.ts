@@ -31,13 +31,13 @@ export interface TableAttrs {
 
 const TABLE_DENSITIES = ["compact", "intermediate"];
 const TABLE_FILLS = ["striped", "full"];
-const TABLE_BORDERS = ["bordered", "borderless"];
+const TABLE_BORDERS = ["bordered", "soft-bordered", "borderless"];
 const TABLE_COLORS = ["info", "success", "warning", "danger", "note"];
 
 /**
  * `table-style` (density), `table-fill`, `table-border`, the bare `table-rounded` and `table-color`; invalid values are
  * ignored, the last valid one wins per attribute. The original's `table-style` also carried the fill and the border:
- * `striped` and `full` (which was rounded) set the fill, `bordered` and `borderless` the border.
+ * `striped` and `full` (which was rounded) set the fill, `bordered`, `soft-bordered` and `borderless` the border.
  */
 export function tableAttrs(directives: Directive[]): TableAttrs {
   const attrs: TableAttrs = { style: null, fill: null, border: null, rounded: false, color: null };

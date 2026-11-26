@@ -4,7 +4,7 @@
   import { onMount, tick } from "svelte";
   import { searchEmojis, EMOJI_GROUPS } from "../lib/emojis.ts";
   import { t, type MessageKey } from "../lib/i18n.ts";
-  import { ALIGNS, buildSnippet, KANBAN_COLORS, newSnippet, QUOTE_TYPES, SNIPPET_CATEGORIES, showsPreview, SWATCHES, type Swatch, type SnippetData, type SnippetKind, TABLE_COLORS, TABLE_FILLS, TABLE_STYLES, WIDTHS } from "../lib/snippets.ts";
+  import { ALIGNS, buildSnippet, KANBAN_COLORS, newSnippet, QUOTE_TYPES, SNIPPET_CATEGORIES, showsPreview, SWATCHES, type Swatch, type SnippetData, type SnippetKind, TABLE_BORDERS, TABLE_COLORS, TABLE_FILLS, TABLE_STYLES, WIDTHS } from "../lib/snippets.ts";
   import { snippetTexts, type Heading, type SnippetFailure } from "./snippetDialog.ts";
 
   let {
@@ -277,7 +277,9 @@
             </select>
           </label>
           <div class="checks">
-            <label class="check"><input type="checkbox" bind:checked={table.bordered} /> {t("snBorders")}</label>
+            {#each TABLE_BORDERS as border (border)}
+              <label class="check"><input type="checkbox" checked={table.border === border} onchange={(event) => (table.border = event.currentTarget.checked ? border : "")} /> {t(`snBorder_${border}`)}</label>
+            {/each}
             <label class="check"><input type="checkbox" bind:checked={table.rounded} /> {t("snRounded")}</label>
             {#each TABLE_FILLS as fill (fill)}
               <label class="check"><input type="checkbox" checked={table.fill === fill} onchange={(event) => (table.fill = event.currentTarget.checked ? fill : "")} /> {t(`snFill_${fill}`)}</label>
@@ -296,7 +298,8 @@
               class:table-style-intermediate={table.style === "intermediate"}
               class:table-fill-striped={table.fill === "striped"}
               class:table-fill-full={table.fill === "full"}
-              class:table-border-bordered={table.bordered}
+              class:table-border-bordered={table.border === "bordered"}
+              class:table-border-soft-bordered={table.border === "soft-bordered"}
               class:table-rounded={table.rounded}
               class={table.color ? `table-color-${table.color}` : ""}
             >

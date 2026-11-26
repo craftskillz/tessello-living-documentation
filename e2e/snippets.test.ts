@@ -30,7 +30,7 @@ describe("the snippet picker", () => {
     await dialog.getByRole("button", { name: "Insert", exact: true }).waitFor();
     await dialog.getByLabel("Table style").selectOption({ label: "Intermediate" });
     await dialog.getByRole("checkbox", { name: "Striped" }).check();
-    await dialog.getByRole("checkbox", { name: "Borders" }).check();
+    await dialog.getByRole("checkbox", { name: "Borders", exact: true }).check();
     await dialog.getByRole("checkbox", { name: "Rounded" }).check();
     await dialog.getByLabel("Color").selectOption({ label: "Info (blue)" });
     await dialog.getByRole("textbox", { name: "Row 1, column 1" }).fill("Name");
@@ -131,6 +131,28 @@ describe("the snippet picker", () => {
     await striped.check();
     assert.equal(await full.isChecked(), false);
     assert.deepEqual(await dialog.getByLabel("Table style").locator("option").allTextContents(), ["Default", "Intermediate", "Compact"]);
+    assert.equal(page.url(), address);
+  });
+
+  test("Borders and Softened borders are exclusive, and Insert writes the soft directive", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n" });
+    const address = page.url();
+    await startEditing(page);
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("button", { name: "Table", exact: true }).click();
+    const borders = dialog.getByRole("checkbox", { name: "Borders", exact: true });
+    const soft = dialog.getByRole("checkbox", { name: "Softened borders", exact: true });
+    await borders.check();
+    await soft.check();
+    assert.equal(await borders.isChecked(), false);
+    assert.equal(await soft.isChecked(), true);
+    await borders.check();
+    assert.equal(await soft.isChecked(), false);
+    await soft.check();
+    assert.equal(await dialog.locator(".grid table").evaluate((el) => el.classList.contains("table-border-soft-bordered") && !el.classList.contains("table-border-bordered")), true);
+    await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+    await until(() => host.folders.read(disk, "a.md")?.includes("<!-- table-border: soft-bordered -->") === true, "the soft directive on disk");
     assert.equal(page.url(), address);
   });
 

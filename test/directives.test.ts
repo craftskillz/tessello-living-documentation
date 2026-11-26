@@ -58,6 +58,12 @@ describe("table directives", () => {
     assert.match(html, /<table class="table-border-borderless" data-table-border="borderless" /);
   });
 
+  test("table-border: soft-bordered is rendered, and the last valid border wins", () => {
+    assert.match(render(`<!-- table-border: soft-bordered -->\n${TABLE}`), /<table class="table-border-soft-bordered" data-table-border="soft-bordered" /);
+    assert.match(render(`<!-- table-border: soft-bordered -->\n<!-- table-border: bordered -->\n${TABLE}`), /<table class="table-border-bordered" data-table-border="bordered" /);
+    assert.match(render(`<!-- table-border: bordered -->\n<!-- table-border: soft-bordered -->\n<!-- table-border: dotted -->\n${TABLE}`), /<table class="table-border-soft-bordered" data-table-border="soft-bordered" /);
+  });
+
   test("invalid values are ignored, valid ones around them kept", () => {
     const html = render(`<!-- table-style: fancy -->\n<!-- table-color: danger -->\n<!-- table-border: dotted -->\n${TABLE}`);
     assert.match(html, /<table class="table-color-danger" data-table-color="danger" /);
