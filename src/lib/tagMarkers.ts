@@ -28,3 +28,37 @@ const PILL_LENGTH = 20;
 
 /** The name as written, cut to 20 characters (19 and an ellipsis when longer). */
 export const pillLabel = (name: string): string => (name.length > PILL_LENGTH ? `${name.slice(0, PILL_LENGTH - 1)}…` : name);
+
+const NAME = /^[A-Za-z][A-Za-z0-9-]*$/;
+
+/** What the User typed in the Insert popup as the tag to write, or null when it is not a valid marker. */
+export function parseTagInput(input: string): { tag: string; name: string } | null {
+  let text = input.trim();
+  if (text.startsWith("<") && text.endsWith(">")) text = text.slice(1, -1).trim();
+  const match = /^([^ \t\n\r]+)(?:[ \t]+([\s\S]*))?$/.exec(text);
+  if (!match || !NAME.test(match[1]!)) return null;
+  const name = match[1]!.toLowerCase();
+  if (HTML_ELEMENTS.has(name)) return null;
+  const free = (match[2] ?? "").replace(/[ \t]+/g, " ").trim();
+  if (/[<>=\r\n]/.test(free)) return null;
+  const tag = free === "" ? `<${name}>` : `<${name} ${free}>`;
+  return new RegExp(`^${TAG_SOURCE}$`).test(tag) ? { tag, name } : null;
+}
+
+/** The Project's tag names, as typed: brackets off, lower case, duplicates out (first kept); `invalid` as typed. */
+export function normalizeTagNames(list: string[]): { names: string[]; invalid: string[] } {
+  const names: string[] = [];
+  const invalid: string[] = [];
+  for (const item of list) {
+    const typed = item.trim();
+    const bare = typed.replace(/^<|>$/g, "").trim();
+    if (bare === "") continue;
+    const name = bare.toLowerCase();
+    if (!NAME.test(name) || HTML_ELEMENTS.has(name)) invalid.push(typed);
+    else if (!names.includes(name)) names.push(name);
+  }
+  return { names, invalid };
+}
+
+/** The items of the settings field: separated by commas, spaces or line breaks. */
+export const splitTagNames = (text: string): string[] => text.split(/[,\s]+/).filter((item) => item !== "");

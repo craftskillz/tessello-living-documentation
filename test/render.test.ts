@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { parseDocument } from "../src/lib/document.ts";
 import { kanbanBlockText } from "../src/lib/kanban.ts";
-import { htmlWrappers, kanbanBlockAt, kanbanBlockOf, renderDocument } from "../src/lib/render.ts";
+import type { Element, ElementContent, Root } from "hast";
+import { applyEdits } from "../src/lib/edits.ts";
+import { htmlWrappers, kanbanBlockAt, kanbanBlockOf, locateClick, markersOf, renderDocument, renderDocumentTree } from "../src/lib/render.ts";
 
 const render = (text: string, path = "guide/intro.md") => renderDocument(parseDocument(text, path), path, {}, { softBreaks: false });
 
@@ -510,5 +512,106 @@ describe("kanbanBlockAt", () => {
     const found = kanbanBlockAt(parseDocument(text, "board.md"))!;
     const next = text.slice(0, found.range.from) + kanbanBlockText([{ label: "Q&A", color: "rose" }]) + text.slice(found.range.to);
     assert.equal(next, '---\ntitle: T\n---\n> <div data-ld-kanban data-columns="Q&amp;A" data-colors="rose"></div>\n');
+  });
+});
+
+describe("locating a click", () => {
+  const SKIPPED = new Set(["svg", "script", "style", "button"]);
+  const isSkipped = (el: Element) => SKIPPED.has(el.tagName) || el.properties.dataMermaid !== undefined;
+  const isPill = (el: Element) => (el.properties.className as string[] | undefined)?.includes("ld-tag-marker") ?? false;
+  const visible = (node: Element | ElementContent): string =>
+    node.type === "text" ? node.value : node.type === "element" && !isSkipped(node) ? node.children.map(visible).join("") : "";
+  const descendants = (node: Root | Element): Element[] =>
+    node.children.flatMap((child) => (child.type === "element" ? [child, ...descendants(child)] : []));
+
+  /** What the View does: the innermost non-pill element with a data-src whose visible text holds the first `clicked`, and the characters before it. */
+  function click(text: string, clicked: string, softBreaks = false) {
+    const tree = renderDocumentTree(parseDocument(text, "a.md"), "a.md", {}, { softBreaks });
+    const holders = descendants(tree).filter((el) => el.properties.dataSrc !== undefined && !isPill(el) && visible(el).includes(clicked));
+    const owner = holders.find((el) => !descendants(el).some((inner) => holders.includes(inner)));
+    assert.ok(owner, `no block shows ${clicked}`);
+    const [from, to] = String(owner.properties.dataSrc).split("-").map(Number);
+    return locateClick(tree, { from: from!, to: to! }, visible(owner).indexOf(clicked));
+  }
+  const insertAt = (text: string, at: number) => applyEdits(text, [{ range: { from: at, to: at }, text: "<rewrite-section>" }]);
+
+  test("the offset right before the clicked character, inserted with applyEdits", () => {
+    const text = "Hello unique-zebra world today.";
+    const located = click(text, "world");
+    assert.deepEqual(located, { at: 19 });
+    assert.equal(insertAt(text, 19), "Hello unique-zebra <rewrite-section>world today.");
+  });
+
+  test("the frontmatter counts", () => {
+    // "---\ntitle: T\n---\n" is 17 characters, "Hello " 6 more.
+    assert.deepEqual(click("---\ntitle: T\n---\nHello world\n", "world"), { at: 23 });
+  });
+
+  test("bold, emphasis and links: the markup is skipped over by the offset, not counted as text", () => {
+    const text = "a **bold** and *em* z\n";
+    assert.deepEqual(click(text, "bold"), { at: 4 });
+    assert.deepEqual(click(text, "and"), { at: 11 });
+    assert.deepEqual(click(text, "em"), { at: 16 });
+    assert.deepEqual(click(text, "z"), { at: 20 });
+    const link = "See [the guide](x.md) now\n";
+    assert.deepEqual(click(link, "guide"), { at: 9 });
+    assert.deepEqual(click(link, "now"), { at: 22 });
+  });
+
+  test("an escape belongs to its character, an entity is one character", () => {
+    assert.deepEqual(click("1 \\* 2 and 3\n", "*"), { at: 2 });
+    assert.deepEqual(click("1 \\* 2 and 3\n", "2 and"), { at: 5 });
+    const text = "Tom &amp; Jerry &#169; end\n";
+    assert.deepEqual(click(text, "Jerry"), { at: 10 });
+    assert.deepEqual(click(text, "©"), { at: 16 });
+    assert.deepEqual(click(text, "end"), { at: 23 });
+  });
+
+  test("a list item, a quote's second line, a list item's second line", () => {
+    assert.deepEqual(click("- one\n- two words\n", "words"), { at: 12 });
+    assert.deepEqual(click("> first line\n> second line\n", "second"), { at: 15 });
+    assert.deepEqual(click("- aa\n  bb\n", "bb"), { at: 7 });
+  });
+
+  test("a table cell", () => {
+    const text = "| a | b |\n|---|---|\n| c | d |\n";
+    assert.deepEqual(click(text, "b"), { at: 6 });
+    assert.deepEqual(click(text, "d"), { at: 26 });
+  });
+
+  test("text after a pill in the same paragraph", () => {
+    assert.deepEqual(click("Do <todo> then act\n", "then"), { at: 10 });
+    assert.deepEqual(click("Do <todo> then act\n", "act"), { at: 15 });
+    assert.deepEqual(click("Do <todo> then\nact\n", "act", true), { at: 15 });
+  });
+
+  test("with every newline a line break, the text keeps its place", () => {
+    assert.deepEqual(click("> a\n> b\n", "b", true), { at: 6 });
+    assert.deepEqual(click("one\ntwo three\n", "three", true), { at: 8 });
+  });
+
+  test("code, inline code, a diagram, a compare block, a Kanban board and a marker are refused", () => {
+    assert.deepEqual(click("```\ncode\n```\n", "code"), { refused: true });
+    assert.deepEqual(click("x `y` z\n", "y"), { refused: true });
+    assert.deepEqual(click(":::compare\nHello there\n:::\n", "there"), { refused: true });
+    assert.deepEqual(click('<div data-ld-kanban data-columns="To do" data-colors=""></div>\n', "To do"), { refused: true });
+    assert.deepEqual(click("Do <todo> then\n", "todo"), { refused: true });
+    const tree = renderDocumentTree(parseDocument("```mermaid\ngraph TD\n```\n", "a.md"), "a.md", {}, { softBreaks: false });
+    const diagram = descendants(tree).find((el) => el.properties.dataMermaid !== undefined)!;
+    const [from, to] = String(diagram.properties.dataSrc).split("-").map(Number);
+    assert.deepEqual(locateClick(tree, { from: from!, to: to! }, 0), { refused: true });
+  });
+
+  test("generated text has no place in the Document", () => {
+    assert.equal(click("Text[^1]\n\n[^1]: Note\n", "1"), null);
+  });
+
+  test("the markers of a Document, in order, with the name as written", () => {
+    // "A " is 2, "<b-one>" 2-9, " and " 9-14, "<c-two free text>" 14-31.
+    const tree = renderDocumentTree(parseDocument("A <B-one> and <c-two free text> end\n", "a.md"), "a.md", {}, { softBreaks: false });
+    assert.deepEqual(markersOf(tree), [
+      { name: "B-one", range: { from: 2, to: 9 } },
+      { name: "c-two", range: { from: 14, to: 31 } },
+    ]);
   });
 });

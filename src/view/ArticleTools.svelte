@@ -1,7 +1,7 @@
 <script lang="ts">
   // What the User does with the article: Shift or Cmd + click enlarges an image in a modal dialog; a right-click opens a
   // small menu: edit, delete or insert a snippet, copy an image or a table, edit the section. A double-click on a table cell
-  // edits the table with that cell focused. Elsewhere the browser's own menu stays.
+  // edits the table with that cell focused. Shift + right-click on text belongs to the Tag markers; elsewhere the browser's own menu stays.
   import type { TextRange } from "../lib/edits.ts";
   import { t, type MessageKey } from "../lib/i18n.ts";
   import type { DocumentText } from "../lib/project.ts";
@@ -76,6 +76,8 @@
     };
     const contextmenu = (event: MouseEvent) => {
       const element = event.target as Element;
+      // Shift + right-click on text is the Tag markers' (TagMarkers.svelte); an image keeps its copy menu.
+      if (event.shiftKey && !element.closest("img")) return;
       const target = element.closest<HTMLImageElement | HTMLTableElement>("img, table");
       const ranges = rangesFrom(root, element);
       // Shift keeps the browser's own menu for the sections and the snippets; the copy items stay.

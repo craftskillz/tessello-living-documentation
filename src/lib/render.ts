@@ -4,7 +4,7 @@
 // (ADR 0005, catalogue in directives.ts), column layouts, `:::compare`, footnotes and code highlighting are rendered
 // here, with Mermaid placeholders, the Kanban preview and Tag markers.
 
-import type { Html, Image, Nodes, Parents, Root as MdastRoot } from "mdast";
+import type { Html, Image, Nodes, Parents, Root as MdastRoot, Text } from "mdast";
 import type { Element, ElementContent, Root } from "hast";
 import rehypeHighlight from "rehype-highlight";
 import rehypeStringify from "rehype-stringify";
@@ -191,9 +191,27 @@ function compareElement(source: string, inner: Root, labels: RenderLabels, regio
 function rehypeDocument() {
   return (tree: Root, file: { data: object }) => {
     const pass = file.data as Pass;
+    recordSources(tree, pass);
     tree.children = visit(tree.children as ElementContent[], (element) => annotate(element, pass)) as Root["children"];
   };
 }
+
+/** Where each text node written in the Document stands: its source slice and the offset of that slice in the Document's full text. */
+type TextSource = { from: number; source: string };
+
+/** Puts the `TextSource` of every positioned text node in its `data` (rehype-stringify ignores it): `locateClick` reads it. */
+function recordSources(node: Root | Element, { bodyStart, text }: Pass): void {
+  for (const child of node.children as ElementContent[]) {
+    if (child.type === "element") recordSources(child, { bodyStart, text } as Pass);
+    else if (child.type === "text") {
+      const start = child.position?.start.offset;
+      const end = child.position?.end.offset;
+      if (start !== undefined && end !== undefined) ((child.data ??= {}) as Record<string, TextSource>)[SOURCE_KEY] = { from: bodyStart + start, source: text.slice(start, end) } satisfies TextSource;
+    }
+  }
+}
+
+const SOURCE_KEY = "ldSource";
 
 /** Walks `nodes` depth first, letting `change` rewrite each element; the result replaces the element by its nodes. */
 function visit(nodes: ElementContent[], change: (element: Element) => ElementContent[] | null): ElementContent[] {
@@ -303,18 +321,28 @@ const textOf = (node: ElementContent): string =>
 /** Splits `text` nodes (never code, inline code or html) at newlines into text and `break` nodes, dropping the spaces around them. */
 function remarkSoftBreaks() {
   return (tree: MdastRoot, file: { data: object }) => {
-    if (!(file.data as Pass).softBreaks) return;
+    const pass = file.data as Pass;
+    if (!pass.softBreaks) return;
     const walk = (parent: Parents): void => {
       const children: Nodes[] = [];
       for (const node of parent.children as Nodes[]) {
         if (node.type === "text" && /\r?\n/.test(node.value)) {
+          const base = node.position?.start.offset;
+          const end = node.position?.end.offset;
+          const aligned = base === undefined || end === undefined ? null : align(node.value, pass.text.slice(base, end));
+          let lineStart = 0;
           const lines = node.value.split(/\r?\n/);
           lines.forEach((line, at) => {
             if (at > 0) children.push({ type: "break" });
             let value = line;
-            if (at > 0) value = value.replace(/^[ \t]+/, "");
+            let from = lineStart;
+            if (at > 0) {
+              value = value.replace(/^[ \t]+/, "");
+              from += line.length - value.length;
+            }
             if (at < lines.length - 1) value = value.replace(/[ \t]+$/, "");
-            if (value !== "") children.push({ type: "text", value });
+            lineStart += line.length + (node.value.slice(lineStart + line.length).startsWith("\r\n") ? 2 : 1);
+            if (value !== "") children.push(textPiece(node, aligned, from, from + value.length, value));
           });
         } else {
           if ("children" in node) walk(node as Parents);
@@ -531,6 +559,58 @@ function kanbanPreview(root: MdastRoot, leaveOut: boolean): void {
   } as never;
 }
 
+// ---- aligning a text node's value with its source ----
+
+const ENTITY = /^&(?:#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);/;
+const ASCII_PUNCTUATION = /^[!-/:-@[-`{-~]$/;
+
+/**
+ * For each character of `value` (the text of a node), where it starts and ends in `source` (what the Document wrote):
+ * values differ from sources by backslash escapes (the escape belongs to its character), entities (one unit each), and,
+ * after a newline, the quote or list indentation. Null when the two cannot be aligned.
+ */
+function align(value: string, source: string): { starts: number[]; ends: number[] } | null {
+  const starts: number[] = [];
+  const ends: number[] = [];
+  let j = 0;
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i]!;
+    if (c === "\n") while (source[j] === " " || source[j] === "\t") j++;
+    const entity = source[j] === "&" ? ENTITY.exec(source.slice(j)) : null;
+    if (entity && !value.startsWith(entity[0], i)) {
+      const body = entity[0].slice(1, -1);
+      const code = body[0] !== "#" ? 0 : body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      const units = code > 0xffff ? 2 : 1;
+      for (let k = 0; k < units && i + k < value.length; k++) (starts[i + k] = j), (ends[i + k] = j + entity[0].length);
+      i += units - 1;
+      j += entity[0].length;
+      continue;
+    }
+    if (source[j] === "\\" && source[j + 1] === c && ASCII_PUNCTUATION.test(c)) {
+      starts[i] = j;
+      j += 2;
+      ends[i] = j;
+      continue;
+    }
+    if (source[j] !== c) return null;
+    starts[i] = j;
+    ends[i] = ++j;
+    if (c === "\n") while ((source[j] === " " || source[j] === "\t" || source[j] === ">") && value[i + 1] !== source[j]) j++;
+  }
+  starts[value.length] = j;
+  return { starts, ends };
+}
+
+/** A position of the Markdown tree at `offset` of the pass's text (only the offset is ever read). */
+const positionAt = (offset: number) => ({ line: 1, column: 1, offset });
+
+/** The part `from`-`to` of the text node `node` (value indexes), with the position it has in the pass's text. */
+function textPiece(node: Text, aligned: ReturnType<typeof align>, from: number, to: number, value: string): Nodes {
+  const base = node.position?.start.offset;
+  if (!aligned || base === undefined || to <= from) return { type: "text", value };
+  return { type: "text", value, position: { start: positionAt(base + aligned.starts[from]!), end: positionAt(base + aligned.ends[to - 1]!) } };
+}
+
 // ---- Tag markers: lone tags of unknown names, found on the Markdown tree so code and comments never hold one ----
 
 const loneTag = (): RegExp => new RegExp(TAG_SOURCE, "g");
@@ -576,7 +656,7 @@ function tagMarkers(root: MdastRoot, { text, documentText, bodyStart }: Pass): v
       } else if (node.type === "html") {
         out.push(parseKanbanBlock(node.value) ? node : htmlBlock(node, from, to));
       } else if (node.type === "text") {
-        out.push(...splitText(node.value, text.slice(from, to), from));
+        out.push(...splitText(node, text.slice(from, to), from));
       } else {
         if ("children" in node) walk(node as Parents, node.type === "root" || node.type === "blockquote" || node.type === "listItem" || (node.type as string).startsWith("ld"));
         out.push(node);
@@ -613,9 +693,11 @@ function tagMarkers(root: MdastRoot, { text, documentText, bodyStart }: Pass): v
     return { type: "paragraph", children, position: node.position } as never;
   }
 
-  /** `value` is the text of a node written as `source` from offset `from`: pills for the marker tags really written there. */
-  function splitText(value: string, source: string, from: number): Nodes[] {
+  /** `node` is a text node written as `source` from offset `from`: pills for the marker tags really written there. */
+  function splitText(node: Text, source: string, from: number): Nodes[] {
+    const value = node.value;
     const written = [...source.matchAll(loneTag())];
+    const aligned = align(value, source);
     let next = 0;
     const out: Nodes[] = [];
     let cursor = 0;
@@ -626,12 +708,12 @@ function tagMarkers(root: MdastRoot, { text, documentText, bodyStart }: Pass): v
       const start = written[at]!.index;
       const tag = tagOf(match);
       if (!isMarker(tag) || /(^|[^\\])(\\\\)*\\$/.test(source.slice(0, start))) continue;
-      if (match.index > cursor) out.push({ type: "text", value: value.slice(cursor, match.index) });
+      if (match.index > cursor) out.push(textPiece(node, aligned, cursor, match.index, value.slice(cursor, match.index)));
       out.push(pill(tag, from + start, from + start + tag.text.length, bodyStart));
       cursor = match.index + match[0].length;
     }
-    if (cursor === 0) return [{ type: "text", value }];
-    if (cursor < value.length) out.push({ type: "text", value: value.slice(cursor) });
+    if (cursor === 0) return [node];
+    if (cursor < value.length) out.push(textPiece(node, aligned, cursor, value.length, value.slice(cursor)));
     return out;
   }
 
@@ -783,3 +865,71 @@ const firstParagraph = (node: Element): Element | null => {
   }
   return null;
 };
+
+// ---- clicking in a rendered Document: where in the Document's text a click lands ----
+
+/** The Tag-marker pills of a rendered Document, in order: the name as written and the range of the tag. */
+export function markersOf(tree: Root): { name: string; range: TextRange }[] {
+  const found: { name: string; range: TextRange }[] = [];
+  const walk = (node: Root | Element): void => {
+    for (const child of node.children as ElementContent[]) {
+      if (child.type !== "element") continue;
+      if (hasClass(child, "ld-tag-marker") && child.properties.dataTag !== undefined) {
+        const [from, to] = String(child.properties.dataSrc).split("-").map(Number);
+        found.push({ name: String(child.properties.dataTag), range: { from: from!, to: to! } });
+      } else walk(child);
+    }
+  };
+  walk(tree);
+  return found;
+}
+
+const hasClass = (element: Element, name: string): boolean => ((element.properties.className as string[] | undefined) ?? []).includes(name);
+const NOT_VISIBLE = new Set(["svg", "script", "style", "button"]);
+const notVisible = (element: Element): boolean => NOT_VISIBLE.has(element.tagName) || element.properties.dataMermaid !== undefined;
+/** What a Tag marker cannot be written in: code, a diagram, a compare block, a Kanban board, another marker. */
+const refusesMarker = (element: Element): boolean =>
+  element.tagName === "pre" || element.tagName === "code" || element.properties.dataMermaid !== undefined || element.properties.dataKanban !== undefined || hasClass(element, "ld-compare") || hasClass(element, "ld-tag-marker");
+
+/**
+ * Where a click lands in the Document's full text. `block` is the `data-src` range of the innermost element holding the
+ * click (a marker pill never counts as one); `offset` the characters of visible text in it before the clicked one.
+ * `{ at }` is the offset right before that character; `{ refused }` when it is in code, a diagram, a compare block, a
+ * Kanban board or a marker; null when it has no position of its own (a footnote number, a callout title, raw HTML).
+ */
+export function locateClick(tree: Root, block: TextRange, offset: number): { at: number } | { refused: true } | null {
+  const src = `${block.from}-${block.to}`;
+  let target: { element: Element; refused: boolean } | null = null;
+  const find = (node: Root | Element, refused: boolean): void => {
+    for (const child of node.children as ElementContent[]) {
+      if (child.type !== "element") continue;
+      const inside = refused || refusesMarker(child);
+      if (child.properties.dataSrc === src && !hasClass(child, "ld-tag-marker")) target = { element: child, refused: inside };
+      find(child, inside);
+    }
+  };
+  find(tree, false);
+  const found = target as { element: Element; refused: boolean } | null;
+  if (!found) return null;
+  if (found.refused) return { refused: true };
+  let seen = 0;
+  const walk = (node: Element, refused: boolean): { at: number } | { refused: true } | null | undefined => {
+    for (const child of node.children) {
+      if (child.type === "element") {
+        if (notVisible(child)) continue;
+        const result = walk(child, refused || refusesMarker(child));
+        if (result !== undefined) return result;
+      } else if (child.type === "text") {
+        if (offset >= seen && offset < seen + child.value.length) {
+          if (refused) return { refused: true };
+          const recorded = (child.data as Record<string, TextSource> | undefined)?.[SOURCE_KEY];
+          const aligned = recorded && align(child.value, recorded.source);
+          return aligned ? { at: recorded.from + aligned.starts[offset - seen]! } : null;
+        }
+        seen += child.value.length;
+      }
+    }
+    return undefined;
+  };
+  return walk(found.element, false) ?? null;
+}

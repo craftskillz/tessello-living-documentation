@@ -22,17 +22,19 @@
   import { Conflict, documentFile, FOLDER_MANIFEST, isInsideReserved, isReservedFolder, NotFound, Refused, refusalOf, type Deletion, type DocumentText, type Project, type RefusalReason, type TreeDocument, type TreeEntry, type TreeFolder, type TreeVisibility } from "../lib/project.ts";
   import { entryMapper } from "../lib/links.ts";
   import { compileLabelFilter, NO_LABEL_FILTER, type LabelFilter } from "../lib/labels.ts";
-  import { DEFAULT_SETTINGS, readSettings, setExcluded, setShownExtensions, setSoftBreaks, SETTINGS_FILE, type ProjectSettings } from "../lib/projectSettings.ts";
+  import { DEFAULT_SETTINGS, readSettings, setExcluded, setShownExtensions, setSoftBreaks, setTagNames, SETTINGS_FILE, type ProjectSettings } from "../lib/projectSettings.ts";
   import { createProjects, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject, type ProjectInfo, projectLabel } from "../lib/projects.ts";
   import ProjectSettingsPanel from "./ProjectSettings.svelte";
   import ProjectSwitcher from "./ProjectSwitcher.svelte";
   import { createLiveSearch, documentsIn, filterTree, searchProject, titleResults, type SearchResult } from "../lib/search.ts";
-  import { renderDocument, kanbanBlockOf } from "../lib/render.ts";
+  import { renderDocument, renderDocumentTree, locateClick, kanbanBlockOf } from "../lib/render.ts";
+  import { insertMarker, removeMarker, usedMarkerNames } from "../lib/markerWrites.ts";
   import { type CardPlace, type ColumnEdit, type ColumnsFailure, createCard, InvalidColumns, loadBoard, moveCard, type Column, type Removal, saveColumns, TakenColumn } from "../lib/board.ts";
   import { columnFolder, type CardTexts } from "../lib/kanban.ts";
   import EditColumns from "./EditColumns.svelte";
   import Board from "./Board.svelte";
   import ArticleTools from "./ArticleTools.svelte";
+  import TagMarkers from "./TagMarkers.svelte";
   import { applyLineLabels } from "./lines.ts";
   import Editor from "./Editor.svelte";
   import Snippets from "./Snippets.svelte";
@@ -151,12 +153,15 @@
   const model = $derived(current && path ? parseDocument(current.text, path) : null);
   /** A Folder manifest is read, never edited or deleted (docs/spec/documents-reading-and-editing.md, rule 14). */
   const readOnly = $derived(path !== null && path.split("/").pop() === FOLDER_MANIFEST);
-  const html = $derived(model ? renderDocument(model, path, {
-        footnotes: t("footnotes"),
-        footnoteBack: t("footnoteBack"),
-        compareSource: t("compareSource"),
-        compareRender: t("compareRender"),
-      }, { frontmatter: readOnly, softBreaks: settings.softBreaks, board: boardBlock !== null }) : "");
+  /** What the article is rendered with; the click locator of the Tag markers must build the same tree. */
+  const renderLabels = $derived({
+    footnotes: t("footnotes"),
+    footnoteBack: t("footnoteBack"),
+    compareSource: t("compareSource"),
+    compareRender: t("compareRender"),
+  });
+  const renderOptions = $derived({ frontmatter: readOnly, softBreaks: settings.softBreaks, board: boardBlock !== null });
+  const html = $derived(model ? renderDocument(model, path!, renderLabels, renderOptions) : "");
   /** The Kanban block that makes the open Document a board (the same rule as its rendering); null: a plain Document. */
   const boardBlock = $derived(model && !readOnly ? kanbanBlockOf(model) : null);
   /** The board of the open Document: its columns and cards; null until loaded. */
@@ -585,6 +590,40 @@
     settings = { ...settings, softBreaks: on };
     try {
       await setSoftBreaks(asked, on);
+    } catch (reason) {
+      if (project !== asked) return;
+      if (edit === settingEdits) settings = previous;
+      if (reason instanceof Refused) report(refusalMessage(reason.reason));
+      else if (reason instanceof Conflict) {
+        report(t("settingsConflict"));
+        settingEdits++;
+        void loadSettings();
+      } else fail(reason);
+    }
+  }
+
+  /** Writes a Tag marker edit to the open Document; the View then shows the text it saved. */
+  async function writeMarker(message: string, write: (project: Project, file: string) => Promise<DocumentText>) {
+    if (!project || !path) return;
+    const asked = path;
+    try {
+      const saved = await write(project, asked);
+      if (path === asked) current = saved;
+    } catch (reason) {
+      if (reason instanceof Refused) report(refusalMessage(reason.reason));
+      else report(message, reason);
+    }
+  }
+
+  /** Shows the Tag names at once, then keeps them; if they cannot be kept, the disk's come back with a message. */
+  async function changeTagNames(names: string[]) {
+    if (!project) return;
+    const asked = project;
+    const previous = settings;
+    const edit = ++settingEdits;
+    settings = { ...settings, tagNames: names };
+    try {
+      await setTagNames(asked, names);
     } catch (reason) {
       if (project !== asked) return;
       if (edit === settingEdits) settings = previous;
@@ -1375,6 +1414,8 @@
     missing: "refusedMissing",
     reservedFolder: "refusedReservedFolder",
     invalidSettings: "refusedInvalidSettings",
+    invalidAnnotations: "annotationsInvalid",
+    passageChanged: "refusedPassageChanged",
   };
   /** The message of a refusal; `change` for a rename or a move, whose invalid-manifest wording is not about adding entries. */
   const refusalMessage = (reason: RefusalReason, change = false) =>
@@ -2155,6 +2196,16 @@
             oninsert={insertBlock}
             ondelete={(base, block) => void deleteBlockFromMenu(base, block)}
           />
+          <TagMarkers
+            {article}
+            fail={report}
+            base={() => (blockActionsOn ? current : null)}
+            locate={(block, offset) => (model && path ? locateClick(renderDocumentTree(model, path, renderLabels, renderOptions), block, offset) : null)}
+            names={settings.tagNames}
+            loadUsed={() => usedMarkerNames(project!, tree, settings.softBreaks)}
+            oninsert={(text, at, tag, block) => void writeMarker(t("tmInsertFailed"), (asked, file) => insertMarker(asked, file, text, at, tag, block))}
+            onremove={(text, range) => void writeMarker(t("tmRemoveFailed"), (asked, file) => removeMarker(asked, file, text, range))}
+          />
           {#if !readOnly && !boardBlock}
             <Annotations
               {article}
@@ -2530,6 +2581,8 @@
     onconnectrepository={connectRepository}
     ondisconnectrepository={() => void disconnectRepository()}
     onsoftbreaks={(on) => void changeSoftBreaks(on)}
+    tagNames={settings.tagNames}
+    ontagnames={(names) => void changeTagNames(names)}
     onshown={(list) => void changeVisibility({ ...settings.visibility, shownExtensions: list }, (asked) => setShownExtensions(asked, list))}
     onexcluded={(list) => void changeVisibility({ ...settings.visibility, excluded: list }, (asked) => setExcluded(asked, list))}
     onclose={() => (settingsOpen = false)}

@@ -5,6 +5,7 @@
   import { t } from "../lib/i18n.ts";
   import { DEFAULT_VISIBILITY, type TreeVisibility } from "../lib/project.ts";
   import { formatList, parseList } from "../lib/projectSettings.ts";
+  import { normalizeTagNames, splitTagNames } from "../lib/tagMarkers.ts";
 
   let {
     folderName,
@@ -16,6 +17,8 @@
     failure,
     softBreaks,
     visibility,
+    tagNames,
+    ontagnames,
     onconnectrepository,
     ondisconnectrepository,
     onsoftbreaks,
@@ -40,6 +43,10 @@
     softBreaks: boolean;
     /** The Tree's two lists: the extensions of the other files it shows, the names it treats as hidden. */
     visibility: TreeVisibility;
+    /** The Tag names suggested when inserting a Tag marker. */
+    tagNames: string[];
+    /** The User changed the Tag names (already valid and normalized). */
+    ontagnames: (names: string[]) => void;
     /** Opens the Host's folder prompt: called straight from the click. */
     onconnectrepository: () => void;
     ondisconnectrepository: () => void;
@@ -56,6 +63,17 @@
     const next = parseList(input.value);
     if (formatList(next) === formatList(current)) input.value = formatList(current);
     else change(next);
+  }
+
+  /** The names the User typed that are not valid; the field keeps what they typed until it is fixed. */
+  let invalidTags = $state<string[]>([]);
+
+  function commitTags(input: HTMLInputElement) {
+    const { names, invalid } = normalizeTagNames(splitTagNames(input.value));
+    invalidTags = invalid;
+    if (invalid.length > 0) return;
+    if (names.join(", ") === tagNames.join(", ")) input.value = tagNames.join(", ");
+    else ontagnames(names);
   }
 
   function modal(node: HTMLDialogElement) {
@@ -158,6 +176,22 @@
     </label>
     <p class="hint muted">{t("treeExcludedHint", { list: formatList(DEFAULT_VISIBILITY.excluded) })}</p>
     <div class="restore"><button type="button" aria-label={t("restoreDefaultsOf", { field: t("treeExcluded") })} onclick={() => onexcluded(DEFAULT_VISIBILITY.excluded)}>{t("restoreDefaults")}</button></div>
+    <label class="field">
+      {t("tagNames")}
+      <input
+        type="text"
+        class="mono"
+        value={tagNames.join(", ")}
+        spellcheck="false"
+        autocomplete="off"
+        onchange={(event) => commitTags(event.currentTarget)}
+        onkeydown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+      />
+    </label>
+    <p class="hint muted">{t("tagNamesHint")}</p>
+    {#if invalidTags.length > 0}<p class="invalid" role="alert">{t("tagNamesInvalid", { list: invalidTags.join(", ") })}</p>{/if}
     </div>
     </div>
   </fieldset>

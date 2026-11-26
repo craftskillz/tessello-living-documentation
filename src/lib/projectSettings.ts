@@ -2,6 +2,7 @@
 // format (docs/adr/0003): other keys and their order stay as written.
 
 import type { Json } from "@tessello/sdk";
+import { normalizeTagNames } from "./tagMarkers.ts";
 import { DEFAULT_VISIBILITY, NotFound, type Project, Refused, type TreeVisibility } from "./project.ts";
 
 /** The Project's metadata file, shared with the original application. */
@@ -12,10 +13,12 @@ export interface ProjectSettings {
   softBreaks: boolean;
   /** The Tree's `treeShownExtensions` and `treeExcluded`: which files it shows and which names count as hidden. */
   visibility: TreeVisibility;
+  /** The original's `tagSuggestions`: the Tag names offered when inserting a marker (normalized; invalid entries dropped). */
+  tagNames: string[];
 }
 
 /** What a Project without the file, or with a malformed one, has: the original's defaults. */
-export const DEFAULT_SETTINGS: ProjectSettings = { softBreaks: true, visibility: DEFAULT_VISIBILITY };
+export const DEFAULT_SETTINGS: ProjectSettings = { softBreaks: true, visibility: DEFAULT_VISIBILITY, tagNames: [] };
 
 /** The settings file with its version; null when it does not exist. Other read failures propagate. */
 const readFile = (project: Project) =>
@@ -53,12 +56,14 @@ export async function readSettings(project: Project): Promise<ProjectSettings> {
   const value = data?.markdownSoftBreaks;
   const shown = stringList(data?.treeShownExtensions);
   const excluded = stringList(data?.treeExcluded);
+  const tags = stringList(data?.tagSuggestions);
   return {
     softBreaks: typeof value === "boolean" ? value : DEFAULT_SETTINGS.softBreaks,
     visibility: {
       shownExtensions: shown ? normalizeExtensions(shown) : DEFAULT_VISIBILITY.shownExtensions,
       excluded: excluded ? normalizeNames(excluded) : DEFAULT_VISIBILITY.excluded,
     },
+    tagNames: tags ? normalizeTagNames(tags).names : [],
   };
 }
 
@@ -86,6 +91,9 @@ export const setShownExtensions = (project: Project, list: string[]) => changeSe
 
 /** Sets the names of the folders and files, at any depth, the Tree treats as hidden (trimmed, no empty item). */
 export const setExcluded = (project: Project, list: string[]) => changeSetting(project, "treeExcluded", normalizeNames(list));
+
+/** Sets the Project's Tag names (normalized: brackets off, lower case, duplicates and invalid names out). */
+export const setTagNames = (project: Project, names: string[]) => changeSetting(project, "tagSuggestions", normalizeTagNames(names).names);
 
 /** The items of a comma-separated text, trimmed, empty ones dropped; otherwise as typed. */
 export const parseList = (text: string): string[] =>

@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import { connect } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
 import { Conflict, openProject, Refused } from "../src/lib/project.ts";
-import { changeSetting, formatList, parseList, readSettings, setExcluded, setShownExtensions, setSoftBreaks, SETTINGS_FILE } from "../src/lib/projectSettings.ts";
+import { changeSetting, formatList, parseList, readSettings, setExcluded, setShownExtensions, setSoftBreaks, setTagNames, SETTINGS_FILE } from "../src/lib/projectSettings.ts";
 
 async function projectOf(files: Record<string, string> = {}) {
   const host = createTestHost({ module: { id: "@craftskillz/living-documentation", version: "0.0.1" }, permissions: { folders: true } });
@@ -24,6 +24,7 @@ describe("reading the settings", () => {
         shownExtensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp", "ico", "pdf", "txt"],
         excluded: [".git", "node_modules", ".DS_Store"],
       },
+      tagNames: [],
     });
   });
 
@@ -212,5 +213,26 @@ describe("the dialog's list text", () => {
   test("formatList joins with a comma and a space", () => {
     assert.equal(formatList(["png", "jpg", "pdf"]), "png, jpg, pdf");
     assert.equal(formatList([]), "");
+  });
+});
+
+describe("the Tag names setting", () => {
+  test("reads tagSuggestions normalized, dropping invalid entries and duplicates", async () => {
+    const { project } = await projectOf({ [SETTINGS_FILE]: JSON.stringify({ tagSuggestions: ["<Add-Footnote>", "rewrite-section", "bad name", "1x", "add-footnote"] }) });
+    assert.deepEqual((await readSettings(project)).tagNames, ["add-footnote", "rewrite-section"]);
+  });
+
+  test("a value that is not an array of strings, or no key, gives []", async () => {
+    for (const written of ["todo", 3, { a: 1 }, ["todo", 2], null]) {
+      const { project } = await projectOf({ [SETTINGS_FILE]: JSON.stringify({ tagSuggestions: written }) });
+      assert.deepEqual((await readSettings(project)).tagNames, [], JSON.stringify(written));
+    }
+    assert.deepEqual((await readSettings((await projectOf({})).project)).tagNames, []);
+  });
+
+  test("setTagNames writes the normalized names and keeps the other keys", async () => {
+    const { project } = await projectOf({ [SETTINGS_FILE]: JSON.stringify({ markdownSoftBreaks: false }) });
+    await setTagNames(project, ["<Todo>", "fix-me", "todo"]);
+    assert.deepEqual(JSON.parse((await project.read(SETTINGS_FILE)).text), { markdownSoftBreaks: false, tagSuggestions: ["todo", "fix-me"] });
   });
 });
