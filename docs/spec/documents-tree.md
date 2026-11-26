@@ -17,6 +17,7 @@ Atlas page: `features/documents.md` (business rules R1–R23). Atlas answers: Q-
 11. **View preferences** (sidebar width, Show hidden items, Show attachments) are kept in the Module's storage for all Projects; the Folders open in the Tree are remembered per Project.
 12. **Failures** show a translated message (cross-cutting rule), including refused Hide/Show, failed full-text search and New folder errors.
 13. **Shown and excluded** (Project settings in `.living-doc.json`, changed from the Project settings dialog, ticket 32): `treeShownExtensions`, the extensions of the other files shown without **Show hidden items** (default: `png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `avif`, `bmp`, `ico`, `pdf`, `txt`); `treeExcluded`, names of folders or files at any depth treated as hidden entries (default: `.git`, `node_modules`, `.DS_Store`). A Document inside an excluded entry is never read for Links or Types, nor searched, even with Show hidden items; changes inside one are not agent edits. Deleting a Folder still removes everything in it. A missing or invalid value gives the default; an empty list is kept.
+14. **A Folder's menu** (right-click) also offers **New document** and **New folder**: the creation dialog opens with that Folder as its location. Not on `images/` and `files/`.
 
 ## Kept from the original
 

@@ -1393,9 +1393,12 @@
   /** Counts the template-list reads of the dialog: only the latest one is applied. */
   let templateListRead = 0;
 
-  /** Opens the dialog at once; for a Document it then reads the library's folders for the template selects, `template` chosen. */
-  async function startCreating(kind: "document" | "folder", template?: string) {
-    creating = { kind, name: "", folder: path ? folderOf(path) : "", failure: null, templateFolder: "", template: "", templateMissing: false };
+  /**
+   * Opens the dialog at once, its location `folder` (by default the open Document's Folder); for a Document it then reads
+   * the library's folders for the template selects, `template` chosen.
+   */
+  async function startCreating(kind: "document" | "folder", template?: string, folder?: string) {
+    creating = { kind, name: "", folder: folder ?? (path ? folderOf(path) : ""), failure: null, templateFolder: "", template: "", templateMissing: false };
     if (kind !== "document" || !templates) return;
     const mine = ++templateListRead;
     try {
@@ -1517,6 +1520,13 @@
 
   function openMenu(entry: Movable, x: number, y: number) {
     menu = { entry, x: Math.max(0, Math.min(x, window.innerWidth - 200)), y: Math.max(0, Math.min(y, window.innerHeight - 160)) };
+  }
+
+  /** New document or New folder from a Folder's menu: the dialog opens with that Folder as the location. */
+  function createIn(kind: "document" | "folder") {
+    const folder = menu!.entry.path;
+    menu = null;
+    void startCreating(kind, undefined, folder);
   }
 
   function startRenaming(entry: TreeEntry) {
@@ -2531,6 +2541,10 @@
   <div class="menu" role="menu" aria-label={menu.entry.name} style:left="{menu.x}px" style:top="{menu.y}px" use:focusFirst onkeydown={menuKey}>
     <button type="button" role="menuitem" onclick={() => void setHidden(menu!.entry)}>{menu.entry.hidden ? t("show") : t("hide")}</button>
     {#if !(menu.entry.kind === "folder" && isReservedFolder(menu.entry.path))}
+      {#if menu.entry.kind === "folder"}
+        <button type="button" role="menuitem" onclick={() => createIn("document")}>{t("newDocument")}</button>
+        <button type="button" role="menuitem" onclick={() => createIn("folder")}>{t("newFolder")}</button>
+      {/if}
       <button type="button" role="menuitem" onclick={() => startRenaming(menu!.entry)}>{t("rename")}</button>
       <button type="button" role="menuitem" onclick={() => startMoving(menu!.entry)}>{t("moveTo")}</button>
       <button type="button" role="menuitem" onclick={() => void askDeletion(menu!.entry)}>{t("delete")}</button>

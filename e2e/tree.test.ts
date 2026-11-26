@@ -226,6 +226,43 @@ const tree = (page: Page) => page.getByRole("navigation", { name: "Documents" })
 /** The Folder's row in the Tree (its summary). */
 const folderRow = (page: Page, name: string) => tree(page).locator("summary", { hasText: name });
 
+describe("creating from a Folder's menu", () => {
+  test("New document and New folder open the dialog with that Folder as the location", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n", "guide/intro.md": "# Intro\n" });
+    const address = page.url();
+    await page.getByRole("link", { name: "a.md" }).click();
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+
+    await folderRow(page, "guide").first().click({ button: "right" });
+    await page.getByRole("menuitem", { name: "New document" }).click();
+    const dialog = page.getByRole("dialog", { name: "New document" });
+    await dialog.getByRole("textbox", { name: "Name" }).fill("Setup");
+    await dialog.getByRole("button", { name: "Create" }).click();
+    await page.getByRole("heading", { level: 1, name: "Setup" }).waitFor();
+    assert.ok(host.folders.read(disk, "guide/Setup.md"));
+
+    await folderRow(page, "guide").first().click({ button: "right" });
+    await page.getByRole("menuitem", { name: "New folder" }).click();
+    const folderDialog = page.getByRole("dialog", { name: "New folder" });
+    await folderDialog.getByRole("textbox", { name: "Name" }).fill("sub");
+    await folderDialog.getByRole("button", { name: "Create" }).click();
+    await folderDialog.waitFor({ state: "detached" });
+    assert.ok(host.folders.read(disk, "guide/sub/liv-doc-main.md") !== null);
+    assert.equal(page.url(), address);
+  });
+
+  test("a reserved Folder and a Document offer neither", async () => {
+    const { page } = await withProject({ "a.md": "# A\n", "images/x.png": "x" });
+    await page.getByRole("link", { name: "a.md" }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Rename" }).waitFor();
+    assert.equal(await page.getByRole("menuitem", { name: "New document" }).count(), 0);
+    await page.keyboard.press("Escape");
+    await folderRow(page, "images").first().click({ button: "right" });
+    await page.getByRole("menuitem").first().waitFor();
+    assert.equal(await page.getByRole("menuitem", { name: "New folder" }).count(), 0);
+  });
+});
+
 describe("renaming from the entry menu", () => {
   test("the open Document is renamed, stays open, and links to it are rewritten", async () => {
     const { page, host, disk } = await withProject({ "note.md": "# Note\n", "other.md": "# Other\n\n[note](./note.md#top)\n" });
@@ -650,7 +687,7 @@ describe("deleting", () => {
     const { page } = await withProject({ "a.md": "# A\n", "vide/liv-doc-main.md": "---\n---\n" }, { locale: "fr" });
     await showHidden(page, "fr").click();
     await folderRow(page, "vide").first().click({ button: "right" });
-    assert.deepEqual(await page.getByRole("menu").getByRole("menuitem").allInnerTexts(), ["Masquer", "Renommer", "Déplacer vers…", "Supprimer"]);
+    assert.deepEqual(await page.getByRole("menu").getByRole("menuitem").allInnerTexts(), ["Masquer", "Nouveau document", "Nouveau dossier", "Renommer", "Déplacer vers…", "Supprimer"]);
     await page.getByRole("menuitem", { name: "Supprimer" }).click();
     const dialog = confirmation(page, "Supprimer le dossier");
     await dialog.getByText("Supprimer définitivement le dossier « vide » et tout son contenu ?").waitFor();
