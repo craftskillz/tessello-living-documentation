@@ -37,6 +37,7 @@
     ondelete,
     ondone,
     onrevert,
+    onsnippets,
     listen,
   }: {
     editing: boolean;
@@ -71,6 +72,8 @@
     ondelete: () => void;
     ondone: () => void;
     onrevert: () => void;
+    /** Opens the snippets dialog on the editor's selection. */
+    onsnippets: () => void;
     /** Listen (read aloud), shown on an ordinary Document while reading. */
     listen?: Snippet;
   } = $props();
@@ -79,6 +82,7 @@
 <header class="toolbar">
   {#if editing}
     {#if saving}<span class="muted" role="status">{t("saving")}</span>{/if}
+    <button title={t("snippetsHint")} onclick={onsnippets}>{t("snippets")}</button>
     <button onclick={onrevert}>{t("revert")}</button>
     <button class="primary" onclick={ondone}>{t("done")}</button>
   {:else}

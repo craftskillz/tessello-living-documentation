@@ -218,7 +218,7 @@ describe("compare blocks", () => {
     // ":::compare\n" is 11 characters, so "**bold**" is 11-19.
     assert.equal(
       render(":::compare\n**bold**\n:::\n"),
-      '<div class="ld-compare"><div class="ld-compare-source" data-label="Markdown"><pre><code class="language-markdown">**bold**</code></pre></div><div class="ld-compare-render" data-label="Result"><p data-src="11-19"><strong>bold</strong></p></div></div>',
+      '<div class="ld-compare" data-src="0-23"><div class="ld-compare-source" data-label="Markdown"><pre><code class="language-markdown">**bold**</code></pre></div><div class="ld-compare-render" data-label="Result"><p data-src="11-19"><strong>bold</strong></p></div></div>',
     );
   });
 
@@ -260,7 +260,7 @@ describe("compare blocks", () => {
 
   test("a compare in a column layout", () => {
     const html = render("<!-- layout-columns: 1/1 -->\n<!-- col -->\n:::compare\n**b**\n:::\n<!-- col -->\nB\n<!-- /layout-columns -->\n");
-    assert.match(html, /^<div class="ld-columns"[^>]*><div class="ld-column"><div class="ld-compare">/);
+    assert.match(html, /^<div class="ld-columns"[^>]*><div class="ld-column"><div class="ld-compare" data-src="42-62">/);
   });
 });
 

@@ -252,7 +252,7 @@ describe("the Marker", () => {
     await marks(page).first().waitFor();
 
     await page.getByRole("heading", { name: "Part" }).click({ button: "right" });
-    await page.getByRole("menuitem").first().click();
+    await page.getByRole("menuitem", { name: "Edit section" }).click();
     const preview = page.getByRole("region", { name: "Preview" });
     await preview.getByText("quick").waitFor();
     assert.equal(await preview.locator("mark").count(), 0);

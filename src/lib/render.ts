@@ -120,7 +120,7 @@ function renderTree(
   const rendered = regions.map((region, index) => {
     const source = region.inner.endsWith("\n") ? region.inner.slice(0, -1) : region.inner;
     const inner = renderTree(source, path, bodyStart + region.innerFrom, labels, `${clobberPrefix}compare-${index}-`, { documentText, softBreaks });
-    return compareElement(source, inner, labels);
+    return compareElement(source, inner, labels, region, bodyStart);
   });
   const masked = maskCompares(text, regions);
   const compares = new Map(regions.map((region, index) => [region.from, index]));
@@ -168,7 +168,7 @@ const maskCompares = (text: string, regions: CompareRegion[]): string =>
 /** An HTML comment as long as `region`, newlines kept: the rest of the text keeps its offsets and its lines. */
 const placeholder = (region: string): string => "<!--" + region.slice(4, -3).replace(/[^\n]/g, " ") + "-->";
 
-function compareElement(source: string, inner: Root, labels: RenderLabels): Element {
+function compareElement(source: string, inner: Root, labels: RenderLabels, region: CompareRegion, bodyStart: number): Element {
   const div = (className: string, label: string, children: ElementContent[]): Element => ({
     type: "element",
     tagName: "div",
@@ -179,7 +179,7 @@ function compareElement(source: string, inner: Root, labels: RenderLabels): Elem
   return {
     type: "element",
     tagName: "div",
-    properties: { className: ["ld-compare"] },
+    properties: { className: ["ld-compare"], dataSrc: `${bodyStart + region.from}-${bodyStart + region.to}` },
     children: [
       div("ld-compare-source", labels.compareSource, [{ type: "element", tagName: "pre", properties: {}, children: [code] }]),
       div("ld-compare-render", labels.compareRender, inner.children as ElementContent[]),
@@ -332,11 +332,151 @@ function remarkSoftBreaks() {
 function remarkDirectives() {
   return (tree: MdastRoot, file: { data: object }) => {
     const { compares } = file.data as Pass;
+    htmlSnippets(tree, (file.data as Pass).bodyStart);
     columns(tree);
     if ((file.data as Pass).kanban) kanbanPreview(tree, (file.data as Pass).board);
     tagMarkers(tree, file.data as Pass);
     directives(tree, compares);
   };
+}
+
+// ---- raw HTML snippets: the four shapes the original's snippets write; any other raw HTML stays out ----
+
+const SNIPPET_COLOR = /^(?:#[0-9a-f]{3}|#[0-9a-f]{6}|[a-z]+)$/i;
+const OPENING_DETAILS = /^<details(?:\s[^>]*)?>\s*<summary>([\s\S]*?)<\/summary>\s*$/i;
+const OPENING_SECTION = /^<div\s+style\s*=\s*(?:"([^"]*)"|'([^']*)')\s*>\s*$/i;
+const OPENING_SPAN = /^<span\s+style\s*=\s*(?:"([^"]*)"|'([^']*)')\s*>$/i;
+const OPENING_LINK = /^<a\s[^>]*?href\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>$/i;
+
+type FlowKind = "collapsible" | "colored-section";
+
+/** A colour of a style declaration (`name`, read at a declaration start) when it is a hex or plain colour name. */
+function styleColor(style: string, declaration: RegExp): string | null {
+  const value = declaration.exec(style)?.[1]?.trim();
+  return value !== undefined && SNIPPET_COLOR.test(value) ? value : null;
+}
+
+/** The style a colored section is rebuilt with: only the colours read in the original's style, nothing else is copied. */
+function sectionStyle(style: string): string {
+  const background = styleColor(style, /(?:^|;)\s*background\s*:\s*([^;]+)/i);
+  const border = styleColor(style, /(?:^|;)\s*border-left\s*:\s*4px\s+solid\s+([^;\s]+)/i);
+  const color = styleColor(style, /(?:^|;)\s*color\s*:\s*([^;]+)/i);
+  return [background && `background:${background}`, border && `border-left:4px solid ${border}`, color && `color:${color}`].filter((each): each is string => !!each).join(";");
+}
+
+/** What a flow html node opens: a collapsible (its summary) or a colored section (its style), else null. */
+function flowOpening(node: Nodes): { kind: FlowKind; summary?: string; style?: string } | null {
+  if (node.type !== "html") return null;
+  const value = node.value.trim();
+  const details = OPENING_DETAILS.exec(value);
+  if (details) return { kind: "collapsible", summary: details[1]!.replace(/<[^>]*>/g, "").trim() };
+  const section = OPENING_SECTION.exec(value);
+  const style = section && (section[1] ?? section[2] ?? "");
+  return style !== null && /border-left/i.test(style) ? { kind: "colored-section", style } : null;
+}
+
+const flowClosing = (node: Nodes): FlowKind | null =>
+  node.type === "html" ? (/^<\/details\s*>$/i.test(node.value.trim()) ? "collapsible" : /^<\/div\s*>$/i.test(node.value.trim()) ? "colored-section" : null) : null;
+
+const FLOW_PARENTS = new Set(["root", "blockquote", "listItem", "footnoteDefinition"]);
+
+/**
+ * Wraps, in every container of the tree, the blocks between a collapsible's or a colored section's opening and closing
+ * html nodes, and turns inline colored text and HTML links into nodes of their own. The opening and closing nodes are
+ * consumed. `bodyStart` turns the offsets of the pass into the Document's.
+ */
+function htmlSnippets(parent: Parents, bodyStart: number): void {
+  const flow = FLOW_PARENTS.has(parent.type) || parent.type.startsWith("ld");
+  const nodes = parent.children as Nodes[];
+  const out: Nodes[] = [];
+  for (let at = 0; at < nodes.length; at++) {
+    const node = nodes[at]!;
+    const opening = flow ? flowOpening(node) : null;
+    if (opening) {
+      let depth = 0;
+      let close = -1;
+      for (let next = at + 1; next < nodes.length && close < 0; next++) {
+        const other = flowOpening(nodes[next]!);
+        if (other?.kind === opening.kind) depth++;
+        else if (flowClosing(nodes[next]!) === opening.kind && depth-- === 0) close = next;
+      }
+      const from = node.position?.start.offset;
+      const to = nodes[close]?.position?.end.offset;
+      if (close >= 0 && from !== undefined && to !== undefined) {
+        const inner: Parents = { type: "blockquote", children: nodes.slice(at + 1, close) as never };
+        htmlSnippets(inner, bodyStart);
+        const dataSrc = `${bodyStart + from}-${bodyStart + to}`;
+        const position = { start: node.position!.start, end: nodes[close]!.position!.end };
+        if (opening.kind === "collapsible") {
+          const summary = { type: "ldSummary", children: [{ type: "text", value: opening.summary! }], data: { hName: "summary" } };
+          out.push({ type: "ldCollapsible", children: [summary, ...inner.children], position, data: { hName: "details", hProperties: { dataSrc } } } as never);
+        } else {
+          const style = sectionStyle(opening.style!);
+          out.push({ type: "ldColoredSection", children: inner.children, position, data: { hName: "div", hProperties: { className: ["ld-colored-section"], ...(style && { style }), dataSrc } } } as never);
+        }
+        at = close;
+        continue;
+      }
+    }
+    out.push(node);
+    if ("children" in node) htmlSnippets(node as Parents, bodyStart);
+  }
+  parent.children = (flow ? out : inlineSnippets(out)) as never;
+}
+
+/** Inline html `<span style="color:X">` … `</span>` as colored text, `<a href>` … `</a>` as a link, among phrasing `nodes`. */
+function inlineSnippets(nodes: Nodes[]): Nodes[] {
+  const out: Nodes[] = [];
+  for (let at = 0; at < nodes.length; at++) {
+    const node = nodes[at]!;
+    const value = node.type === "html" ? node.value.trim() : "";
+    const span = OPENING_SPAN.exec(value);
+    const link = OPENING_LINK.exec(value);
+    const closing = span ? /^<\/span\s*>$/i : link ? /^<\/a\s*>$/i : null;
+    const close = closing ? nodes.findIndex((each, index) => index > at && each.type === "html" && closing.test(each.value.trim())) : -1;
+    const start = node.position?.start;
+    const end = nodes[close]?.position?.end;
+    if (close < 0 || !start || !end) {
+      out.push(node);
+      continue;
+    }
+    const children = nodes.slice(at + 1, close);
+    const position = { start, end };
+    if (span) {
+      const color = styleColor(span[1] ?? span[2] ?? "", /(?:^|;)\s*color\s*:\s*([^;]+)/i);
+      out.push({ type: "coloredText", children, position, data: { hName: "span", hProperties: { className: ["ld-colored-text"], ...(color && { style: `color:${color}` }) } } } as never);
+    } else {
+      out.push({ type: "link", url: (link![1] ?? link![2])!, title: null, children, position } as never);
+    }
+    at = close;
+  }
+  return out;
+}
+
+/** A wrapper the raw HTML snippets of a text make: its kind and its range in the text. */
+export interface HtmlWrapper {
+  kind: FlowKind;
+  from: number;
+  to: number;
+}
+
+/**
+ * The collapsibles and colored sections of `text` by the rules the rendering uses (opening and closing html nodes at the
+ * same level, in any container, nested ones too), in document order. `:::compare` regions are left out.
+ */
+export function htmlWrappers(text: string): HtmlWrapper[] {
+  const tree = unified().use(remarkParse).use(remarkGfm).parse(maskCompares(text, compareRegions(text)));
+  htmlSnippets(tree, 0);
+  const found: HtmlWrapper[] = [];
+  const walk = (node: Nodes): void => {
+    const type: string = node.type;
+    const kind = type === "ldCollapsible" ? "collapsible" : type === "ldColoredSection" ? "colored-section" : null;
+    const { start, end } = node.position ?? {};
+    if (kind && start?.offset !== undefined && end?.offset !== undefined) found.push({ kind, from: start.offset, to: end.offset });
+    if ("children" in node) (node.children as Nodes[]).forEach(walk);
+  };
+  walk(tree);
+  return found;
 }
 
 /** The first Kanban block of the tree (an `html` flow node, in a quote or a list too), where it stands and what it says. */

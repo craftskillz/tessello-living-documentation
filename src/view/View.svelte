@@ -33,6 +33,10 @@
   import ArticleTools from "./ArticleTools.svelte";
   import { applyLineLabels } from "./lines.ts";
   import Editor from "./Editor.svelte";
+  import Snippets from "./Snippets.svelte";
+  import { saveSnippet, type SnippetBlock, type SnippetChange } from "../lib/snippetBlocks.ts";
+  import { isBlock, type SnippetFailure } from "./snippetDialog.ts";
+  import { detectSnippet, documentHeadings, parseSnippet, type SnippetData } from "../lib/snippets.ts";
   import Favorites from "./Favorites.svelte";
   import Header from "./Header.svelte";
   import ReadAloud from "./ReadAloud.svelte";
@@ -953,6 +957,99 @@
     return applyEdits(current.text, [replaceSection(current.text, session.range, text)]);
   }
 
+  let mainEditor = $state<Editor>();
+  let sectionEditor = $state<Editor>();
+  /** The open snippets dialog of an editor (the whole Document's or the section's): where it starts, and the editor it writes into. */
+  let snippets = $state<{ editor: Editor | undefined; start: { kind: "picker" } | { kind: "form"; data: SnippetData } } | null>(null);
+
+  /** Opens the snippets dialog on the editor's selection: straight on its form when the selection is a snippet, else the picker. */
+  function openSnippets() {
+    const editor = session?.kind === "section" ? sectionEditor : mainEditor;
+    const selected = editor?.selection() ?? "";
+    const kind = selected.trim() === "" ? null : detectSnippet(selected);
+    snippets = { editor, start: kind ? { kind: "form", data: parseSnippet(kind, selected) } : { kind: "picker" } };
+  }
+
+  /**
+   * The block action open in the reading view: the dialog (insert after a block, or edit one) and where it writes. `base` is
+   * the text the blocks were located in; after a "moved" outcome it is the text on disk and `place` the change located there.
+   */
+  let blockDialog = $state<{
+    base: DocumentText;
+    place: SnippetChange;
+    start: { kind: "picker" } | { kind: "form"; data: SnippetData };
+    mode: "insert" | "edit";
+    focusCell?: { row: number; column: number };
+  } | null>(null);
+  /** The confirmation of a block deletion, waiting for the User's answer. */
+  let blockDeletion = $state<((yes: boolean) => void) | null>(null);
+  let blockDeletionConfirmed = false;
+
+  /** Whether the reading view offers the snippet actions: not read-only, not a Kanban board, not while editing. */
+  const blockActionsOn = $derived(!readOnly && !boardBlock && !session && !!current);
+
+  function insertBlock(base: DocumentText, after: TextRange | null) {
+    blockDialog = { base, place: { kind: "insert", after, markdown: "" }, start: { kind: "picker" }, mode: "insert" };
+  }
+
+  function editBlock(base: DocumentText, block: SnippetBlock, focusCell?: { row: number; column: number }) {
+    blockDeletionConfirmed = false;
+    blockDialog = { base, place: { kind: "replace", block, markdown: "" }, start: { kind: "form", data: parseSnippet(block.kind, block.markdown) }, mode: "edit", focusCell };
+  }
+
+  /** Saves `change` on `base`: what the dialog shows when it did not work, null when saved. `message` tells the failure when there is no dialog. */
+  async function saveBlock(base: DocumentText, change: SnippetChange): Promise<{ failure: SnippetFailure | null; reason?: unknown; base?: DocumentText; place?: SnippetChange }> {
+    const asked = path!;
+    try {
+      const saved = await saveSnippet(project!, asked, base, change);
+      if (saved.kind === "saved") {
+        if (path === asked) current = { text: saved.text, version: saved.version };
+        return { failure: null };
+      }
+      if (saved.kind === "moved") {
+        if (path === asked) current = saved.base;
+        return { failure: { message: t("snMoved"), copy: null, retry: true }, base: saved.base, place: saved.change };
+      }
+      return { failure: { message: t("snGone"), copy: saved.markdown, retry: false } };
+    } catch (reason) {
+      return { failure: { message: t("snSaveFailed"), copy: null, retry: true }, reason };
+    }
+  }
+
+  async function submitBlock(markdown: string): Promise<SnippetFailure | null> {
+    const open = blockDialog!;
+    const result = await saveBlock(open.base, { ...(open.place as Exclude<SnippetChange, { kind: "delete" }>), markdown });
+    if (result.base && blockDialog === open) blockDialog = { ...open, base: result.base, place: result.place! };
+    return result.failure;
+  }
+
+  /** The confirmation "Delete block": true when the User confirms. */
+  function answerBlockDeletion(yes: boolean) {
+    const resolve = blockDeletion;
+    blockDeletion = null;
+    resolve?.(yes);
+  }
+  const askBlockDeletion = () => new Promise<boolean>((resolve) => (blockDeletion = resolve));
+
+  async function deleteBlockInDialog(): Promise<SnippetFailure | null | "stay"> {
+    const open = blockDialog!;
+    if (!blockDeletionConfirmed) {
+      if (!(await askBlockDeletion())) return "stay";
+      blockDeletionConfirmed = true;
+    }
+    const result = await saveBlock(open.base, { kind: "delete", block: (open.place as Extract<SnippetChange, { kind: "replace" }>).block });
+    // The dialog stays an edit of the block, wherever it was found again.
+    if (result.base && result.place?.kind === "delete" && blockDialog === open) blockDialog = { ...open, base: result.base, place: { kind: "replace", block: result.place.block, markdown: "" } };
+    return result.failure;
+  }
+
+  /** "Delete <kind>" of the menu: after the confirmation, a failure shows in the toast. */
+  async function deleteBlockFromMenu(base: DocumentText, block: SnippetBlock) {
+    if (!(await askBlockDeletion())) return;
+    const result = await saveBlock(base, { kind: "delete", block });
+    if (result.failure) report(result.reason === undefined ? result.failure.message : t("snDeleteFailed"), result.reason);
+  }
+
   function startEditing() {
     open({ kind: "document" }, current!.text);
   }
@@ -1805,6 +1902,7 @@
           ondelete={() => void askDeletion({ kind: "document", name: nameOf(path!), path: path! })}
           ondone={() => void done()}
           onrevert={() => void revert()}
+          onsnippets={openSnippets}
         >
           {#snippet listen()}
             <ReadAloud
@@ -1831,7 +1929,7 @@
           {/if}
         {/if}
         {#if editing}
-          <Editor text={draft} label={t("markdown")} onchange={typed} onfiles={pasteFiles} />
+          <Editor bind:this={mainEditor} text={draft} label={t("markdown")} onchange={typed} onfiles={pasteFiles} />
         {:else}
           {#if trail.length > 0}
             <div class="trail" role="group" aria-label={t("trail")}>
@@ -1878,6 +1976,10 @@
             fail={report}
             sectionAt={(offset) => (readOnly || boardBlock || session || !current ? null : sectionAt(current.text, offset))}
             onsection={startSection}
+            base={() => (blockActionsOn ? current : null)}
+            onedit={editBlock}
+            oninsert={insertBlock}
+            ondelete={(base, block) => void deleteBlockFromMenu(base, block)}
           />
           {#if !readOnly && !boardBlock}
             <Annotations
@@ -1914,6 +2016,7 @@
       <h2>{t("editSection")}</h2>
       <p class="muted hint">{t("sectionHint")}</p>
       {#if saving}<span class="muted" role="status">{t("saving")}</span>{/if}
+      <button title={t("snippetsHint")} onclick={openSnippets}>{t("snippets")}</button>
       <button onclick={() => void revert()}>{t("revert")}</button>
       <button class="primary" onclick={() => void done()}>{t("done")}</button>
     </header>
@@ -1931,12 +2034,61 @@
       {/if}
     {/if}
     <div class="panes">
-      <Editor text={draft} label={t("markdown")} onchange={typed} onfiles={pasteFiles} />
+      <Editor bind:this={sectionEditor} text={draft} label={t("markdown")} onchange={typed} onfiles={pasteFiles} />
       <section class="preview" aria-label={t("preview")}>
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
         <article class="document" bind:this={preview} onclick={(event) => event.preventDefault()}>{@html previewHtml}</article>
       </section>
     </div>
+  </dialog>
+{/if}
+
+{#if snippets}
+  {@const editor = snippets.editor}
+  <Snippets
+    start={snippets.start}
+    mode="insert"
+    documents={documentsIn(tree).map(({ path, title }) => ({ path, title }))}
+    headings={documentHeadings(composed(draft))}
+    headingsOf={async (target) => documentHeadings((await project!.read(target)).text)}
+    onsubmit={async (markdown, data) => {
+      editor?.replaceSelection(markdown, isBlock(data.kind));
+      return null;
+    }}
+    onclose={() => {
+      snippets = null;
+      editor?.focus();
+    }}
+  />
+{/if}
+
+{#if blockDialog}
+  <Snippets
+    start={blockDialog.start}
+    mode={blockDialog.mode}
+    documents={documentsIn(tree).map(({ path, title }) => ({ path, title }))}
+    headings={documentHeadings(blockDialog.base.text)}
+    headingsOf={async (target) => documentHeadings((await project!.read(target)).text)}
+    onsubmit={submitBlock}
+    ondelete={blockDialog.mode === "edit" ? deleteBlockInDialog : undefined}
+    focusCell={blockDialog.focusCell}
+    onclose={() => (blockDialog = null)}
+  />
+{/if}
+
+{#if blockDeletion}
+  <dialog use:modal aria-labelledby="delete-block-title" class="create" oncancel={(event) => { event.preventDefault(); answerBlockDeletion(false); }}>
+    <form onsubmit={(event) => { event.preventDefault(); answerBlockDeletion(true); }}>
+      <header>
+        <span class="badge-icon danger">{@render entryIcon("delete")}</span>
+        <h2 id="delete-block-title">{t("snDeleteTitle")}</h2>
+      </header>
+      <p>{t("snDeleteText")}</p>
+      <div class="actions">
+        <button type="button" onclick={() => answerBlockDeletion(false)}>{t("cancel")}</button>
+        <button type="submit" class="danger">{t("delete")}</button>
+      </div>
+    </form>
   </dialog>
 {/if}
 

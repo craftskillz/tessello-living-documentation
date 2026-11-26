@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { parseDocument } from "../src/lib/document.ts";
-import { kanbanBlockOf, renderDocument } from "../src/lib/render.ts";
+import { htmlWrappers, kanbanBlockOf, renderDocument } from "../src/lib/render.ts";
 
 const render = (text: string, path = "guide/intro.md") => renderDocument(parseDocument(text, path), path, {}, { softBreaks: false });
 
@@ -386,5 +386,84 @@ describe("line breaks keep the spaces around inline nodes", () => {
   test("a space before inline code survives a newline earlier in the text", () => {
     const html = renderDocument(parseDocument("a\nb `x`\n", "a.md"), "a.md", {}, { softBreaks: true });
     assert.match(html, /a<br>\nb <code>x<\/code>/);
+  });
+});
+
+describe("raw HTML snippets", () => {
+  test("a collapsible renders as details with its summary as text", () => {
+    // "<details>\n<summary>More</summary>" is 0-33, "Hidden **text**" 35-50, "</details>" 52-62
+    assert.equal(
+      render("<details>\n<summary>More</summary>\n\nHidden **text**\n\n</details>\n"),
+      '<details data-src="0-62"><summary>More</summary><p data-src="35-50">Hidden <strong>text</strong></p></details>',
+    );
+  });
+
+  test("a collapsible takes attributes, strips the tags of its summary and needs a closing tag", () => {
+    // "<details open>\n<summary>A <b>b</b></summary>" is 0-44, "x" 46-47, "</details>" 49-59
+    assert.equal(
+      render("<details open>\n<summary>A <b>b</b></summary>\n\nx\n\n</details>\n"),
+      '<details data-src="0-59"><summary>A b</summary><p data-src="46-47">x</p></details>',
+    );
+    // unclosed: the opening stays out, "x" is 32-33
+    assert.equal(render("<details>\n<summary>S</summary>\n\nx\n"), '<p data-src="32-33">x</p>');
+  });
+
+  test("a colored section keeps only the colours it can read", () => {
+    // the opening tag is 0-101, "In" 103-105, "</div>" 107-113
+    assert.equal(
+      render('<div style="background:#eff6ff;border-left:4px solid #3b82f6;color:#1e3a5f;padding:1rem;margin:9px;">\n\nIn\n\n</div>\n'),
+      '<div class="ld-colored-section" style="background:#eff6ff;border-left:4px solid #3b82f6;color:#1e3a5f" data-src="0-113"><p data-src="103-105">In</p></div>',
+    );
+    // the opening tag is 0-84, "In" 86-88, "</div>" 90-96: only the border colour is a colour
+    assert.equal(
+      render('<div style="background:url(x);border-left:4px solid red;color:expression(alert(1))">\n\nIn\n\n</div>\n'),
+      '<div class="ld-colored-section" style="border-left:4px solid red" data-src="0-96"><p data-src="86-88">In</p></div>',
+    );
+  });
+
+  test("a colored section without a closing tag stays out", () => {
+    // the opening tag is 0-39, "x" 41-42
+    assert.equal(render('<div style="border-left:4px solid red">\n\nx\n'), '<p data-src="41-42">x</p>');
+  });
+
+  test("they nest, and work in a quote and in a compare", () => {
+    // the section is 0-95, the collapsible inside it 42-87 holding "x" at 74-75
+    assert.equal(
+      render('<div style="border-left:4px solid red;">\n\n<details>\n<summary>S</summary>\n\nx\n\n</details>\n\n</div>\n'),
+      '<div class="ld-colored-section" style="border-left:4px solid red" data-src="0-95"><details data-src="42-87"><summary>S</summary><p data-src="74-75">x</p></details></div>',
+    );
+    assert.match(render("> <details>\n> <summary>S</summary>\n>\n> x\n>\n> </details>\n"), /<blockquote[^>]*>\n<details data-src="2-\d+"><summary>S/);
+    assert.match(render(":::compare\n<details>\n<summary>S</summary>\n\nx\n\n</details>\n:::\n"), /ld-compare-render[^>]*>\n?<details data-src="11-/);
+  });
+
+  test("a compare block carries its whole range", () => {
+    // ":::compare\na\n:::" is 0-16, and 3-19 after "x\n\n"
+    assert.match(render(":::compare\na\n:::\n"), /^<div class="ld-compare" data-src="0-16">/);
+    assert.match(render("x\n\n:::compare\na\n:::\n"), /<div class="ld-compare" data-src="3-19">/);
+  });
+
+  test("colored text and HTML links in a paragraph", () => {
+    assert.equal(inline('a <span style="color:#3b82f6;">b</span> c'), 'a <span class="ld-colored-text" style="color:#3b82f6">b</span> c');
+    assert.equal(inline('<span style="color:red;background:url(x)">b</span>'), '<span class="ld-colored-text" style="color:red">b</span>');
+    assert.equal(inline('<span style="color:url(x)">b</span>'), '<span class="ld-colored-text">b</span>');
+    assert.equal(
+      inline('<a href="https://x.test" target="_blank">X</a>'),
+      '<a href="https://x.test" target="_blank" rel="noopener noreferrer">X</a>',
+    );
+    assert.equal(inline("<a href='?doc=b'>B</a>"), '<a role="link" tabindex="0" data-doc="b.md">B</a>');
+  });
+
+  test("other raw HTML and unclosed inline shapes stay out", () => {
+    assert.equal(render("<div>x</div>\n"), "");
+    assert.equal(inline("a <span>y</span> b"), "a y b");
+    assert.equal(inline('a <span style="color:red">y b'), "a y b");
+  });
+
+  test("htmlWrappers finds collapsibles and colored sections at every level, compare regions left out", () => {
+    const text = '<div style="border-left:4px solid red;">\n\n<details>\n<summary>S</summary>\n\nx\n\n</details>\n\n</div>\n\n:::compare\n<details>\n<summary>S</summary>\n\nx\n\n</details>\n:::\n';
+    assert.deepEqual(htmlWrappers(text), [
+      { kind: "colored-section", from: 0, to: 95 },
+      { kind: "collapsible", from: 42, to: 87 },
+    ]);
   });
 });

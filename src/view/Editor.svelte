@@ -3,6 +3,7 @@
   import { markdown } from "@codemirror/lang-markdown";
   import { EditorView, basicSetup } from "codemirror";
   import { onDestroy, onMount } from "svelte";
+  import { blankLines } from "./snippetDialog.ts";
 
   let {
     text,
@@ -39,6 +40,27 @@
       scrollIntoView: true,
     });
     editor.focus();
+  }
+
+  export function focus() {
+    view?.focus();
+  }
+
+  /** The selected text ("" when only a caret). */
+  export function selection(): string {
+    if (!view) return "";
+    const { from, to } = view.state.selection.main;
+    return view.state.sliceDoc(from, to);
+  }
+
+  /** Replaces the selection with `text` (a block gets blank lines around it), puts the caret after it and focuses the editor. */
+  export function replaceSelection(text: string, block = false) {
+    if (!view) return;
+    const { from, to } = view.state.selection.main;
+    const { lead, trail } = block ? blankLines(view.state.sliceDoc(0, from), view.state.sliceDoc(to)) : { lead: "", trail: "" };
+    const insert = lead + text + trail;
+    view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, scrollIntoView: true });
+    view.focus();
   }
 
   onMount(() => {
