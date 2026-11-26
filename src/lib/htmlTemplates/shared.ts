@@ -140,15 +140,15 @@ table.table-fill-striped tbody tr:nth-child(odd) {
   background-color: var(--tbl-accent-stripe, rgb(243 244 246));
 }
 
-/* Borders draw their lines in --tbl-line: the color's accent, or with Softened borders its soft tone (else the neutral row separator). */
+/* Borders draw their lines in --tbl-line: the color's accent; Softened borders a tone between it and the soft line (the color's soft accent, else the neutral row separator). */
 table.table-border-bordered {
   --tbl-line: var(--tbl-accent, rgb(209 213 219));
 }
 table.table-border-soft-bordered {
-  --tbl-line: var(--tbl-accent-soft, var(--line));
+  --tbl-line: color-mix(in srgb, var(--tbl-accent, rgb(209 213 219)) 55%, var(--tbl-accent-soft, var(--line)));
 }
 table.table-fill-full.table-border-soft-bordered {
-  --tbl-full-line: var(--tbl-line);
+  --tbl-full-line: color-mix(in srgb, var(--tbl-accent, rgb(148 163 184)) 22%, var(--tbl-accent-soft, rgb(226 232 240)));
 }
 
 /* Full: filled cells on a uniform grid with a square outer edge (the rounded frame is Rounded's job); one line color drives the grid. */
@@ -228,9 +228,8 @@ table.table-rounded:is(.table-border-bordered, .table-border-soft-bordered) tr >
 table.table-rounded.table-border-borderless :is(th, td) {
   border-right: none;
 }
-/* Rounded without Borders or Full: the header's line is a separator like the others, not the plain table's accent. */
-table.table-rounded:not(.table-border-bordered):not(.table-border-soft-bordered):not(.table-fill-full) thead th,
-table.table-fill-striped:not(.table-border-bordered):not(.table-border-soft-bordered) thead th {
+/* Without Borders (and without Full, whose grid is uniform), the header's line is a row separator like the others. */
+table:not(.table-border-bordered):not(.table-border-soft-bordered):not(.table-fill-full) thead th {
   border-bottom-color: var(--tbl-accent-soft, var(--line));
 }
 

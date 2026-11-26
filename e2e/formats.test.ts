@@ -222,13 +222,16 @@ describe("table lines", () => {
     });
   }
 
-  test("a plain colored table keeps its accented header line", async () => {
+  test("a plain table, with or without a color, draws its header line like the others, in both themes", async () => {
     const source = `# T\n\n${directives("", "", "", false, "info")}\n${grid}\n${directives("", "", "", false, "")}\n${grid}`;
     const { page } = await withProject({ "a.md": source });
     const address = page.url();
     await open(page);
     await page.locator(".document table").first().waitFor();
-    for (const t of await measure(page)) assert.notEqual(t.headBottom, t.bodyBottom);
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate((m) => (document.documentElement.dataset.mode = m), mode);
+      for (const t of await measure(page)) assert.equal(t.headBottom, t.bodyBottom, `${mode} ${t.label}`);
+    }
     assert.equal(page.url(), address);
   });
 
@@ -249,15 +252,26 @@ describe("table lines", () => {
       await open(page);
       await page.locator(".document table").first().waitFor();
       const colorOf = (line: string) => line.split(" ").slice(1).join(" ");
+      /** The channels of a computed `rgb(…)` / `rgba(…)` / `color(srgb …)` colour, 0–255. */
+      const channels = (color: string) => {
+        const numbers = (color.match(/[\d.]+/g) ?? []).map(Number);
+        return color.startsWith("color(") ? numbers.slice(0, 3).map((each) => each * 255) : numbers.slice(0, 3);
+      };
+      /** Whether `middle` lies strictly between `one` and `other` on every channel that differs between them. */
+      const between = (one: string, middle: string, other: string) => {
+        const [a, m, b] = [channels(one), channels(middle), channels(other)];
+        const differing = a.map((_, i) => i).filter((i) => Math.abs(a[i]! - b[i]!) > 1);
+        return differing.length > 0 && differing.every((i) => Math.min(a[i]!, b[i]!) < m[i]! && m[i]! < Math.max(a[i]!, b[i]!));
+      };
       for (const mode of ["light", "dark"]) {
         await page.evaluate((m) => (document.documentElement.dataset.mode = m), mode);
         const [bordered, soft, borderedInfo, softInfo, separator, separatorInfo] = await measure(page);
         assert.notEqual(soft!.inner, bordered!.inner, `${mode}: soft differs from bordered`);
         assert.notEqual(softInfo!.inner, borderedInfo!.inner, `${mode}: soft differs from bordered with Info`);
         assert.equal(soft!.inner.split(" ")[0], "1px");
-        // The soft tone: the neutral row separator without color, the color's soft accent (the separator under Info) with it.
-        assert.equal(colorOf(soft!.inner), colorOf(separator!.bodyBottom), `${mode}: soft = the row separator`);
-        assert.equal(colorOf(softInfo!.inner), colorOf(separatorInfo!.bodyBottom), `${mode}: Info soft = the soft accent`);
+        // Between the two: more marked than a plain table's row separator, lighter than Borders (with and without the color).
+        assert.ok(between(colorOf(bordered!.inner), colorOf(soft!.inner), colorOf(separator!.bodyBottom)), `${mode}: soft between bordered and the separator`);
+        assert.ok(between(colorOf(borderedInfo!.inner), colorOf(softInfo!.inner), colorOf(separatorInfo!.bodyBottom)), `${mode}: Info soft between bordered and the separator`);
       }
       assert.equal(page.url(), address);
     });
