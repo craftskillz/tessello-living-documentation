@@ -4,7 +4,7 @@
 
 **Blocked by:** 18 (New Document from a template), 21 (Kanban I: the board)
 
-**Status:** ready-for-human (built in <commit>; awaiting the trial in the local Host)
+**Status:** ready-for-human (built in 62ac7c8; awaiting the trial in the local Host)
 
 - [x] Edit columns with the collision refusal
 - [x] Rename and remove column behaviors
@@ -19,7 +19,7 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 
 ## Comments
 
-- Built in three seams. **Model** (pure, `src/lib/kanban.ts`): `kanbanBlockText`, `columnsProblem` (count 1–6, a name without a folder, two names with one folder ignoring case and accents), `cardText`; `kanbanBlockAt(model)` in `render.ts` gives the block and its range, on the rendering's own rule. **Board over the Project** (`src/lib/board.ts`): `saveColumns` and `createCard`. **View**: `src/view/EditColumns.svelte` (⚙ Edit columns in the board's header), the **+** form of each column in `Board.svelte`, the board's delete confirmation; 12 journeys added to `e2e/kanban.test.ts`. Unit 932/932, browser 323/323; `tessello validate` installable (the three known warnings).
+- Built in three seams. **Model** (pure, `src/lib/kanban.ts`): `kanbanBlockText`, `columnsProblem` (count 1–6, a name without a folder, two names with one folder ignoring case and accents), `cardText`; `kanbanBlockAt(model)` in `render.ts` gives the block and its range, on the rendering's own rule. **Board over the Project** (`src/lib/board.ts`): `saveColumns` and `createCard`. **View**: `src/view/EditColumns.svelte` (⚙ Edit columns in the board's header), the **+** form of each column in `Board.svelte`, the board's delete confirmation; 12 journeys added to `e2e/kanban.test.ts`. Unit 930/930, browser 323/323; `tessello validate` installable (the three known warnings).
 - Saving columns, in order: names checked (Save disabled while the dialog shows why); a renamed column whose new folder already exists as another folder is refused, naming the column, nothing written; the block is written against the version the View read (an agent edit meanwhile: "The board changed on disk…", reloaded); then folders renamed (links and favorites follow through `Project.rename`), then the cards of removed columns moved. A rename or move failing after the block was written is reported (naming the path), not rolled back: the board then shows the new, empty folder and the old one keeps its cards in the Tree.
 - A removed column's folder is deleted when it holds nothing but its Folder manifest: after its cards moved, or when it had none. "Keep the folder" touches nothing. A removed column with cards and no kept column to move them to only offers Keep.
 - Removing a column and giving its folder name to another column in the same save is refused as taken (the folder still exists at the check); so is swapping two names. Save twice instead.
