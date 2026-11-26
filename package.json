@@ -17,7 +17,9 @@
   "dependencies": {
     "@codemirror/lang-markdown": "^6.5.2",
     "@tessello/sdk": "file:../tessello/packages/sdk",
+    "buffer": "^6.0.3",
     "codemirror": "^6.0.2",
+    "isomorphic-git": "^1.44.19",
     "mermaid": "^11.17.2",
     "rehype-highlight": "^7.0.2",
     "rehype-stringify": "^10.0.1",

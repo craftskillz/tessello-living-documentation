@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { sideBySide } from "../src/lib/diff.ts";
+import { foldRows, sideBySide, type Segment } from "../src/lib/diff.ts";
 
 describe("side-by-side line diff", () => {
   test("identical texts give only same rows, numbered from 1", () => {
@@ -74,5 +74,100 @@ describe("side-by-side line diff", () => {
       { kind: "same", mine: "a", theirs: "a", mineLine: 1, theirsLine: 1 },
       { kind: "same", mine: "b", theirs: "b", mineLine: 2, theirsLine: 2 },
     ]);
+  });
+});
+
+/** A text of n lines "l1".."ln", the lines in `changed` written "X<n>" instead. */
+function text(n: number, changed: number[] = []): string {
+  return Array.from({ length: n }, (_, i) => (changed.includes(i + 1) ? `X${i + 1}` : `l${i + 1}`)).join("\n");
+}
+
+/** What a segment shows, by hand-readable shape: "rows 27-33" or "fold 1-26" (mine line numbers; added rows have none). */
+function shape(segments: Segment[]): string[] {
+  return segments.map((s) => {
+    const lines = s.rows.map((r) => r.mineLine ?? r.theirsLine);
+    return `${s.kind} ${lines[0]}-${lines[lines.length - 1]}`;
+  });
+}
+
+describe("folding unchanged lines", () => {
+  test("no rows, nothing to fold", () => {
+    assert.deepEqual(foldRows(sideBySide("", "")), []);
+  });
+
+  test("identical texts fold into a single bar covering everything", () => {
+    const segments = foldRows(sideBySide(text(10), text(10)));
+    assert.deepEqual(shape(segments), ["fold 1-10"]);
+    assert.equal(segments[0].rows.length, 10);
+  });
+
+  test("a change in a 60-line file keeps 3 lines each side and folds the rest", () => {
+    const segments = foldRows(sideBySide(text(60), text(60, [30])));
+    assert.deepEqual(shape(segments), ["fold 1-26", "rows 27-33", "fold 34-60"]);
+    assert.deepEqual(
+      segments[1].rows.map((r) => r.kind),
+      ["same", "same", "same", "changed", "same", "same", "same"],
+    );
+  });
+
+  test("a change on the first line has no fold before it", () => {
+    assert.deepEqual(shape(foldRows(sideBySide(text(60), text(60, [1])))), ["rows 1-4", "fold 5-60"]);
+  });
+
+  test("a change on the last line has no fold after it", () => {
+    assert.deepEqual(shape(foldRows(sideBySide(text(60), text(60, [60])))), ["fold 1-56", "rows 57-60"]);
+  });
+
+  test("two close changes share the unchanged rows between them", () => {
+    // Lines 10 and 12 changed: line 11 between them, lines 13-15 after.
+    assert.deepEqual(shape(foldRows(sideBySide(text(60), text(60, [10, 12])))), ["fold 1-6", "rows 7-15", "fold 16-60"]);
+  });
+
+  test("a run of 2*context+3 = 9 unchanged rows between two changes folds its middle 3", () => {
+    // Lines 11-19 unchanged between the changes at 10 and 20.
+    assert.deepEqual(shape(foldRows(sideBySide(text(60), text(60, [10, 20])))), [
+      "fold 1-6",
+      "rows 7-13",
+      "fold 14-16",
+      "rows 17-23",
+      "fold 24-60",
+    ]);
+  });
+
+  test("a run of 2*context+2 = 8 unchanged rows between two changes is not folded", () => {
+    // Lines 11-18 unchanged between the changes at 10 and 19: folding would hide only 2 rows.
+    assert.deepEqual(shape(foldRows(sideBySide(text(60), text(60, [10, 19])))), ["fold 1-6", "rows 7-22", "fold 23-60"]);
+  });
+
+  test("context and least are parameters", () => {
+    // One line of context; a fold must hide at least 2 rows: 2 rows before line 4 (lines 1-2) fold, 3 after line 4 stay.
+    assert.deepEqual(shape(foldRows(sideBySide(text(10), text(10, [4])), 1, 2)), ["fold 1-2", "rows 3-5", "fold 6-10"]);
+    assert.deepEqual(shape(foldRows(sideBySide(text(10), text(10, [4])), 1, 6)), ["rows 1-10"]);
+  });
+
+  test("a comparison where every line differs is one rows segment", () => {
+    assert.deepEqual(shape(foldRows(sideBySide(text(5), text(5, [1, 2, 3, 4, 5])))), ["rows 1-5"]);
+  });
+
+  test("added and removed rows are shown like changes, with context", () => {
+    const segments = foldRows(sideBySide(text(20), text(21, [])));
+    assert.deepEqual(shape(segments), ["fold 1-17", "rows 18-21"]);
+    assert.equal(segments[1].rows.length, 4);
+    assert.equal(segments[1].rows[3].kind, "added");
+  });
+
+  test("two rows segments never follow each other", () => {
+    const segments = foldRows(sideBySide(text(60), text(60, [5, 6, 20, 21, 40, 41, 58])));
+    segments.forEach((s, i) => {
+      if (i > 0) assert.ok(!(s.kind === "rows" && segments[i - 1].kind === "rows"), `segments ${i - 1} and ${i}`);
+    });
+  });
+
+  test("fold keys are unique and the same for the same comparison", () => {
+    const rows = sideBySide(text(60), text(60, [10, 20, 40]));
+    const keys = foldRows(rows).flatMap((s) => (s.kind === "fold" ? [s.key] : []));
+    assert.equal(keys.length, 4);
+    assert.equal(new Set(keys).size, 4);
+    assert.deepEqual(foldRows(sideBySide(text(60), text(60, [10, 20, 40]))).flatMap((s) => (s.kind === "fold" ? [s.key] : [])), keys);
   });
 });

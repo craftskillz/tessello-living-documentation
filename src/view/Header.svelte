@@ -39,6 +39,7 @@
     ondone,
     onrevert,
     onsnippets,
+    onversions,
     listen,
   }: {
     editing: boolean;
@@ -77,6 +78,8 @@
     onrevert: () => void;
     /** Opens the snippets dialog on the editor's selection. */
     onsnippets: () => void;
+    /** Opens the Versions dialog; undefined when the Project has no Repository grant (no button). */
+    onversions?: () => void;
     /** Listen (read aloud), shown on an ordinary Document while reading. */
     listen?: Snippet;
   } = $props();
@@ -91,6 +94,7 @@
   {:else}
     {#if readOnly}<span class="badge">{t("readOnly")}</span>{/if}
     <button onclick={oncopypath}>{t("copyPath")}</button>
+    {#if onversions && !readOnly}<button title={t("versionsHint")} onclick={onversions}>{t("versions")}</button>{/if}
     {#if !board}
     <button aria-pressed={lines} title={t("linesHint")} onclick={onlines}>{t("lines")}</button>
     <button aria-pressed={whiteBackground} title={t("whiteBackgroundHint")} onclick={onwhite}>{t("whiteBackground")}</button>

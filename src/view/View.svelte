@@ -25,6 +25,7 @@
   import { DEFAULT_SETTINGS, readSettings, setExcluded, setShownExtensions, setSoftBreaks, setTagNames, SETTINGS_FILE, type ProjectSettings } from "../lib/projectSettings.ts";
   import { createProjects, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject, type ProjectInfo, projectLabel } from "../lib/projects.ts";
   import ProjectSettingsPanel from "./ProjectSettings.svelte";
+  import Versions from "./Versions.svelte";
   import ProjectSwitcher from "./ProjectSwitcher.svelte";
   import { createLiveSearch, documentsIn, filterTree, searchProject, titleResults, type SearchResult } from "../lib/search.ts";
   import { renderDocument, renderDocumentTree, locateClick, kanbanBlockOf } from "../lib/render.ts";
@@ -507,6 +508,7 @@
     active = list.find((each) => each.id === wanted?.project) ?? list.find((each) => each.id === activeId) ?? null;
     if (active && active.id !== activeId) await projects.setActive(active);
     loaded = true;
+    void loadRepository();
     if (active?.state === "available") await openActive(wanted?.path ?? null);
   }
 
@@ -893,7 +895,10 @@
   async function openProjectAs(next: ListedProject | null) {
     resetOpen();
     active = next;
+    repository = null;
+    versionsOpen = false;
     if (!next) return;
+    void loadRepository();
     try {
       await projects.setActive(next);
       if (next.state === "available") await openActive(null);
@@ -970,7 +975,9 @@
 
   // The Project settings panel of the Active Project.
   let settingsOpen = $state(false);
-  let repository = $state<{ name: string; state: "available" | "unavailable" } | null>(null);
+  let repository = $state<{ id: string; name: string; state: "available" | "unavailable" } | null>(null);
+  /** The Versions dialog is open (a View state, never an address). */
+  let versionsOpen = $state(false);
   let repositoryFailure = $state<string | null>(null);
 
   async function loadRepository() {
@@ -978,7 +985,7 @@
     if (!asked) return;
     try {
       const kept = await projects.repository(asked);
-      if (active === asked) repository = kept && { name: kept.name, state: kept.state };
+      if (active?.id === asked.id) repository = kept && { id: kept.id, name: kept.name, state: kept.state };
     } catch (reason) {
       fail(reason);
     }
@@ -2118,6 +2125,7 @@
           ondone={() => void done()}
           onrevert={() => void revert()}
           onsnippets={openSnippets}
+          onversions={repository && current ? () => (versionsOpen = true) : undefined}
         >
           {#snippet listen()}
             <ReadAloud
@@ -2565,6 +2573,10 @@
       </div>
     </form>
   </dialog>
+{/if}
+
+{#if versionsOpen && repository && active && path && current}
+  <Versions files={host.files} repository={repository} project={active} {path} current={current.text} onclose={() => (versionsOpen = false)} />
 {/if}
 
 {#if settingsOpen && active}

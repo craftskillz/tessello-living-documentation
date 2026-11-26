@@ -108,3 +108,44 @@ export function sideBySide(mine: string, theirs: string): DiffRow[] {
   }
   return rows;
 }
+
+/** A run of rows shown, or a run of unchanged rows folded behind a bar; `key` stays the same for the same comparison. */
+export type Segment = { kind: "rows"; rows: DiffRow[] } | { kind: "fold"; key: string; rows: DiffRow[] };
+
+/** The rows of a comparison with the unchanged runs folded: `context` unchanged rows kept on each side of a change, runs shorter than `least` never folded. */
+export function foldRows(rows: DiffRow[], context = 3, least = 3): Segment[] {
+  if (rows.length === 0) return [];
+  if (rows.every((r) => r.kind === "same")) return [fold(rows)];
+  const segments: Segment[] = [];
+  const show = (run: DiffRow[]) => {
+    const last = segments[segments.length - 1];
+    if (last?.kind === "rows") last.rows.push(...run);
+    else segments.push({ kind: "rows", rows: [...run] });
+  };
+  let i = 0;
+  while (i < rows.length) {
+    if (rows[i].kind !== "same") {
+      show([rows[i++]]);
+      continue;
+    }
+    let end = i;
+    while (end < rows.length && rows[end].kind === "same") end++;
+    // Keep `context` rows next to a change; the run's own ends (start/end of the file) have none.
+    const head = i === 0 ? 0 : context;
+    const tail = end === rows.length ? 0 : context;
+    if (end - i - head - tail >= least) {
+      if (head > 0) show(rows.slice(i, i + head));
+      segments.push(fold(rows.slice(i + head, end - tail)));
+      if (tail > 0) show(rows.slice(end - tail, end));
+    } else {
+      show(rows.slice(i, end));
+    }
+    i = end;
+  }
+  return segments;
+}
+
+/** A fold of unchanged rows, keyed by the line numbers of its first row. */
+function fold(rows: DiffRow[]): Segment {
+  return { kind: "fold", key: `fold-${rows[0].mineLine}-${rows[0].theirsLine}`, rows };
+}
