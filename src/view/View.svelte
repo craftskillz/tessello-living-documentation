@@ -40,7 +40,7 @@
   import Favorites from "./Favorites.svelte";
   import TemplatesMenu from "./TemplatesMenu.svelte";
   import TemplateLibraryScreen from "./TemplateLibrary.svelte";
-  import { openTemplates, TEMPLATES_FOLDER, type TemplateLibrary } from "../lib/templates.ts";
+  import { openTemplates, TEMPLATES_FOLDER, type TemplateEntry, type TemplateFolder, type TemplateLibrary } from "../lib/templates.ts";
   import Header from "./Header.svelte";
   import ReadAloud from "./ReadAloud.svelte";
   import { readingLanguage } from "../lib/readingScript.ts";
@@ -1256,7 +1256,26 @@
   }
 
   // The New document / New folder dialog.
-  let creating = $state<{ kind: "document" | "folder"; name: string; folder: string; failure: string | null } | null>(null);
+  let creating = $state<{ kind: "document" | "folder"; name: string; folder: string; failure: string | null; templateFolder: string; template: string; templateMissing: boolean } | null>(null);
+  /** The library's folders, read when the New document dialog opens (the template selects). */
+  let templateFolders = $state.raw<TemplateFolder[]>([]);
+  const templatesOfFolder = $derived(templateFolders.find((each) => each.name === creating?.templateFolder)?.templates ?? []);
+
+  /** Chooses the template folder ("" = Blank document) and its first template, or `path`, and fills the Name from it. */
+  function chooseTemplateFolder(name: string, path?: string) {
+    if (!creating) return;
+    creating.failure = null;
+    creating.templateFolder = name;
+    creating.templateMissing = false;
+    const first = templateFolders.find((each) => each.name === name)?.templates ?? [];
+    chooseTemplateEntry(first.find((each) => each.path === path) ?? first[0]);
+  }
+  function chooseTemplateEntry(entry: TemplateEntry | undefined) {
+    if (!creating) return;
+    creating.failure = null;
+    creating.template = entry?.path ?? "";
+    if (entry) creating.name = entry.name;
+  }
 
   /** Every Folder of the Tree, by path, in Tree order. */
   function folderPaths(entries: TreeEntry[]): string[] {
@@ -1301,21 +1320,44 @@
     return creating.folder === "" ? file : `${creating.folder}/${file}`;
   });
 
-  function startCreating(kind: "document" | "folder") {
-    creating = { kind, name: "", folder: path ? folderOf(path) : "", failure: null };
+  /** Counts the template-list reads of the dialog: only the latest one is applied. */
+  let templateListRead = 0;
+
+  /** Opens the dialog at once; for a Document it then reads the library's folders for the template selects, `template` chosen. */
+  async function startCreating(kind: "document" | "folder", template?: string) {
+    creating = { kind, name: "", folder: path ? folderOf(path) : "", failure: null, templateFolder: "", template: "", templateMissing: false };
+    if (kind !== "document" || !templates) return;
+    const mine = ++templateListRead;
+    try {
+      const folders = await templates.list();
+      if (mine !== templateListRead || creating?.kind !== "document") return;
+      templateFolders = folders;
+      const wanted = template && folders.find((each) => each.templates.some((entry) => entry.path === template));
+      if (wanted) chooseTemplateFolder(wanted.name, template);
+      else if (template) {
+        // The template asked for was deleted meanwhile: said, and Create stays disabled until another choice.
+        creating.templateMissing = true;
+        creating.failure = t("templateNotFound");
+      }
+    } catch (reason) {
+      if (mine === templateListRead) report(t("templatesReadFailed"), reason);
+    }
   }
 
   async function create() {
     if (!creating || !project || refusal) return;
     const { kind, name, folder } = creating;
     try {
-      const made = kind === "document" ? await project.createDocument(folder, name) : await project.createFolder(folder, name);
+      let made: string;
+      if (kind === "folder") made = await project.createFolder(folder, name);
+      else if (creating.template !== "" && templates) made = await templates.createDocument(creating.template, folder, name);
+      else made = await project.createDocument(folder, name);
       tree = await loadTree();
       creating = null;
       if (kind === "document") await openFresh(made);
     } catch (reason) {
       if (!creating) return;
-      creating.failure = failureText(reason, false);
+      creating.failure = reason instanceof NotFound && creating.template !== "" ? t("templateNotFound") : failureText(reason, false);
     }
   }
 
@@ -1699,9 +1741,15 @@
   }
 
   /** Back to the Documents, once the template's text is saved; a pending conflict keeps the screen open. */
-  async function closeLibrary() {
-    if (!(await leave())) return;
+  async function closeLibrary(): Promise<boolean> {
+    if (!(await leave())) return false;
     libraryOpen = null;
+    return true;
+  }
+
+  /** Leaves the library like Back does, then opens the New document dialog on `template`. */
+  async function useFromLibrary(template: string) {
+    if (await closeLibrary()) startCreating("document", template);
   }
 
   async function revert() {
@@ -1840,6 +1888,7 @@
     {failureText}
     {refusalMessage}
     changeCount={templatesChanged}
+    onuse={(template) => void useFromLibrary(template)}
     onback={() => void closeLibrary()}
   />
 {:else}
@@ -1857,7 +1906,7 @@
           onmove={moveFavorite}
         />
         {#if templates}
-          <TemplatesMenu library={templates} onopen={(selected) => void openLibrary(selected)} onfail={report} />
+          <TemplatesMenu library={templates} onopen={(selected) => void openLibrary(selected)} onuse={(template) => startCreating("document", template)} onfail={report} />
         {/if}
         <div class="creators">
           <button type="button" class="icon" aria-label={t("newDocument")} title={t("newDocument")} onclick={() => startCreating("document")}>
@@ -2177,6 +2226,32 @@
           spellcheck="false"
         />
       </div>
+      {#if creating.kind === "document"}
+        <div class="field">
+          <label for="create-template-folder">{t("templateFolder")}</label>
+          <div class="select">
+            <select id="create-template-folder" value={creating.templateFolder} onchange={(event) => chooseTemplateFolder(event.currentTarget.value)}>
+              <option value="">{t("blankDocument")}</option>
+              {#each templateFolders as each (each.name)}
+                <option value={each.name}>{each.name}</option>
+              {/each}
+            </select>
+          </div>
+        </div>
+        {#if creating.templateFolder !== ""}
+          <div class="field">
+            <label for="create-template">{t("template")}</label>
+            <div class="select">
+              <select id="create-template" value={creating.template} onchange={(event) => chooseTemplateEntry(templatesOfFolder.find((each) => each.path === event.currentTarget.value))}>
+                {#each templatesOfFolder as each (each.path)}
+                  <option value={each.path}>{each.name}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+          {#if creating.template !== ""}<p class="hint muted">{t("templateCopyHint")}</p>{/if}
+        {/if}
+      {/if}
       <div class="field">
         <label for="create-location">{t("location")}</label>
         <div class="select">
@@ -2201,7 +2276,7 @@
       </div>
       <div class="actions">
         <button type="button" onclick={() => (creating = null)}>{t("cancel")}</button>
-        <button type="submit" class="primary" disabled={refusal !== null}>{t("create")}</button>
+        <button type="submit" class="primary" disabled={refusal !== null || creating.templateMissing}>{t("create")}</button>
       </div>
     </form>
   </dialog>

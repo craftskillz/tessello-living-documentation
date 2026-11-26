@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import { connect } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
 import { openProject } from "../src/lib/project.ts";
-import { copyName, InvalidLegacyLibrary, LEGACY_LIBRARY, openTemplates, templateMatches } from "../src/lib/templates.ts";
+import { copyName, documentFromTemplate, InvalidLegacyLibrary, LEGACY_LIBRARY, openTemplates, templateMatches } from "../src/lib/templates.ts";
 
 /** A Project opened on a folder holding `files`, its template library, and the Test Host to change its disk as an agent would. */
 async function libraryOf(files: Record<string, string> = {}) {
@@ -247,5 +247,166 @@ describe("converting the original's library", () => {
       assert.deepEqual(await library.list(), []);
       assert.equal(host.folders.read(disk, LEGACY_LIBRARY), content);
     }
+  });
+});
+
+describe("documentFromTemplate", () => {
+  const now = new Date(2026, 10, 26, 9, 30);
+  const iso = now.toISOString();
+
+  test("builds a Document from a template: frontmatter, heading, placeholders and links", () => {
+    const template = [
+      "---",
+      "title: Weekly",
+      "type: meeting",
+      "Timestamp: 2020-01-01",
+      "sources:",
+      "  - a.md",
+      "  - b.md",
+      "tags: [team]",
+      "---",
+      "# Weekly {{title}}",
+      "",
+      "Date: {{date}} — {{owner}}",
+      "",
+      "![logo](../../images/logo.png) see [guide](../../docs/guide.md) and [site](https://example.com) and [top](#top)",
+      "",
+    ].join("\n");
+    const expected = [
+      "---",
+      `timestamp: ${iso}`,
+      "type: meeting",
+      "tags: [team]",
+      "---",
+      "# Sprint 12",
+      "",
+      "Date: 2026-11-26 — {{owner}}",
+      "",
+      "![logo](../images/logo.png) see [guide](../docs/guide.md) and [site](https://example.com) and [top](#top)",
+      "",
+    ].join("\n");
+    assert.equal(documentFromTemplate(template, ".templates/Meetings/Weekly.md", "Sprint 12", "notes/Sprint 12.md", now), expected);
+  });
+
+  test("a template without frontmatter or heading gets both", () => {
+    assert.equal(documentFromTemplate("Body {{title}}\n", ".templates/T.md", "N", "N.md", now), `---\ntimestamp: ${iso}\n---\n# N\nBody N\n`);
+  });
+
+  test("an empty template gives the bare new Document", () => {
+    assert.equal(documentFromTemplate("", ".templates/T.md", "N", "N.md", now), `---\ntimestamp: ${iso}\n---\n# N\n`);
+  });
+
+  test("only the first level-1 heading outside fences is replaced", () => {
+    const template = "## Sub\n\n```\n# x\n```\n\n~~~\n# y\n~~~\n\n# Main\n\n# Later\n";
+    assert.equal(
+      documentFromTemplate(template, ".templates/T.md", "N", "N.md", now),
+      `---\ntimestamp: ${iso}\n---\n## Sub\n\n\`\`\`\n# x\n\`\`\`\n\n~~~\n# y\n~~~\n\n# N\n\n# Later\n`,
+    );
+  });
+
+  test("a heading with only a fenced # still gets a new heading at the start of the body", () => {
+    assert.equal(
+      documentFromTemplate("```\n# x\n```\n", ".templates/T.md", "N", "N.md", now),
+      `---\ntimestamp: ${iso}\n---\n# N\n\`\`\`\n# x\n\`\`\`\n`,
+    );
+  });
+
+  test("a heading after frontmatter is replaced, with up to 3 leading spaces; #hash is not a heading", () => {
+    assert.equal(documentFromTemplate("---\na: 1\n---\n#tag\n   # Old\n", ".templates/T.md", "N", "N.md", now), `---\ntimestamp: ${iso}\na: 1\n---\n#tag\n# N\n`);
+  });
+
+  test("a sibling template's relative link is rewritten for the new location", () => {
+    assert.equal(documentFromTemplate("# T\n[x](other.md)\n", ".templates/A/T.md", "Doc", "Doc.md", now), `---\ntimestamp: ${iso}\n---\n# Doc\n[x](.templates/A/other.md)\n`);
+  });
+
+  test("a block sequence written at column 0 under a dropped key is dropped with it", () => {
+    assert.equal(documentFromTemplate("---\nsources:\n- a\n- b\nkeep: 1\n---\n", ".templates/T.md", "N", "N.md", now), `---\ntimestamp: ${iso}\nkeep: 1\n---\n# N\n`);
+  });
+
+  test("dropping every key keeps a frontmatter with the timestamp; resource and date go too, comments stay", () => {
+    assert.equal(
+      documentFromTemplate("---\n# a comment\nresource: x\nDATE: 2020-01-01\nother: 'q'\n---\n# T\n", ".templates/T.md", "N", "N.md", now),
+      `---\ntimestamp: ${iso}\n# a comment\nother: 'q'\n---\n# N\n`,
+    );
+  });
+
+  test("an unclosed --- block is not a frontmatter", () => {
+    assert.equal(documentFromTemplate("---\ntitle: x\nbody\n", ".templates/T.md", "N", "N.md", now), `---\ntimestamp: ${iso}\n---\n# N\n---\ntitle: x\nbody\n`);
+  });
+
+  test("placeholders are exact tokens, replaced anywhere including frontmatter and code, and literal for $ patterns", () => {
+    assert.equal(
+      documentFromTemplate("---\nsubject: {{title}}\n---\n# x\n{{ title }} {{other}} {{title}} {{date}}\n```\n{{title}}\n```\n", ".templates/T.md", "a$&b", "N.md", now),
+      `---\ntimestamp: ${iso}\nsubject: a$&b\n---\n# a$&b\n{{ title }} {{other}} a$&b 2026-11-26\n\`\`\`\na$&b\n\`\`\`\n`,
+    );
+  });
+
+  test("the date is zero-padded", () => {
+    assert.equal(documentFromTemplate("{{date}}", ".templates/T.md", "N", "N.md", new Date(2026, 0, 5, 23, 59)), `---\ntimestamp: ${new Date(2026, 0, 5, 23, 59).toISOString()}\n---\n# N\n2026-01-05`);
+  });
+});
+
+describe("creating a Document from a template", () => {
+  const at = () => new Date("2026-11-26T10:15:30.123Z");
+  const TEMPLATE = ".templates/Réunions/Standard.md";
+  const TEXT = "---\ntitle: Std\nkind: meeting\n---\n# Model {{title}}\n\nOn {{date}}\n\n![x](../../images/a.png)\n";
+  const EXPECTED = "---\ntimestamp: 2026-11-26T10:15:30.123Z\nkind: meeting\n---\n# Weekly\n\nOn 2026-11-26\n\n![x](../images/a.png)\n";
+
+  async function from(files: Record<string, string>) {
+    const made = await libraryOf(files);
+    return { ...made, library: openTemplates(made.project, { now: at }) };
+  }
+
+  test("writes <folder>/<name>.md from the template, its links rewritten for the new place", async () => {
+    const { host, disk, library } = await from({ [TEMPLATE]: TEXT, "notes/a.md": "" });
+
+    const path = await library.createDocument(TEMPLATE, "notes", "Weekly");
+
+    assert.equal(path, "notes/Weekly.md");
+    assert.equal(host.folders.read(disk, "notes/Weekly.md"), EXPECTED);
+  });
+
+  test("is appended to the Folder manifest's custom order, which is left alone without one", async () => {
+    const { host, disk, library } = await from({
+      [TEMPLATE]: TEXT,
+      "notes/liv-doc-main.md": "---\norder:\n  - b.md\n---\n",
+      "notes/b.md": "",
+      "free/liv-doc-main.md": "---\nhidden: [x.md]\n---\n",
+    });
+
+    await library.createDocument(TEMPLATE, "notes", "Weekly");
+    await library.createDocument(TEMPLATE, "free", "Weekly");
+
+    assert.equal(host.folders.read(disk, "notes/liv-doc-main.md"), "---\norder:\n  - b.md\n  - Weekly.md\n---\n");
+    assert.equal(host.folders.read(disk, "free/liv-doc-main.md"), "---\nhidden: [x.md]\n---\n");
+  });
+
+  test("is an independent copy: changing or deleting the template leaves it unchanged", async () => {
+    const { host, disk, library } = await from({ [TEMPLATE]: TEXT });
+    await library.createDocument(TEMPLATE, "", "Weekly");
+    const created = host.folders.read(disk, "Weekly.md");
+
+    const { version } = await library.read(TEMPLATE);
+    await library.save(TEMPLATE, "changed\n", version);
+    assert.equal(host.folders.read(disk, "Weekly.md"), created);
+    await library.remove(TEMPLATE);
+    assert.equal(host.folders.read(disk, "Weekly.md"), created);
+  });
+
+  test("rejects with NotFound, creating nothing, when the template is gone", async () => {
+    const { host, disk, library } = await from({ "notes/a.md": "" });
+
+    await assert.rejects(library.createDocument(TEMPLATE, "notes", "Weekly"), { name: "NotFound" });
+
+    assert.equal(host.folders.read(disk, "notes/Weekly.md"), null);
+  });
+
+  test("a refused name rejects with Refused, the template untouched", async () => {
+    const { host, disk, library } = await from({ [TEMPLATE]: TEXT, "notes/Weekly.md": "mine" });
+
+    await assert.rejects(library.createDocument(TEMPLATE, "notes", "weekly"), { reason: "taken" });
+
+    assert.equal(host.folders.read(disk, "notes/Weekly.md"), "mine");
+    assert.equal(host.folders.read(disk, TEMPLATE), TEXT);
   });
 });

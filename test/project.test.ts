@@ -314,6 +314,17 @@ describe("creating a Document", () => {
     assert.equal(host.folders.read(disk, path), "---\ntimestamp: 2026-11-23T10:15:30.123Z\n---\n# Getting started\n");
   });
 
+  test("writes what `content` makes of the new Document's path instead of the default text", async () => {
+    const { host, disk, project } = await projectOf({ "guide/a.md": "a" }, { now: NOW });
+    const paths: string[] = [];
+
+    const path = await project.createDocument("guide", "B", (given) => (paths.push(given), `custom for ${given}\n`));
+
+    assert.equal(path, "guide/B.md");
+    assert.deepEqual(paths, ["guide/B.md"]);
+    assert.equal(host.folders.read(disk, "guide/B.md"), "custom for guide/B.md\n");
+  });
+
   test("goes into the Folder asked for", async () => {
     const { host, disk, project } = await projectOf({ "guide/a.md": "a" }, { now: NOW });
 

@@ -22,6 +22,7 @@
     failureText,
     refusalMessage,
     changeCount,
+    onuse,
     onback,
   }: {
     library: TemplateLibrary;
@@ -37,6 +38,8 @@
     refusalMessage: (reason: RefusalReason, change?: boolean) => string;
     /** Changes when an agent changed something under `.templates/`: the list and the shown template are read again. */
     changeCount: number;
+    /** The selected template is asked for as the model of a new Document. */
+    onuse: (path: string) => void;
     onback: () => void;
   } = $props();
 
@@ -511,6 +514,7 @@
       {:else}
         <h2 id="detail-title" class="name">{entry.folder} / {entry.name}</h2>
         <div class="actions">
+          <button type="button" onclick={() => onuse(entry.path)}>{t("libraryCreateDocument")}</button>
           {#if editing}
             {#if saving}<span class="muted" role="status">{t("saving")}</span>{/if}
             <button type="button" onclick={() => void revert()}>{t("revert")}</button>

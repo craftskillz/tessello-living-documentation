@@ -201,8 +201,11 @@ export interface Project {
    * only notes what is there.
    */
   check(): Promise<Changes>;
-  /** Creates the Document `<name>.md` in the Folder `folder` ("" = Project root): frontmatter `timestamp` only, then `# <name>`. Resolves with its path. Rejects with Refused. */
-  createDocument(folder: string, name: string): Promise<string>;
+  /**
+   * Creates the Document `<name>.md` in the Folder `folder` ("" = Project root): frontmatter `timestamp` only, then `# <name>`;
+   * or, with `content`, the text it makes of the new Document's path. Resolves with its path. Rejects with Refused.
+   */
+  createDocument(folder: string, name: string, content?: (path: string) => string): Promise<string>;
   /** Creates the Folder `name` in `parent`, holding an empty Folder manifest. Resolves with its path. Rejects with Refused. */
   createFolder(parent: string, name: string): Promise<string>;
   /**
@@ -250,7 +253,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
   const isExcluded = (path: string) => path.split("/").some((name) => visibility.excluded.includes(name));
 
   /** Creates the entry `entry` (a file, or a Folder holding its manifest) in `parent`, after the naming rule and its Folder's manifest. */
-  async function create(kind: "document" | "folder", parent: string, name: string, entry: string, content: string): Promise<string> {
+  async function create(kind: "document" | "folder", parent: string, name: string, entry: string, content: string | ((path: string) => string)): Promise<string> {
     const siblings = (await listChildren(parent)).map((entry) => nameOf(entry.path));
     const reason = refusalOf(kind, name, siblings, parent);
     if (reason) throw new Refused(reason);
@@ -261,7 +264,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
     const path = join(parent, entry);
     const target = kind === "folder" ? `${path}/${FOLDER_MANIFEST}` : path;
     try {
-      own.set(target, (await module.files.write(folder, target, content, { ifVersion: null })).version);
+      own.set(target, (await module.files.write(folder, target, typeof content === "function" ? content(path) : content, { ifVersion: null })).version);
     } catch (error) {
       throw isCode(error, "conflict") ? new Refused("taken") : error;
     }
@@ -486,8 +489,8 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       }
       return path;
     },
-    async createDocument(parent, name) {
-      return create("document", parent, name, documentFile(name), `---\ntimestamp: ${clock().toISOString()}\n---\n# ${name}\n`);
+    async createDocument(parent, name, content) {
+      return create("document", parent, name, documentFile(name), content ?? `---\ntimestamp: ${clock().toISOString()}\n---\n# ${name}\n`);
     },
     async createFolder(parent, name) {
       return create("folder", parent, name, name, EMPTY_MANIFEST);

@@ -1,17 +1,21 @@
 <script lang="ts">
   // The Templates menu of the sidebar: the library's folders, one expanded at a time, and a search by name and content.
-  // It reads the library each time it opens, and only shows and asks: View opens the library screen.
+  // It reads the library each time it opens, and only shows and asks: View opens the library screen (Open library)
+  // or the New document dialog with the clicked template chosen.
   import { t } from "../lib/i18n.ts";
   import type { TemplateEntry, TemplateFolder, TemplateLibrary } from "../lib/templates.ts";
 
   let {
     library,
     onopen,
+    onuse,
     onfail,
   }: {
     library: TemplateLibrary;
     /** The library screen is asked for, with `path` selected (none: its first template). */
     onopen: (path: string | null) => void;
+    /** A template was clicked: the New document dialog is asked for, with `path` chosen. */
+    onuse: (path: string) => void;
     onfail: (message: string, reason: unknown) => void;
   } = $props();
 
@@ -65,6 +69,11 @@
     onopen(path);
   }
 
+  function use(path: string) {
+    close();
+    onuse(path);
+  }
+
   function onwindowkey(event: KeyboardEvent) {
     if (shown && event.key === "Escape") {
       close();
@@ -88,7 +97,7 @@
       <input type="search" aria-label={t("templatesSearchLabel")} placeholder={t("templatesSearch")} bind:value={query} oninput={() => void search()} />
       {#snippet row(entry: TemplateEntry, withFolder: boolean)}
         <li>
-          <button type="button" class="template" onclick={() => choose(entry.path)}>
+          <button type="button" class="template" onclick={() => use(entry.path)}>
             <span class="name">{entry.name}</span>
             {#if withFolder}<span class="muted folder">{entry.folder}</span>{/if}
           </button>

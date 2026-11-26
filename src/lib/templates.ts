@@ -2,6 +2,7 @@
 // never touches the Host: only the Project it is given, the one module that writes a Project folder.
 
 import { fold } from "./search.ts";
+import { rewriteLinks } from "./links.ts";
 import { Conflict, type DocumentText, FOLDER_MANIFEST, type Project, NotFound, Refused, refusalOf, TEMPLATES_FOLDER } from "./project.ts";
 
 export { TEMPLATES_FOLDER };
@@ -68,6 +69,13 @@ export interface TemplateLibrary {
   search(query: string): Promise<TemplateEntry[]>;
   /** Deletes a template for good. */
   remove(path: string): Promise<void>;
+  /**
+   * Creates the Document `<name>.md` in the Folder `folder` ("" = Project root) from the template at `templatePath`
+   * (docs/spec/templates.md rules 9–13), as Project.createDocument does: same naming rule, refusals and manifest order.
+   * Resolves with its path. Rejects with NotFound, creating nothing, when the template no longer exists; with Refused as
+   * Project.createDocument does.
+   */
+  createDocument(templatePath: string, folder: string, name: string): Promise<string>;
   /** Whether to offer Convert to files: the Project holds `.document-templates.json` and has no `.templates/` yet. */
   offersConversion(): Promise<boolean>;
   /**
@@ -81,7 +89,8 @@ export interface TemplateLibrary {
 }
 
 /** The library of `project`. */
-export function openTemplates(project: Project): TemplateLibrary {
+export function openTemplates(project: Project, options: { now?: () => Date } = {}): TemplateLibrary {
+  const now = options.now ?? (() => new Date());
   const library: TemplateLibrary = {
     read: (path) => project.read(path),
     save: (path, text, version) => project.save(path, text, version),
@@ -109,6 +118,10 @@ export function openTemplates(project: Project): TemplateLibrary {
       return path;
     },
     remove: (path) => project.remove(path),
+    async createDocument(templatePath, folder, name) {
+      const { text } = await project.read(templatePath);
+      return project.createDocument(folder, name, (path) => documentFromTemplate(text, templatePath, name, path, now()));
+    },
     async offersConversion() {
       const legacy = await project.read(LEGACY_LIBRARY).then(() => true, (error: unknown) => (error instanceof NotFound ? false : Promise.reject(error)));
       return legacy && (await project.entries(TEMPLATES_FOLDER)).length === 0;
@@ -199,4 +212,71 @@ function acceptable(kind: "document" | "folder", name: string, fallback: string,
   let candidate = base;
   for (let n = 2; refusalOf(kind, candidate, taken, parent) !== null; n++) candidate = `${base} ${n}`;
   return candidate;
+}
+
+/** Frontmatter keys a new Document does not inherit from its template (top-level, any case). */
+const DROPPED_KEYS = new Set(["title", "timestamp", "date", "sources", "resource"]);
+
+/** The line closing a frontmatter block (as `parseDocument` accepts it: `---`, trailing blanks allowed). */
+const isFence = (line: string) => /^---[ \t]*\r?$/.test(line);
+
+/** A line continuing the value of the key above it: indented, or a block sequence item written at column 0. */
+const continues = (line: string) => /^[ \t]/.test(line) || /^-(\s|$)/.test(line);
+
+/** The frontmatter lines without the dropped keys and their continuation lines; every other line stays as written (ADR 0004). */
+function withoutDroppedKeys(lines: string[]): string[] {
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const key = /^([^\s:#-][^:]*?)\s*:(\s|$)/.exec(lines[i]!)?.[1];
+    if (key === undefined || !DROPPED_KEYS.has(key.toLowerCase())) {
+      kept.push(lines[i]!);
+      continue;
+    }
+    // Skip the value's continuation lines; blank lines only when more continuation follows.
+    while (i + 1 < lines.length) {
+      let next = i + 1;
+      while (next < lines.length && lines[next]!.trim() === "") next++;
+      if (next < lines.length && continues(lines[next]!)) i = next;
+      else break;
+    }
+  }
+  return kept;
+}
+
+/** The body with its first level-1 heading (outside fenced code) replaced by `# name`, or one added at its start. */
+function withHeading(body: string, name: string): string {
+  const lines = body.split("\n");
+  let fence: { char: string; length: number } | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const open = /^ {0,3}(`{3,}|~{3,})/.exec(lines[i]!)?.[1];
+    if (fence) {
+      const close = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/.exec(lines[i]!)?.[1];
+      if (close && close[0] === fence.char && close.length >= fence.length) fence = null;
+    } else if (open) {
+      fence = { char: open[0]!, length: open.length };
+    } else if (/^ {0,3}#([ \t].*)?\r?$/.test(lines[i]!)) {
+      lines[i] = `# ${name}`;
+      return lines.join("\n");
+    }
+  }
+  return `# ${name}\n${body}`;
+}
+
+/**
+ * The text of a new Document named `name` at Project path `documentPath`, made from the template text `text` found at
+ * `templatePath`, created at `now` (docs/spec/templates.md rules 9–12).
+ */
+export function documentFromTemplate(text: string, templatePath: string, name: string, documentPath: string, now: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const filled = text.replace(/\{\{(title|date)\}\}/g, (_, token: string) => (token === "title" ? name : today));
+
+  const lines = filled.split("\n");
+  const close = isFence(lines[0] ?? "") ? lines.findIndex((line, i) => i > 0 && isFence(line)) : -1;
+  const frontmatter = close > 0 ? withoutDroppedKeys(lines.slice(1, close)) : [];
+  const body = close > 0 ? lines.slice(close + 1).join("\n") : filled;
+  const closing = close > 0 ? lines[close]! : "---";
+
+  const result = ["---", `timestamp: ${now.toISOString()}`, ...frontmatter, closing].join("\n") + "\n" + withHeading(body, name);
+  return rewriteLinks(result, templatePath, (path) => (path === templatePath ? documentPath : null));
 }

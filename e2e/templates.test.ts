@@ -81,7 +81,7 @@ describe("the Templates menu", () => {
     await menu(page).waitFor({ state: "detached" });
   });
 
-  test("Open library opens the screen; a template opens it with that template selected", async () => {
+  test("Open library opens the screen; a template opens the New document dialog instead", async () => {
     const { page } = await withProject(files);
     await openMenu(page);
     await menu(page).getByRole("button", { name: "Open library" }).click();
@@ -92,8 +92,8 @@ describe("the Templates menu", () => {
 
     await openMenu(page);
     await menu(page).getByRole("button", { name: "Standard" }).click();
-    await screen(page).waitFor();
-    await page.getByRole("heading", { level: 2, name: "Réunions / Standard" }).waitFor();
+    await page.getByRole("dialog", { name: "New document" }).waitFor();
+    assert.equal(await screen(page).count(), 0);
   });
 });
 
@@ -465,6 +465,108 @@ describe("Convert to files", () => {
     await page.getByRole("region", { name: "Convert to files" }).getByRole("button", { name: "Convert to files" }).click();
     await page.getByText("is not a template library of Living Documentation").waitFor();
     assert.equal(onDisk(project, ".document-templates.json"), "[1, 2]");
+  });
+});
+
+const createDialog = (page: Page) => page.getByRole("dialog", { name: "New document" });
+const folderSelect = (page: Page) => createDialog(page).getByRole("combobox", { name: "Template folder", exact: true });
+const templateSelect = (page: Page) => createDialog(page).getByRole("combobox", { name: "Template", exact: true });
+const nameField = (page: Page) => createDialog(page).getByRole("textbox", { name: "Name" });
+const SOURCE = "Standard";
+
+describe("New document from a template", () => {
+  test("from the sidebar: the name is prefilled, and the file is a copy with timestamp, heading and body", async () => {
+    const project = await withProject(files);
+    const { page } = project;
+    await page.getByRole("button", { name: "New document" }).click();
+    await createDialog(page).waitFor();
+    assert.equal(await templateSelect(page).count(), 0);
+    await folderSelect(page).selectOption({ label: "Réunions" });
+    await templateSelect(page).waitFor();
+    assert.equal(await templateSelect(page).inputValue(), ".templates/Réunions/Rétro.md");
+    await templateSelect(page).selectOption({ label: SOURCE });
+    assert.equal(await nameField(page).inputValue(), SOURCE);
+    await createDialog(page).getByText("Documents created from this template are independent copies.").waitFor();
+
+    await nameField(page).fill("Weekly");
+    await createDialog(page).getByRole("button", { name: "Create" }).click();
+    await page.getByRole("heading", { level: 1, name: "Weekly" }).waitFor();
+    await createDialog(page).waitFor({ state: "detached" });
+    const text = onDisk(project, "Weekly.md") ?? "";
+    assert.ok(text.startsWith("---\ntimestamp: "), text);
+    assert.ok(text.includes("# Weekly"), text);
+    assert.ok(text.includes("Ordre du jour"), text);
+  });
+
+  test("from the Templates menu: the dialog opens with the template chosen and the name prefilled", async () => {
+    const { page } = await withProject(files);
+    await openMenu(page);
+    await menu(page).getByRole("button", { name: "Specs" }).click();
+    await menu(page).getByRole("button", { name: "Feature" }).click();
+    await createDialog(page).waitFor();
+    await templateSelect(page).waitFor();
+    assert.equal(await folderSelect(page).inputValue(), "Specs");
+    assert.equal(await templateSelect(page).inputValue(), ".templates/Specs/Feature.md");
+    assert.equal(await nameField(page).inputValue(), "Feature");
+  });
+
+  test("from the library screen: Create a document opens the dialog; Create opens the Document and the screen is closed", async () => {
+    const project = await withProject(files);
+    const { page } = project;
+    await library(project);
+    await templateButton(page, "Standard").click();
+    await detail(page, "Réunions / Standard").waitFor();
+    await button(page, "Create a document").click();
+    await createDialog(page).waitFor();
+    assert.equal(await screen(page).count(), 0);
+    assert.equal(await templateSelect(page).inputValue(), ".templates/Réunions/Standard.md");
+    assert.equal(await nameField(page).inputValue(), "Standard");
+    await createDialog(page).getByRole("button", { name: "Create" }).click();
+    await page.getByRole("heading", { level: 1, name: "Standard" }).waitFor();
+    assert.ok((onDisk(project, "Standard.md") ?? "").includes("Ordre du jour"));
+  });
+
+  test("back to Blank document creates a blank Document", async () => {
+    const project = await withProject(files);
+    const { page } = project;
+    await page.getByRole("button", { name: "New document" }).click();
+    await folderSelect(page).selectOption({ label: "Réunions" });
+    await folderSelect(page).selectOption({ label: "Blank document" });
+    assert.equal(await templateSelect(page).count(), 0);
+    await nameField(page).fill("Empty");
+    await createDialog(page).getByRole("button", { name: "Create" }).click();
+    await page.getByRole("heading", { level: 1, name: "Empty" }).waitFor();
+    const text = onDisk(project, "Empty.md") ?? "";
+    assert.ok(text.endsWith("---\n# Empty\n"), text);
+  });
+
+  test("a template deleted on disk meanwhile: says so, keeps the dialog, creates nothing", async () => {
+    const project = await withProject(files);
+    const { page, host, disk } = project;
+    await openMenu(page);
+    await menu(page).getByRole("button", { name: "Standard" }).click();
+    await createDialog(page).waitFor();
+    await until(async () => (await nameField(page).inputValue()) === "Standard", "the template is chosen");
+    host.folders.remove(disk, ".templates/Réunions/Standard.md");
+    await createDialog(page).getByRole("button", { name: "Create" }).click();
+    await createDialog(page).getByRole("alert").getByText("This template no longer exists.").waitFor();
+    assert.equal(await createDialog(page).count(), 1);
+    assert.equal(onDisk(project, "Standard.md"), null);
+  });
+
+  test("a template deleted before the dialog opens: says so and Create stays disabled until another choice", async () => {
+    const project = await withProject(files);
+    const { page, host, disk } = project;
+    await openMenu(page);
+    await menu(page).getByRole("button", { name: "Standard" }).waitFor();
+    host.folders.remove(disk, ".templates/Réunions/Standard.md");
+    await menu(page).getByRole("button", { name: "Standard" }).click();
+    await createDialog(page).getByRole("alert").getByText("This template no longer exists.").waitFor();
+    const create = createDialog(page).getByRole("button", { name: "Create" });
+    assert.equal(await create.isDisabled(), true);
+    await folderSelect(page).selectOption({ label: "Blank document" });
+    await nameField(page).fill("Fresh");
+    assert.equal(await create.isDisabled(), false);
   });
 });
 
