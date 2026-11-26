@@ -38,6 +38,9 @@
   import { isBlock, type SnippetFailure } from "./snippetDialog.ts";
   import { detectSnippet, documentHeadings, parseSnippet, type SnippetData } from "../lib/snippets.ts";
   import Favorites from "./Favorites.svelte";
+  import TemplatesMenu from "./TemplatesMenu.svelte";
+  import TemplateLibraryScreen from "./TemplateLibrary.svelte";
+  import { openTemplates, TEMPLATES_FOLDER, type TemplateLibrary } from "../lib/templates.ts";
   import Header from "./Header.svelte";
   import ReadAloud from "./ReadAloud.svelte";
   import { readingLanguage } from "../lib/readingScript.ts";
@@ -56,6 +59,12 @@
   /** Every Project, for the switcher: read again when its menu opens. */
   let allProjects = $state.raw<ListedProject[]>([]);
   let project: Project | null = null;
+  let templates = $state.raw<TemplateLibrary | null>(null);
+  /** The template library screen is open (a View state, never an address), on this template (none: its first). */
+  let libraryOpen = $state<{ selected: string | null } | null>(null);
+  let libraryScreen = $state<TemplateLibraryScreen>();
+  /** Changes when an agent changed something under `.templates/`: the open library screen reads it again. */
+  let templatesChanged = $state(0);
   let tree = $state.raw<TreeEntry[]>([]);
   let path = $state<string | null>(null);
   let current = $state.raw<DocumentText | null>(null);
@@ -554,6 +563,7 @@
 
   async function openActive(wantedPath: string | null) {
     project = projects.open(active!);
+    templates = openTemplates(project);
     labelFilter = { ...NO_LABEL_FILTER };
     const asked = active;
     void projects.labelFilter(active!).then((kept) => {
@@ -574,6 +584,7 @@
   async function show(target: string, loaded?: DocumentText) {
     // The text typed is saved before another Document opens; on a conflict or a failure, the open one stays.
     if (!(await leave())) return;
+    libraryOpen = null;
     stopEditing();
     closeFile();
     htmlOpen = false;
@@ -747,6 +758,8 @@
   function resetOpen() {
     clearInterval(checking);
     project = null;
+    templates = null;
+    libraryOpen = null;
     stopEditing();
     closeFile();
     htmlOpen = false;
@@ -922,6 +935,7 @@
     try {
       const changes = await project.check();
       if (changes.tree) tree = await loadTree();
+      if (libraryOpen && (changes.tree || changes.documents.some((changed) => changed.startsWith(`${TEMPLATES_FOLDER}/`)))) templatesChanged++;
       if (boardBlock && (changes.tree || changes.documents.length > 0)) void refreshBoard(false);
       if (changes.tree || changes.documents.length > 0) void loadFavorites();
       if (changes.documents.includes(SETTINGS_FILE)) void loadSettings();
@@ -945,6 +959,7 @@
 
   /** Saves what was typed before the open Document is left; false, with the reason shown, when it cannot be. */
   async function leave(): Promise<boolean> {
+    if (libraryScreen && !(await libraryScreen.flush())) return false;
     if (!autosave || (await autosave.flush())) return true;
     if (conflict) report(t("conflictPending"));
     return false;
@@ -1677,6 +1692,18 @@
     node.showModal();
   }
 
+  /** Opens the template library screen on `selected`, once the text typed in the open Document is saved. */
+  async function openLibrary(selected: string | null) {
+    if (!(await leave())) return;
+    libraryOpen = { selected };
+  }
+
+  /** Back to the Documents, once the template's text is saved; a pending conflict keeps the screen open. */
+  async function closeLibrary() {
+    if (!(await leave())) return;
+    libraryOpen = null;
+  }
+
   async function revert() {
     if (!autosave) return;
     if (composed(draft) !== original || current!.text !== original) {
@@ -1801,6 +1828,20 @@
       {@render switcher(false)}
     </div>
   </main>
+{:else if libraryOpen && templates}
+  <TemplateLibraryScreen
+    bind:this={libraryScreen}
+    library={templates}
+    selected={libraryOpen.selected}
+    softBreaks={settings.softBreaks}
+    readBytes={(imagePath) => project!.readBytes(imagePath)}
+    report={report}
+    {notify}
+    {failureText}
+    {refusalMessage}
+    changeCount={templatesChanged}
+    onback={() => void closeLibrary()}
+  />
 {:else}
   <div class="layout" style:--sidebar-width="{sidebarWidth}px">
     <nav aria-label={t("documents")} bind:this={treeNav}>
@@ -1815,6 +1856,9 @@
           onremove={(target) => void saveFavorites(favorites.filter((each) => each.path !== target))}
           onmove={moveFavorite}
         />
+        {#if templates}
+          <TemplatesMenu library={templates} onopen={(selected) => void openLibrary(selected)} onfail={report} />
+        {/if}
         <div class="creators">
           <button type="button" class="icon" aria-label={t("newDocument")} title={t("newDocument")} onclick={() => startCreating("document")}>
             {@render entryIcon("document")}

@@ -8,6 +8,9 @@ import { ANNOTATIONS_FILE, keysDropped, keysMoved } from "./annotationKeys.ts";
 import { entryMapper, type PathMapper, rewriteLinks, unlinkDeletedLinks } from "./links.ts";
 import { isImageName } from "./otherFiles.ts";
 
+/** The template library's root folder, at the Project root (ADR 0006): never in the Tree. */
+export const TEMPLATES_FOLDER = ".templates";
+
 /** The reserved file of each Folder: its order and its hidden entries (GLOSSARY.md, Folder manifest). */
 export const FOLDER_MANIFEST = "liv-doc-main.md";
 
@@ -164,6 +167,8 @@ export interface Project {
    * entries are there too (flagged, at their place), each Folder's manifest comes first and its other files last.
    */
   tree(options?: { hidden?: boolean }): Promise<TreeEntry[]>;
+  /** Every file and Folder at any depth under the Folder `under` (the Folder itself not included), whatever the Tree shows; none when it does not exist. */
+  entries(under: string): Promise<{ kind: "file" | "folder"; path: string }[]>;
   /** The Project settings for what the Tree shows and leaves out; until called, `DEFAULT_VISIBILITY` applies. Takes effect on the next call of any method. */
   setVisibility(visibility: TreeVisibility): void;
   /** Whether `path` is an excluded entry or inside one, by the current visibility. */
@@ -379,6 +384,13 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
       visibility = next;
     },
     isExcluded,
+    async entries(under) {
+      const found = await module.files.list(folder, under).catch((error: unknown) => {
+        if (isCode(error, "not_found")) return [];
+        throw error;
+      });
+      return found.filter((entry) => entry.path.startsWith(`${under}/`)).map((entry) => ({ kind: entry.kind, path: entry.path }));
+    },
     async check() {
       const now = new Map((await module.files.list(folder)).filter((entry) => !isExcluded(entry.path)).map((entry) => [entry.path, entry.kind === "file" ? entry.version : ""]));
       const before = seen;
@@ -405,7 +417,7 @@ export function openProject(module: ConnectedModule, folder: Folder, options: { 
     async tree(options = {}) {
       const all = options.hidden ?? false;
       // Without hidden items, nothing inside an excluded entry is read.
-      const entries = (await module.files.list(folder)).filter((entry) => all || !isExcluded(entry.path));
+      const entries = (await module.files.list(folder)).filter((entry) => !inTemplates(entry.path) && (all || !isExcluded(entry.path)));
       const manifests = new Map<string, Manifest>();
       for (const entry of entries) {
         if (entry.kind === "file" && nameOf(entry.path) === FOLDER_MANIFEST) {
@@ -619,6 +631,9 @@ const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.last
 
 /** Whether a Project path is the entry at `path` or, for a Folder, inside it. */
 const deletedBy = (path: string, isFolder: boolean) => (each: string) => each === path || (isFolder && each.startsWith(`${path}/`));
+
+/** Whether `path` is the template library's root folder or inside it: never in the Tree. */
+const inTemplates = (path: string) => path === TEMPLATES_FOLDER || path.startsWith(`${TEMPLATES_FOLDER}/`);
 
 const isDocument = (name: string) => name.toLowerCase().endsWith(".md") && name !== FOLDER_MANIFEST;
 

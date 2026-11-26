@@ -1613,3 +1613,20 @@ describe("the Tree's visibility", () => {
     assert.deepEqual(await project.check(), { tree: false, documents: ["web/c.md"] });
   });
 });
+
+describe("the template library's folder", () => {
+  const files = { "a.md": "# A\n", ".templates/notes/t.md": "# T\n", ".templates/notes/liv-doc-main.md": "---\norder: []\nhidden: []\n---\n", ".templates/stray.md": "x" };
+
+  test("the Tree never shows .templates nor anything inside it, with or without hidden items", async () => {
+    const { project } = await projectOf(files);
+    assert.deepEqual(outline(await project.tree()), ["a.md"]);
+    assert.deepEqual(outline(await project.tree({ hidden: true })), ["a.md"]);
+  });
+
+  test("entries lists every file and folder at any depth under a Folder, none when it does not exist", async () => {
+    const { project } = await projectOf(files);
+    const found = (await project.entries(".templates")).map((entry) => `${entry.kind}:${entry.path}`).sort();
+    assert.deepEqual(found, ["file:.templates/notes/liv-doc-main.md", "file:.templates/notes/t.md", "file:.templates/stray.md", "folder:.templates/notes"]);
+    assert.deepEqual(await project.entries("nowhere"), []);
+  });
+});
