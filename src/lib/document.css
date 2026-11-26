@@ -884,3 +884,23 @@
   outline: 3px solid rgb(250 204 21 / 0.7);
   background-color: rgb(250 204 21 / 0.2);
 }
+
+/* Collapsible blocks and colored sections, as the original's snippets write them (raw HTML, rendered by render.ts). */
+.document details {
+  margin: 1.25em 0;
+}
+.document details > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.document details > summary + * {
+  margin-top: 0.75em;
+}
+/* The section's colours come from its own style attribute (sanitized by render.ts); only the layout is set here. */
+.document .ld-colored-section {
+  padding: 1rem 1.25rem;
+  border-radius: 0.375rem;
+  margin: 1rem 0;
+}
+.document .ld-colored-section > :first-child { margin-top: 0; }
+.document .ld-colored-section > :last-child { margin-bottom: 0; }
