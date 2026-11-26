@@ -216,10 +216,10 @@ describe("the period", () => {
     assert.equal(clampPeriod(0), 1);
     assert.equal(clampPeriod(-4), 1);
     assert.equal(clampPeriod(5000), 3650);
-    assert.equal(clampPeriod(Number.NaN), 30);
+    assert.equal(clampPeriod(Number.NaN), 180);
     assert.equal(clampPeriod(2.6), 3);
     assert.equal(clampPeriod(45), 45);
-    assert.equal(DEFAULT_PERIOD, 30);
+    assert.equal(DEFAULT_PERIOD, 180);
   });
 });
 

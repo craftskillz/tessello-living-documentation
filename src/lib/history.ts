@@ -6,6 +6,7 @@ import "./bufferGlobal.ts";
 import { Buffer } from "buffer";
 import { type Files, type Folder, TesselloError } from "@tessello/sdk";
 import git from "isomorphic-git";
+import { clampPeriod } from "./period.ts";
 
 /** One commit of a Document's history. */
 export interface Commit {
@@ -32,14 +33,7 @@ export class HistoryFailure extends Error {
 
 const DAY = 86_400_000;
 
-/** The period, in days, when the User has not typed one. */
-export const DEFAULT_PERIOD = 30;
-
-/** The period in days the User typed, brought into 1–3650; not a number → 30. Whole days (rounded). */
-export function clampPeriod(days: number): number {
-  if (!Number.isFinite(days)) return DEFAULT_PERIOD;
-  return Math.min(3650, Math.max(1, Math.round(days)));
-}
+export { clampPeriod, DEFAULT_PERIOD } from "./period.ts";
 
 /** The history of one Project's Documents. */
 export interface History {

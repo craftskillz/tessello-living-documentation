@@ -26,6 +26,7 @@
   import { createProjects, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject, type ProjectInfo, projectLabel } from "../lib/projects.ts";
   import ProjectSettingsPanel from "./ProjectSettings.svelte";
   import Versions from "./Versions.svelte";
+  import { DEFAULT_PERIOD } from "../lib/period.ts";
   import ProjectSwitcher from "./ProjectSwitcher.svelte";
   import { createLiveSearch, documentsIn, filterTree, searchProject, titleResults, type SearchResult } from "../lib/search.ts";
   import { renderDocument, renderDocumentTree, locateClick, kanbanBlockOf } from "../lib/render.ts";
@@ -1041,6 +1042,7 @@
   const renameProject = (name: string) => changeProject((project) => projects.setDisplayName(project, name), t("projectNameFailed"));
   /** An empty location forgets it. */
   const locateProject = (location: string) => changeProject((project) => projects.setLocation(project, location), t("projectLocationFailed"));
+  const changeVersionsPeriod = (days: number) => changeProject((project) => projects.setVersionsPeriod(project, days), t("versionsPeriodFailed"));
 
   const reconnect = () => reconnectProject(active!);
 
@@ -2576,7 +2578,7 @@
 {/if}
 
 {#if versionsOpen && repository && active && path && current}
-  <Versions files={host.files} repository={repository} project={active} {path} current={current.text} onclose={() => (versionsOpen = false)} />
+  <Versions files={host.files} repository={repository} project={active} {path} current={current.text} period={active.versionsPeriod ?? DEFAULT_PERIOD} onclose={() => (versionsOpen = false)} />
 {/if}
 
 {#if settingsOpen && active}
@@ -2586,6 +2588,8 @@
     onname={(name) => void renameProject(name)}
     location={active.location ?? ""}
     onlocation={(location) => void locateProject(location)}
+    versionsPeriod={active.versionsPeriod ?? DEFAULT_PERIOD}
+    onversionsperiod={(days) => void changeVersionsPeriod(days)}
     {repository}
     failure={repositoryFailure}
     softBreaks={settings.softBreaks}

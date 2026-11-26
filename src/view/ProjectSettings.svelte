@@ -3,6 +3,7 @@
   // and the settings shared in its .living-doc.json. It only shows and asks: View acts and keeps the values.
   // The "shared" section is a list of fields: a new shared setting adds one.
   import { t } from "../lib/i18n.ts";
+  import { clampPeriod } from "../lib/period.ts";
   import { DEFAULT_VISIBILITY, type TreeVisibility } from "../lib/project.ts";
   import { formatList, parseList } from "../lib/projectSettings.ts";
   import { normalizeTagNames, splitTagNames } from "../lib/tagMarkers.ts";
@@ -13,6 +14,8 @@
     onname,
     location,
     onlocation,
+    versionsPeriod,
+    onversionsperiod,
     repository,
     failure,
     softBreaks,
@@ -36,6 +39,10 @@
     location: string;
     /** The User changed the location (on Enter or when the field is left). */
     onlocation: (location: string) => void;
+    /** How many days back Versions looks when it opens. */
+    versionsPeriod: number;
+    /** The User changed it (on Enter or when the field is left). */
+    onversionsperiod: (days: number) => void;
     /** The Project's Repository grant, null when it has none. */
     repository: { name: string; state: "available" | "unavailable" } | null;
     /** What went wrong the last time the repository was changed, translated. */
@@ -134,6 +141,25 @@
       <p class="hint muted">{t("connectRepositoryHint")}</p>
     {/if}
     {#if failure}<p class="invalid" role="alert">{failure}</p>{/if}
+    <label class="field">
+      {t("versionsDefaultPeriod")}
+      <input
+        type="number"
+        min="1"
+        max="3650"
+        step="1"
+        value={versionsPeriod}
+        onchange={(event) => {
+          const days = clampPeriod(event.currentTarget.valueAsNumber);
+          event.currentTarget.value = String(days);
+          onversionsperiod(days);
+        }}
+        onkeydown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+      />
+    </label>
+    <p class="hint muted">{t("versionsDefaultPeriodHint")}</p>
     <p class="hint muted">{t("repositoryKeptHint")}</p>
   </fieldset>
   <fieldset class="wide">

@@ -4,7 +4,7 @@
   import type { Files, Folder } from "@tessello/sdk";
   import { onMount } from "svelte";
   import { foldRows, sideBySide, type DiffRow, type Segment } from "../lib/diff.ts";
-  import { clampPeriod, type Commit, DEFAULT_PERIOD, type History, HistoryFailure, openHistory } from "../lib/history.ts";
+  import { clampPeriod, type Commit, type History, HistoryFailure, openHistory } from "../lib/history.ts";
   import { currentLocale, t, tn } from "../lib/i18n.ts";
 
   let {
@@ -13,6 +13,7 @@
     project,
     path,
     current,
+    period: initialPeriod,
     onclose,
   }: {
     files: Pick<Files, "list" | "read">;
@@ -24,12 +25,15 @@
     path: string;
     /** The Document as the View last read it from disk. */
     current: string;
+    /** How many days back the list starts, from the Project settings. */
+    period: number;
     onclose: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
   const asked = { files, repository, project, path, current };
-  let period = $state(DEFAULT_PERIOD);
+  // svelte-ignore state_referenced_locally
+  let period = $state(initialPeriod);
   let loading = $state(true);
   let failure = $state<string | null>(null);
   let commits = $state.raw<Commit[]>([]);

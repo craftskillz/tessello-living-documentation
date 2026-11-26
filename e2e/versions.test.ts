@@ -82,11 +82,11 @@ function repository(steps: Step[], disk?: string) {
 
 const BOARD = '# Board\n\n<div data-ld-kanban data-columns="To do|Done"></div>\n';
 
-/** The usual history: the guide started 40 days ago, written 10 days ago, edited 5 days ago, code touched 2 days ago. */
+/** The usual history: the guide started 300 days ago (outside the default 180), written 10 days ago, edited 5 days ago, code touched 2 days ago. */
 function usual(disk?: string) {
   return repository(
     [
-      { days: 40, message: "Start the guide", files: { "docs/a.md": "# A\n" } },
+      { days: 300, message: "Start the guide", files: { "docs/a.md": "# A\n" } },
       { days: 10, message: "Write the guide", files: { "docs/a.md": guide(), "docs/board.md": BOARD } },
       { days: 5, message: "Edit the guide", author: "Grace Hopper", files: { "docs/a.md": guide({ 5: "five edited" }) } },
       { days: 2, message: "Touch the code", files: { "src/main.ts": "export {};\n" } },
@@ -208,7 +208,7 @@ describe("the Versions dialog", () => {
     const dialog = dialogOf(page);
     await cards(page).first().waitFor();
     const period = dialog.getByRole("spinbutton", { name: "Period (days)" });
-    assert.equal(await period.inputValue(), "30");
+    assert.equal(await period.inputValue(), "180");
     assert.equal(await cards(page).count(), 2);
     assert.ok(!(await dialog.innerText()).includes("Start the guide"));
 
@@ -223,6 +223,41 @@ describe("the Versions dialog", () => {
     await period.fill("2");
     await dialog.getByRole("button", { name: "Refresh" }).click();
     await dialog.getByText("No commits for this Document in this period.").waitFor();
+    assert.equal(page.url(), address);
+  });
+
+  test("the period set in Project settings is the one Versions opens with; the dialog's own field does not change it", async () => {
+    const { files, short } = usual(guide({ 5: "five edited" }));
+    const { page, address } = await inRepository(files);
+    await openGuide(page);
+    const menu = await openSwitcher({ page });
+    await menu.getByRole("button", { name: "Project settings…" }).click();
+    const settings = page.getByRole("dialog", { name: "Project settings" });
+    const kept = settings.getByRole("spinbutton", { name: "Versions period (days)" });
+    assert.equal(await kept.inputValue(), "180");
+    await kept.fill("99999");
+    await kept.press("Enter");
+    await until(async () => (await kept.inputValue()) === "3650", "the setting brought into range");
+    await kept.fill("365");
+    await kept.press("Enter");
+    await settings.getByRole("button", { name: "Close" }).click();
+    await settings.waitFor({ state: "detached" });
+
+    await versionsButton(page).click();
+    const dialog = dialogOf(page);
+    const period = dialog.getByRole("spinbutton", { name: "Period (days)" });
+    await until(async () => (await cards(page).count()) === 3, "the older commit listed");
+    assert.equal(await period.inputValue(), "365");
+    assert.ok((await cards(page).last().innerText()).includes(short[0]!));
+    await period.fill("20");
+    await dialog.getByRole("button", { name: "Refresh" }).click();
+    await until(async () => (await cards(page).count()) === 2, "the shorter period");
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "detached" });
+
+    await versionsButton(page).click();
+    await until(async () => (await cards(page).count()) === 3, "the setting again");
+    assert.equal(await dialogOf(page).getByRole("spinbutton", { name: "Period (days)" }).inputValue(), "365");
     assert.equal(page.url(), address);
   });
 

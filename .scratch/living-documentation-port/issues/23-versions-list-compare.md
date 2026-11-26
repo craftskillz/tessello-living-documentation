@@ -27,3 +27,4 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - **Repository unavailable:** Project settings has no Reconnect for the repository yet; the message says to disconnect and connect it again. The browser journey does not cover this case.
 - **Test Host quirk:** bytes come back from the browser Test Host as a JSON object; `history`'s file layer converts them, as `project.readBytes` does.
 - GLOSSARY.md has no entry for Versions or Commit.
+- **After the trial (2026-11-27, asked by the User):** the default period is 180 days (not 30) and is set per Project in Project settings › Repository (personal, Module storage); the dialog's field changes it only until it closes. `clampPeriod` and `DEFAULT_PERIOD` moved to `src/lib/period.ts` so that the Widget does not bundle isomorphic-git.

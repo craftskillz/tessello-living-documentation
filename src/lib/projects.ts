@@ -1,6 +1,7 @@
 // The User's Projects (ADR 0002, docs/design.md §8): the folders they connected, the Active Project, the last Document
 // opened in each, kept in the Module's storage; and Projects the browser waits to allow again (Unavailable Project).
 
+import { clampPeriod } from "./period.ts";
 import { type ConnectedModule, type Folder, type Json, TesselloError } from "@tessello/sdk";
 import { parseDocument } from "./document.ts";
 import { type LabelFilter, NO_LABEL_FILTER } from "./labels.ts";
@@ -15,6 +16,8 @@ export interface ProjectInfo {
   displayName?: string;
   /** Where the folder is on disk, as the User typed it: the Host never gives the path (personal, kept in the Module's storage). */
   location?: string;
+  /** How many days back Versions looks when it opens, when the User chose it (personal, kept in the Module's storage); else DEFAULT_PERIOD. */
+  versionsPeriod?: number;
 }
 
 /** What the User sees as the Project's name: the one they gave it, else its folder's. */
@@ -102,6 +105,8 @@ export interface Projects {
   setDisplayName(project: ProjectInfo, displayName: string): Promise<ProjectInfo>;
   /** Keeps where the folder is on disk, as the User typed it (trimmed, cut to 1000 characters); an empty one forgets it. Resolves with the Project as kept. */
   setLocation(project: ProjectInfo, location: string): Promise<ProjectInfo>;
+  /** Keeps how many days back Versions looks when it opens, brought into 1–3650 (a non-number keeps the default). Resolves with the Project as kept. */
+  setVersionsPeriod(project: ProjectInfo, days: number): Promise<ProjectInfo>;
   /** Asks the User to allow the folder again (call it from their click); true when it is available. */
   reconnect(project: ProjectInfo): Promise<boolean>;
   /** The Project's label filter; empty (no pattern, no replacement) when none was kept or the kept one is malformed. */
@@ -151,6 +156,7 @@ function readStored(value: Json): Stored {
                 name: each.name,
                 ...(typeof each.displayName === "string" && each.displayName.trim() !== "" && { displayName: each.displayName }),
                 ...(typeof each.location === "string" && each.location.trim() !== "" && { location: each.location }),
+                ...(typeof each.versionsPeriod === "number" && { versionsPeriod: clampPeriod(each.versionsPeriod) }),
                 ...(isObject(each.repository) &&
                   typeof each.repository.id === "string" &&
                   typeof each.repository.name === "string" && { repository: { id: each.repository.id, name: each.repository.name } }),
@@ -212,6 +218,7 @@ const infoOf = (project: StoredProject): ProjectInfo => ({
   name: project.name,
   ...(project.displayName !== undefined && { displayName: project.displayName }),
   ...(project.location !== undefined && { location: project.location }),
+  ...(project.versionsPeriod !== undefined && { versionsPeriod: project.versionsPeriod }),
 });
 
 const isObject = (value: unknown): value is Record<string, Json> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -458,6 +465,14 @@ export function createProjects(module: ConnectedModule): Projects {
     },
     setDisplayName: (project, displayName) => keepText(project, "displayName", displayName, MAX_DISPLAY_NAME),
     setLocation: (project, location) => keepText(project, "location", location, MAX_LOCATION),
+    async setVersionsPeriod(project, days) {
+      const stored = await read();
+      const kept = stored.projects.find((each) => each.id === project.id);
+      if (!kept) return { id: project.id, name: project.name };
+      kept.versionsPeriod = clampPeriod(days);
+      await write(stored);
+      return infoOf(kept);
+    },
     async reconnect(project) {
       return (await module.folders.reconnect(folderOf(project))) === "granted";
     },

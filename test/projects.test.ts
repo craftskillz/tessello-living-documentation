@@ -454,6 +454,24 @@ describe("a Project's Repository grant", () => {
     assert.deepEqual(await projects.list(), [{ id: project.id, name: "docs", state: "available" }]);
   });
 
+  test("the period Versions opens with is kept per Project for the next visit, brought into 1–3650, and kept on disconnecting", async () => {
+    const { host, repository, projects, project } = await inRepository();
+    assert.equal((await projects.active())?.versionsPeriod, undefined);
+    host.folders.choose(repository);
+    await projects.connectRepository(project);
+
+    const kept = await projects.setVersionsPeriod(project, 90);
+
+    assert.deepEqual(kept, { id: project.id, name: "docs", versionsPeriod: 90 });
+    assert.deepEqual(await (await projectsOf(host)).active(), kept);
+    assert.equal((await projects.setVersionsPeriod(project, 99999)).versionsPeriod, 3650);
+    assert.equal((await projects.setVersionsPeriod(project, 0)).versionsPeriod, 1);
+    assert.equal((await projects.setVersionsPeriod(project, Number.NaN)).versionsPeriod, 180);
+    await projects.setVersionsPeriod(project, 45);
+    await projects.disconnectRepository(project);
+    assert.equal((await (await projectsOf(host)).active())?.versionsPeriod, 45);
+  });
+
   test("a Project has none until one is connected", async () => {
     const { projects, project } = await inRepository();
 
