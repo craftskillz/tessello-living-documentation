@@ -218,7 +218,8 @@ table.table-rounded.table-border-borderless :is(th, td) {
   border-right: none;
 }
 /* Rounded without Borders or Full: the header's line is a separator like the others, not the plain table's accent. */
-table.table-rounded:not(.table-border-bordered):not(.table-fill-full) thead th {
+table.table-rounded:not(.table-border-bordered):not(.table-fill-full) thead th,
+table.table-fill-striped:not(.table-border-bordered) thead th {
   border-bottom-color: var(--tbl-accent-soft, var(--line));
 }
 

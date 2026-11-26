@@ -186,12 +186,13 @@ describe("table lines", () => {
     });
 
   for (const fill of ["full", "striped"]) {
-    test(`${fill}: the outer border of a bordered table equals its inner lines, and a rounded table's header line equals the others, in both themes`, async () => {
+    test(`${fill}: the outer border of a bordered table equals its inner lines, and without Borders the header line equals the others (rounded or not), in both themes`, async () => {
       const cases: { density: string; color: string; bordered: boolean; rounded: boolean }[] = [];
       for (const density of densities)
         for (const color of colors) {
           cases.push({ density, color, bordered: true, rounded: false });
           cases.push({ density, color, bordered: false, rounded: true });
+          cases.push({ density, color, bordered: false, rounded: false });
         }
       const source = ["# Tables", "", ...cases.map((c) => `${directives(c.density, fill, c.bordered, c.rounded, c.color)}\n${grid}`)].join("\n");
       const { page } = await withProject({ "a.md": source });
