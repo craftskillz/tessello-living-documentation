@@ -162,6 +162,17 @@ table.table-fill-full tr > *:last-child {
 table.table-fill-full tbody tr:last-child > * {
   border-bottom: none;
 }
+/* Full with Borders (square): the outer edge is the inner line: the table adds the top and left, the edge cells keep their right and bottom. */
+table.table-fill-full.table-border-bordered:not(.table-rounded) {
+  border-top: 1px solid var(--tbl-full-line);
+  border-left: 1px solid var(--tbl-full-line);
+}
+table.table-fill-full.table-border-bordered:not(.table-rounded) tr > *:last-child {
+  border-right: 1px solid var(--tbl-full-line);
+}
+table.table-fill-full.table-border-bordered:not(.table-rounded) tbody tr:last-child > * {
+  border-bottom: 1px solid var(--tbl-full-line);
+}
 
 table.table-border-bordered:not(.table-fill-full):not(.table-rounded) {
   border-collapse: collapse;
@@ -205,6 +216,10 @@ table.table-rounded.table-border-bordered tr > *:last-child {
 }
 table.table-rounded.table-border-borderless :is(th, td) {
   border-right: none;
+}
+/* Rounded without Borders or Full: the header's line is a separator like the others, not the plain table's accent. */
+table.table-rounded:not(.table-border-bordered):not(.table-fill-full) thead th {
+  border-bottom-color: var(--tbl-accent-soft, var(--line));
 }
 
 /* ── Callouts (quote-type / quote-title / quote-icon comments) ── */

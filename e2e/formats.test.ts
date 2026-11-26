@@ -141,3 +141,89 @@ describe("language and theme", () => {
     assert.equal(page.url(), address);
   });
 });
+
+describe("table lines", () => {
+  const densities = ["", "intermediate", "compact"];
+  const colors = ["", "info"];
+  const directives = (density: string, fill: string, bordered: boolean, rounded: boolean, color: string) =>
+    [
+      density && `<!-- table-style: ${density} -->`,
+      fill && `<!-- table-fill: ${fill} -->`,
+      bordered && "<!-- table-border: bordered -->",
+      rounded && "<!-- table-rounded -->",
+      color && `<!-- table-color: ${color} -->`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  const grid = "| H1 | H2 | H3 |\n|----|----|----|\n| a | b | c |\n| d | e | f |\n| g | h | i |\n";
+
+  // Each table of the Document: its label, then the lines the User sees.
+  const measure = (page: Page) =>
+    page.evaluate(() => {
+      const line = (el: Element, side: "Top" | "Right" | "Bottom" | "Left") => {
+        const style = getComputedStyle(el);
+        return `${style.getPropertyValue(`border-${side.toLowerCase()}-width`)} ${style.getPropertyValue(`border-${side.toLowerCase()}-color`)}`;
+      };
+      const visible = (text: string) => !text.startsWith("0px");
+      return [...document.querySelectorAll(".document table")].map((table) => {
+        const rows = [...table.querySelectorAll("tr")];
+        const cell = (row: number, column: number) => rows[row]!.children[column]!;
+        const outer = (side: "Top" | "Right" | "Bottom" | "Left", edge: Element) => {
+          const own = line(table, side);
+          return visible(own) ? own : line(edge, side);
+        };
+        return {
+          label: table.previousElementSibling?.textContent ?? table.getAttribute("class"),
+          inner: line(cell(1, 0), "Right"),
+          top: outer("Top", cell(0, 1)),
+          left: outer("Left", cell(1, 0)),
+          right: outer("Right", cell(1, 2)),
+          bottom: outer("Bottom", cell(3, 1)),
+          headBottom: line(cell(0, 0), "Bottom"),
+          bodyBottom: line(cell(1, 0), "Bottom"),
+        };
+      });
+    });
+
+  for (const fill of ["full", "striped"]) {
+    test(`${fill}: the outer border of a bordered table equals its inner lines, and a rounded table's header line equals the others, in both themes`, async () => {
+      const cases: { density: string; color: string; bordered: boolean; rounded: boolean }[] = [];
+      for (const density of densities)
+        for (const color of colors) {
+          cases.push({ density, color, bordered: true, rounded: false });
+          cases.push({ density, color, bordered: false, rounded: true });
+        }
+      const source = ["# Tables", "", ...cases.map((c) => `${directives(c.density, fill, c.bordered, c.rounded, c.color)}\n${grid}`)].join("\n");
+      const { page } = await withProject({ "a.md": source });
+      const address = page.url();
+      await open(page);
+      await page.locator(".document table").first().waitFor();
+      for (const mode of ["light", "dark"]) {
+        await page.evaluate((m) => (document.documentElement.dataset.mode = m), mode);
+        const tables = await measure(page);
+        assert.equal(tables.length, cases.length);
+        tables.forEach((t, index) => {
+          const c = cases[index]!;
+          const name = `${mode} ${fill} ${JSON.stringify(c)}`;
+          if (c.bordered) {
+            for (const side of ["top", "left", "right", "bottom"] as const)
+              assert.equal(t[side], t.inner, `${name}: outer ${side} equals the inner line`);
+          } else {
+            assert.equal(t.headBottom, t.bodyBottom, `${name}: the header line equals the body lines`);
+          }
+        });
+      }
+      assert.equal(page.url(), address);
+    });
+  }
+
+  test("a plain colored table keeps its accented header line", async () => {
+    const source = `# T\n\n${directives("", "", false, false, "info")}\n${grid}\n${directives("", "", false, false, "")}\n${grid}`;
+    const { page } = await withProject({ "a.md": source });
+    const address = page.url();
+    await open(page);
+    await page.locator(".document table").first().waitFor();
+    for (const t of await measure(page)) assert.notEqual(t.headBottom, t.bodyBottom);
+    assert.equal(page.url(), address);
+  });
+});
