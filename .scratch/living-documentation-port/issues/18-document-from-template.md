@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 (Tree: new Document and new Folder), 17 (Template library)
 
-**Status:** ready-for-human (built in c0975a7; awaiting the trial in the local Host)
+**Status:** done (c0975a7, 589b1a1)
 
 - [x] Frontmatter, heading and placeholders as specified
 - [x] Links and images rewritten for the new location
@@ -12,7 +12,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -25,3 +25,4 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - Differences from the original: no `title` field is written (the Name is the file name and the heading); the original's "blank lines at the start of the body reduced by one" is not kept.
 - Dialog: **Template folder** (Blank document first) › **Template**, between Name and Location; choosing a template fills the Name. The Templates menu's template rows now open this dialog (Open library still opens the screen); the library screen has **Create a document**, which leaves the screen like Back. The folders load just after the dialog opens, so the selects appear a moment later.
 - A template gone before the dialog opens: "This template no longer exists.", Create disabled until another choice; gone after: the same message on Create, the dialog stays.
+- Tried in the local Host by the User.
