@@ -14,7 +14,10 @@
 
 Decision: `docs/adr/0011-tessello-sync-commits-the-projects-of-a-repository.md`. Spec: `docs/spec/git-versioning.md`.
 
+## Settled
+
+- `sync` recognises a repository given on the command line by the Project's typed `location` lying inside it when there is one, else by the repository folder's name with the Project path existing in it (User, 2026-11-27).
+
 ## To settle (needs-triage)
 
 - The exact format of `syncStatus` (written by `sync`, one entry per Project id: `{ lastCommit?: { at, id, documents }, problem?: { kind, message, since }, heartbeat }`), agreed with the `tessello` ticket.
-- How `sync` recognises a repository given on the command line: the typed `location` lying inside it when there is one, else the folder name and the path existing in it (proposed in the `tessello` ticket).
