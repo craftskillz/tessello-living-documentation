@@ -46,6 +46,8 @@ export interface History {
   fileAt(commit: string, path: string): Promise<string | null>;
   /** The commit compared by default: the latest of `commits`, or the one before it when `current` (the file on disk) is identical to the latest; the latest when there is none before; null when `commits` is empty. */
   defaultCommit(path: string, current: string, commits: Commit[]): Promise<Commit | null>;
+  /** Where the Project folder lies in the repository ("" for the repository itself), null when none of its files is tracked. */
+  projectPath(): Promise<string | null>;
   /** The objects of the repository stored one file each (`.git/objects/xx/…`), not in a packfile: each costs a request to the Host. */
   looseObjects: number;
 }
@@ -337,6 +339,6 @@ export async function openHistory(files: Pick<Files, "list" | "read">, repositor
   };
 
   const looseObjects = listing.filter((entry) => entry.kind === "file" && LOOSE_OBJECT.test(entry.path)).length;
-  return { commits, fileAt, defaultCommit, looseObjects };
+  return { commits, fileAt, defaultCommit, projectPath: projectPathInRepository, looseObjects };
 }
 

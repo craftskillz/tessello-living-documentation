@@ -43,6 +43,20 @@ export class FolderRefused extends Error {
   }
 }
 
+/** A Project's entry in the storage key `sync`, read by `tessello sync --living-documentation` (ADR 0011). */
+export interface SyncEntry {
+  /** The Project's id. */
+  id: string;
+  /** The Project folder's name (not the name the User gave). */
+  name: string;
+  /** The name of the folder of its Repository grant. */
+  repository: string;
+  /** The Project folder's path in the repository, "" when the repository is the Project folder; absent while Versions has not found it. */
+  path?: string;
+  /** Where the folder is on disk, as the User typed it; absent when the Project has none. */
+  location?: string;
+}
+
 export interface ListedProject extends ProjectInfo {
   /** `unavailable` after a browser restart, until the User reconnects it. */
   state: "available" | "unavailable";
@@ -117,6 +131,10 @@ export interface Projects {
   connectRepository(project: ProjectInfo): Promise<RepositoryInfo | null>;
   /** The Project's Repository grant, `unavailable` until the User allows it again after a browser restart; null when it has none. */
   repository(project: ProjectInfo): Promise<(RepositoryInfo & { state: "available" | "unavailable" }) | null>;
+  /** The Project's entry of the key `sync`, null when it has none. */
+  syncEntry(project: ProjectInfo): Promise<SyncEntry | null>;
+  /** Records where Versions found the Project folder in its repository ("" for the repository itself) in its `sync` entry, creating the entry from its Repository grant; does nothing without a grant. */
+  foundProjectPath(project: ProjectInfo, path: string): Promise<void>;
   /** Forgets the Project's Repository grant and gives its folder back, unless another Project still uses it. */
   disconnectRepository(project: ProjectInfo): Promise<void>;
   /** Forgets the Project, its repository, its favorites and its label filter, and gives its folder back; its files stay on disk. */
@@ -134,6 +152,9 @@ const DISPLAY_KEY = "display";
 const FAVORITES_KEY = "favorites";
 // Personal, per Project: projectId → label filter.
 const LABEL_FILTERS_KEY = "labelFilters";
+
+// The Projects with a Repository grant, read by `tessello sync --living-documentation` in the CLI: a format change must update both repositories.
+const SYNC_KEY = "sync";
 
 interface StoredProject extends ProjectInfo {
   repository?: RepositoryInfo;
@@ -199,6 +220,24 @@ function readLabelFilters(value: Json): Record<string, LabelFilter> {
     if (isObject(each) && typeof each.pattern === "string" && typeof each.replacement === "string") all[id] = { pattern: each.pattern, replacement: each.replacement };
   }
   return all;
+}
+
+/** The kept `sync` entries; what is malformed is dropped. */
+function readSync(value: Json): SyncEntry[] {
+  const list = isObject(value) && Array.isArray(value.projects) ? value.projects : [];
+  return list.flatMap((each) =>
+    isObject(each) && typeof each.id === "string" && typeof each.name === "string" && typeof each.repository === "string"
+      ? [
+          {
+            id: each.id,
+            name: each.name,
+            repository: each.repository,
+            ...(typeof each.path === "string" && { path: each.path }),
+            ...(typeof each.location === "string" && { location: each.location }),
+          },
+        ]
+      : [],
+  );
 }
 
 /** A table of contents width kept within 160–400 px, whole. */
@@ -306,6 +345,30 @@ export function createProjects(module: ConnectedModule): Projects {
       // Already given back, as from the Host's About screen.
       if (!(error instanceof TesselloError && error.code === "not_found")) throw error;
     });
+  }
+
+  const readSyncEntries = async () => readSync(await module.storage.get(SYNC_KEY));
+  const writeSync = (entries: SyncEntry[]) => module.storage.set(SYNC_KEY, { projects: entries.map((each) => ({ ...each })) });
+  /** Keeps the Project's `sync` entry as its Repository grant and location say, with `path` (absent when unknown). */
+  async function putSync(kept: StoredProject, path: string | undefined) {
+    if (!kept.repository) return;
+    const entry: SyncEntry = {
+      id: kept.id,
+      name: kept.name,
+      repository: kept.repository.name,
+      ...(path !== undefined && { path }),
+      ...(kept.location !== undefined && { location: kept.location }),
+    };
+    const entries = await readSyncEntries();
+    const at = entries.findIndex((each) => each.id === kept.id);
+    if (at < 0) entries.push(entry);
+    else entries[at] = entry;
+    await writeSync(entries);
+  }
+  /** Forgets the Project's `sync` entry; nothing is written when it has none. */
+  async function dropSync(id: string) {
+    const entries = await readSyncEntries();
+    if (entries.some((each) => each.id === id)) await writeSync(entries.filter((each) => each.id !== id));
   }
 
   /** Keeps a text the User gave the Project (trimmed, cut); an empty one forgets it. */
@@ -464,7 +527,13 @@ export function createProjects(module: ConnectedModule): Projects {
       return top?.path ?? firstDocument(await openProject(module, folderOf(project)).tree());
     },
     setDisplayName: (project, displayName) => keepText(project, "displayName", displayName, MAX_DISPLAY_NAME),
-    setLocation: (project, location) => keepText(project, "location", location, MAX_LOCATION),
+    async setLocation(project, location) {
+      const info = await keepText(project, "location", location, MAX_LOCATION);
+      // A grant connected before the key existed gains its entry here: sync can find the Project by its location.
+      const kept = (await read()).projects.find((each) => each.id === project.id);
+      if (kept) await putSync(kept, (await readSyncEntries()).find((each) => each.id === project.id)?.path);
+      return info;
+    },
     async setVersionsPeriod(project, days) {
       const stored = await read();
       const kept = stored.projects.find((each) => each.id === project.id);
@@ -488,6 +557,9 @@ export function createProjects(module: ConnectedModule): Projects {
       const previous = kept.repository;
       kept.repository = { id: folder.id, name: folder.name };
       await write(stored);
+      // The known path stays only for the same repository; the Project folder itself lies at "".
+      const known = previous?.id === folder.id ? (await readSyncEntries()).find((each) => each.id === kept.id)?.path : undefined;
+      await putSync(kept, folder.id === kept.id ? "" : known);
       if (previous && previous.id !== folder.id) await releaseUnused(stored, previous);
       return { ...kept.repository };
     },
@@ -497,6 +569,13 @@ export function createProjects(module: ConnectedModule): Projects {
       const states = new Map((await module.folders.list()).map((folder) => [folder.id, folder.state]));
       return { id: kept.id, name: kept.name, state: states.get(kept.id) === "granted" ? "available" : "unavailable" };
     },
+    async syncEntry(project) {
+      return (await readSyncEntries()).find((each) => each.id === project.id) ?? null;
+    },
+    async foundProjectPath(project, path) {
+      const kept = (await read()).projects.find((each) => each.id === project.id);
+      if (kept) await putSync(kept, path);
+    },
     async disconnectRepository(project) {
       const stored = await read();
       const kept = stored.projects.find((each) => each.id === project.id);
@@ -504,6 +583,7 @@ export function createProjects(module: ConnectedModule): Projects {
       if (!kept || !previous) return;
       delete kept.repository;
       await write(stored);
+      await dropSync(kept.id);
       await releaseUnused(stored, previous);
     },
     async remove(project) {
@@ -513,6 +593,7 @@ export function createProjects(module: ConnectedModule): Projects {
       if (stored.active === project.id) stored.active = null;
       delete stored.lastOpened[project.id];
       await write(stored);
+      await dropSync(project.id);
       await releaseUnused(stored, folderOf(project));
       if (repository) await releaseUnused(stored, repository);
       const favorites = await readAllFavorites();

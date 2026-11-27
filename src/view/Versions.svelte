@@ -17,6 +17,7 @@
     current,
     write,
     period: initialPeriod,
+    onprojectpath,
     onclose,
   }: {
     files: Pick<Files, "list" | "read">;
@@ -32,6 +33,8 @@
     write: (text: string, version: string) => Promise<DocumentText>;
     /** How many days back the list starts, from the Project settings. */
     period: number;
+    /** Where the Project folder lies in the repository, called when the list is read and the Project is tracked. */
+    onprojectpath?: (path: string) => void;
     onclose: () => void;
   } = $props();
 
@@ -88,6 +91,8 @@
     try {
       const fresh = await openHistory(asked.files, asked.repository, asked.project);
       const list = await fresh.commits(asked.path, period);
+      const found = await fresh.projectPath();
+      if (found !== null) onprojectpath?.(found);
       const first = await fresh.defaultCommit(asked.path, mine.text, list);
       const text = first ? await fresh.fileAt(first.id, first.path) : null;
       if (ticket !== turn) return;

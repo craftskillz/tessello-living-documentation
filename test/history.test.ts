@@ -341,6 +341,14 @@ describe("where the Project lies in the repository", () => {
     assert.equal(await blog.history.fileAt(ids[0]!, "a.md"), "blog\n");
   });
 
+  test("is told by projectPath: the folder's path in the repository, \"\" for the repository itself, null when none of its files is tracked", async () => {
+    const { files } = repository([{ date: "2026-11-01T10:00:00Z", message: "Add", files: { "site/docs/a.md": "a\n" } }]);
+
+    assert.equal(await (await opened(files, "site/docs")).history.projectPath(), "site/docs");
+    assert.equal(await (await opened(files, "")).history.projectPath(), "");
+    assert.equal(await (await opened({ ...files, "notes/new.md": new TextEncoder().encode("n\n") }, "notes")).history.projectPath(), null);
+  });
+
   test("is not tracked when the repository holds no such folder: no commits, no file, and no failure", async () => {
     const { files, ids } = repository([{ date: "2026-11-01T10:00:00Z", message: "Add", files: { "docs/a.md": "a\n" } }]);
     // The Project folder exists on the disk but nothing of it was ever added to git.

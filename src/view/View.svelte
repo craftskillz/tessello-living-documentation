@@ -23,9 +23,11 @@
   import { entryMapper } from "../lib/links.ts";
   import { compileLabelFilter, NO_LABEL_FILTER, type LabelFilter } from "../lib/labels.ts";
   import { DEFAULT_SETTINGS, readSettings, setExcluded, setShownExtensions, setSoftBreaks, setTagNames, SETTINGS_FILE, type ProjectSettings } from "../lib/projectSettings.ts";
-  import { createProjects, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject, type ProjectInfo, projectLabel } from "../lib/projects.ts";
+  import { createProjects, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject, type ProjectInfo, projectLabel, type SyncEntry } from "../lib/projects.ts";
   import ProjectSettingsPanel from "./ProjectSettings.svelte";
   import Versions from "./Versions.svelte";
+  import { openHistory } from "../lib/history.ts";
+  import { syncStateOf, type SyncState } from "../lib/sync.ts";
   import { DEFAULT_PERIOD } from "../lib/period.ts";
   import ProjectSwitcher from "./ProjectSwitcher.svelte";
   import { createLiveSearch, documentsIn, filterTree, searchProject, titleResults, type SearchResult } from "../lib/search.ts";
@@ -1005,6 +1007,47 @@
   /** The Versions dialog is open (a View state, never an address). */
   let versionsOpen = $state(false);
   let repositoryFailure = $state<string | null>(null);
+  /** What `tessello sync` did for the Active Project, null without a Repository grant (or until read). */
+  let sync = $state.raw<{ state: SyncState; entry: SyncEntry | null; now: number } | null>(null);
+  /** The last read of what `tessello sync` did failed. */
+  let syncFailed = $state(false);
+
+  /** Reads `syncStatus` and the Project's `sync` entry again. A failure keeps what is shown. */
+  async function loadSync() {
+    const asked = active;
+    if (!asked || !repository) {
+      sync = null;
+      return;
+    }
+    try {
+      const [status, entry] = await Promise.all([host.storage.get("syncStatus"), projects.syncEntry(asked)]);
+      const now = Date.now();
+      if (active?.id === asked.id && settingsOpen && repository) {
+        sync = { state: syncStateOf(status, asked.id, now), entry, now };
+        syncFailed = false;
+      }
+    } catch {
+      // The block keeps what it showed, under a translated message.
+      if (active?.id === asked.id) syncFailed = true;
+    }
+  }
+
+  /** Looks for the Project folder in its repository without blocking the dialog, to record its path for `tessello sync`. */
+  async function findProjectPath() {
+    const asked = active;
+    if (!asked || !repository || repository.state !== "available") return;
+    try {
+      if ((await projects.syncEntry(asked))?.path !== undefined) return;
+      const grant = await projects.repository(asked);
+      if (!grant || grant.state !== "available") return;
+      const found = await (await openHistory(host.files, grant, asked)).projectPath();
+      if (found === null) return;
+      await projects.foundProjectPath(asked, found);
+      await loadSync();
+    } catch {
+      // The entry just lacks the path.
+    }
+  }
 
   async function loadRepository() {
     const asked = active;
@@ -1014,11 +1057,22 @@
       if (active?.id === asked.id) repository = kept && { id: kept.id, name: kept.name, state: kept.state };
     } catch (reason) {
       fail(reason);
+      return;
     }
+    await loadSync();
+    void findProjectPath();
   }
+
+  $effect(() => {
+    if (!settingsOpen) return;
+    const timer = setInterval(() => void loadSync(), 15_000);
+    return () => clearInterval(timer);
+  });
 
   function openSettings() {
     repository = null;
+    sync = null;
+    syncFailed = false;
     repositoryFailure = null;
     settingsOpen = true;
     void loadRepository();
@@ -1066,7 +1120,10 @@
   /** An empty name shows the folder's name again. */
   const renameProject = (name: string) => changeProject((project) => projects.setDisplayName(project, name), t("projectNameFailed"));
   /** An empty location forgets it. */
-  const locateProject = (location: string) => changeProject((project) => projects.setLocation(project, location), t("projectLocationFailed"));
+  const locateProject = async (location: string) => {
+    await changeProject((project) => projects.setLocation(project, location), t("projectLocationFailed"));
+    await loadSync();
+  };
   const changeVersionsPeriod = (days: number) => changeProject((project) => projects.setVersionsPeriod(project, days), t("versionsPeriodFailed"));
 
   const reconnect = () => reconnectProject(active!);
@@ -2625,7 +2682,7 @@
 {/if}
 
 {#if versionsOpen && repository && active && path && current}
-  <Versions files={host.files} repository={repository} project={active} {path} current={current} write={(text, version) => writeRestore(path!, text, version)} period={active.versionsPeriod ?? DEFAULT_PERIOD} onclose={() => (versionsOpen = false)} />
+  <Versions files={host.files} repository={repository} project={active} {path} current={current} write={(text, version) => writeRestore(path!, text, version)} period={active.versionsPeriod ?? DEFAULT_PERIOD} onprojectpath={(found) => void projects.foundProjectPath(active!, found).catch(() => {})} onclose={() => (versionsOpen = false)} />
 {/if}
 
 {#if settingsOpen && active}
@@ -2639,6 +2696,8 @@
     onversionsperiod={(days) => void changeVersionsPeriod(days)}
     {repository}
     failure={repositoryFailure}
+    {sync}
+    {syncFailed}
     softBreaks={settings.softBreaks}
     visibility={settings.visibility}
     onconnectrepository={connectRepository}

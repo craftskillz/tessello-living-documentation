@@ -583,6 +583,150 @@ describe("a Project's Repository grant", () => {
     assert.deepEqual(await granted(host), ["handbook", "shop"]);
   });
 
+  describe("the key `sync` read by tessello sync", () => {
+    /** The raw key, as the CLI reads it. */
+    const rawSync = async (host: ReturnType<typeof hostOf>) => (await connect({ transport: host.mount({ surface: "view" }).transport })).storage.get("sync");
+
+    test("connecting a repository records the Project without a path, the path being unknown yet", async () => {
+      const { host, repository, projects, project } = await inRepository();
+      host.folders.choose(repository);
+
+      await projects.connectRepository(project);
+
+      assert.deepEqual(await rawSync(host), { projects: [{ id: project.id, name: "docs", repository: "shop" }] });
+      assert.deepEqual(await projects.syncEntry(project), { id: project.id, name: "docs", repository: "shop" });
+    });
+
+    test("a Project without a Repository grant has no entry, and no key is written", async () => {
+      const { host, projects, project } = await inRepository();
+
+      assert.equal(await projects.syncEntry(project), null);
+      assert.equal(await rawSync(host), null);
+    });
+
+    test("the repository being the Project folder itself records the path \"\"", async () => {
+      const { host, docs, projects, project } = await inRepository();
+      host.folders.choose(docs);
+
+      await projects.connectRepository(project);
+
+      assert.deepEqual(await projects.syncEntry(project), { id: project.id, name: "docs", repository: "docs", path: "" });
+    });
+
+    test("the location is recorded with the entry when the Project has one", async () => {
+      const { host, repository, projects, project } = await inRepository();
+      await projects.setLocation(project, "/Users/me/shop/docs");
+      host.folders.choose(repository);
+
+      await projects.connectRepository(project);
+
+      assert.deepEqual(await projects.syncEntry(project), { id: project.id, name: "docs", repository: "shop", location: "/Users/me/shop/docs" });
+    });
+
+    test("the name is the folder's, not the name the User gave", async () => {
+      const { host, repository, projects, project } = await inRepository();
+      await projects.setDisplayName(project, "Our docs");
+      host.folders.choose(repository);
+
+      await projects.connectRepository(project);
+
+      assert.equal((await projects.syncEntry(project))?.name, "docs");
+    });
+
+    test("where Versions found the Project folder is recorded, even for a grant that has no entry yet", async () => {
+      const { host, repository, projects, project } = await inRepository();
+      host.folders.choose(repository);
+      await projects.connectRepository(project);
+      const module = await connect({ transport: host.mount({ surface: "view" }).transport });
+      await module.storage.delete("sync");
+      assert.equal(await projects.syncEntry(project), null);
+
+      await projects.foundProjectPath(project, "docs");
+
+      assert.deepEqual(await rawSync(host), { projects: [{ id: project.id, name: "docs", repository: "shop", path: "docs" }] });
+    });
+
+    test("finding a path does nothing for a Project without a Repository grant", async () => {
+      const { host, projects, project } = await inRepository();
+
+      await projects.foundProjectPath(project, "docs");
+
+      assert.equal(await rawSync(host), null);
+    });
+
+    test("reconnecting the same repository keeps the known path; another repository drops it", async () => {
+      const { host, repository, docs, projects, project } = await inRepository();
+      host.folders.choose(repository);
+      await projects.connectRepository(project);
+      await projects.foundProjectPath(project, "docs");
+
+      host.folders.choose(repository);
+      await projects.connectRepository(project);
+      assert.equal((await projects.syncEntry(project))?.path, "docs");
+
+      // A different grant, the Project folder itself: its path is "".
+      host.folders.choose(docs);
+      await projects.connectRepository(project);
+      assert.deepEqual(await projects.syncEntry(project), { id: project.id, name: "docs", repository: "docs", path: "" });
+    });
+
+    test("changing the location keeps the entry in step: added, changed, removed; a Project without entry gains none", async () => {
+      const { host, repository, projects, project } = await inRepository();
+      await projects.setLocation(project, "/a");
+      assert.equal(await rawSync(host), null);
+      host.folders.choose(repository);
+      await projects.connectRepository(project);
+      await projects.foundProjectPath(project, "docs");
+
+      await projects.setLocation(project, "/b");
+      assert.deepEqual(await projects.syncEntry(project), { id: project.id, name: "docs", repository: "shop", path: "docs", location: "/b" });
+      await projects.setLocation(project, "");
+      assert.deepEqual(await projects.syncEntry(project), { id: project.id, name: "docs", repository: "shop", path: "docs" });
+      await projects.setLocation(project, "/c");
+      assert.equal((await projects.syncEntry(project))?.location, "/c");
+    });
+
+    test("typing the location records a Project whose grant was connected before the key existed", async () => {
+      const { host, repository, projects, project } = await inRepository();
+      host.folders.choose(repository);
+      await projects.connectRepository(project);
+      await (await connect({ transport: host.mount({ surface: "view" }).transport })).storage.delete("sync");
+
+      await projects.setLocation(project, "/code/shop/docs");
+
+      assert.deepEqual(await projects.syncEntry(project), { id: project.id, name: "docs", repository: "shop", location: "/code/shop/docs" });
+    });
+
+    test("disconnecting the repository or forgetting the Project removes the entry, and leaves the other Projects' entries", async () => {
+      const { host, repository, handbook, projects, project: first } = await inRepository();
+      host.folders.choose(handbook);
+      const second = (await projects.connect())!;
+      for (const project of [first, second]) {
+        host.folders.choose(repository);
+        await projects.connectRepository(project);
+      }
+
+      await projects.disconnectRepository(first);
+      assert.deepEqual(await rawSync(host), { projects: [{ id: second.id, name: "handbook", repository: "shop" }] });
+
+      await projects.remove(second);
+      assert.deepEqual(await rawSync(host), { projects: [] });
+    });
+
+    test("drops malformed entries and malformed optional fields when reading", async () => {
+      const { host, repository, projects, project } = await inRepository();
+      host.folders.choose(repository);
+      await projects.connectRepository(project);
+      const module = await connect({ transport: host.mount({ surface: "view" }).transport });
+      await module.storage.set("sync", { projects: [{ id: project.id, name: "docs", repository: "shop", path: 3 }, { id: 4 }, "nope"] });
+
+      assert.deepEqual(await projects.syncEntry(project), { id: project.id, name: "docs", repository: "shop" });
+      await module.storage.set("sync", { projects: [{ id: 4 }, "nope", { id: project.id, name: "docs" }] });
+      assert.equal(await projects.syncEntry(project), null);
+      assert.equal((await projects.active())?.id, project.id);
+    });
+  });
+
   test("a malformed kept repository is dropped", async () => {
     const { host, projects, project } = await inRepository();
     const module = await connect({ transport: host.mount({ surface: "view" }).transport });

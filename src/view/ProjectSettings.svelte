@@ -2,7 +2,9 @@
   // The Project settings of the Active Project, in a dialog: its Repository grant (personal, kept in the Module's storage)
   // and the settings shared in its .living-doc.json. It only shows and asks: View acts and keeps the values.
   // The "shared" section is a list of fields: a new shared setting adds one.
-  import { t } from "../lib/i18n.ts";
+  import { currentLocale, t, tn } from "../lib/i18n.ts";
+  import type { SyncEntry } from "../lib/projects.ts";
+  import { commitTime, repositoryPathOf, type SyncState, syncCommand } from "../lib/sync.ts";
   import { clampPeriod } from "../lib/period.ts";
   import { DEFAULT_VISIBILITY, type TreeVisibility } from "../lib/project.ts";
   import { formatList, parseList } from "../lib/projectSettings.ts";
@@ -18,6 +20,8 @@
     onversionsperiod,
     repository,
     failure,
+    sync,
+    syncFailed,
     softBreaks,
     visibility,
     tagNames,
@@ -47,6 +51,10 @@
     repository: { name: string; state: "available" | "unavailable" } | null;
     /** What went wrong the last time the repository was changed, translated. */
     failure: string | null;
+    /** What `tessello sync` did for the Project, its `sync` entry and the time it was read; null without a Repository grant. */
+    sync: { state: SyncState; entry: SyncEntry | null; now: number } | null;
+    /** The last read of what `tessello sync` did failed. */
+    syncFailed: boolean;
     softBreaks: boolean;
     /** The Tree's two lists: the extensions of the other files it shows, the names it treats as hidden. */
     visibility: TreeVisibility;
@@ -81,6 +89,27 @@
     if (invalid.length > 0) return;
     if (names.join(", ") === tagNames.join(", ")) input.value = tagNames.join(", ");
     else ontagnames(names);
+  }
+
+  /** The command to start sync: the repository's path, or a placeholder to replace when it is not known. */
+  const command = $derived.by(() => {
+    if (!sync) return "";
+    const path = repositoryPathOf({ used: sync.state.repository, location: sync.entry?.location, path: sync.entry?.path });
+    return syncCommand(path ?? t("syncPathPlaceholder", { name: repository?.name ?? "" }));
+  });
+  const lastCommit = $derived(sync?.state.lastCommit ?? null);
+  const when = $derived(lastCommit && sync ? commitTime(lastCommit.at, sync.now, currentLocale()) : null);
+  /** Sync cannot find the Project by its location nor by its path in the repository. */
+  const unlocatable = $derived(!!sync && sync.entry?.path === undefined && !sync.entry?.location);
+  let copied = $state<"copied" | "failed" | null>(null);
+
+  async function copyCommand() {
+    try {
+      await navigator.clipboard.writeText(command);
+      copied = "copied";
+    } catch {
+      copied = "failed";
+    }
   }
 
   function modal(node: HTMLDialogElement) {
@@ -135,6 +164,26 @@
         <strong>{repository.name}</strong>
         {#if repository.state === "unavailable"}<span class="muted">{t("repositoryUnavailable")}</span>{/if}
       </p>
+      {#if sync}
+        <div class="sync">
+          {#if lastCommit && when}
+            <p class="hint muted">{t("syncLastCommit", { day: when.day, time: when.time, id: lastCommit.id, documents: tn("syncDocuments", lastCommit.documents.length) })}</p>
+          {/if}
+          {#if sync.state.running && sync.state.problem}
+            <p class="invalid" role="alert">{t("syncProblem", { message: sync.state.problem.message })}</p>
+          {:else if !sync.state.running || sync.state.repository === null}
+            <p class="hint muted">{t(sync.state.running ? "syncOtherRepository" : "syncNotRunning")}</p>
+            <p><code class="mono">{command}</code></p>
+            <div class="copy">
+              <button type="button" onclick={() => void copyCommand()}>{t("syncCopy")}</button>
+              {#if copied === "copied"}<span class="muted" role="status">{t("syncCopied")}</span>{/if}
+            </div>
+            {#if copied === "failed"}<p class="invalid" role="alert">{t("syncCopyFailed")}</p>{/if}
+          {/if}
+          {#if unlocatable}<p class="hint muted">{t("syncLocationHint")}</p>{/if}
+        </div>
+      {/if}
+      {#if syncFailed}<p class="invalid" role="alert">{t("syncReadFailed")}</p>{/if}
       <div><button type="button" onclick={ondisconnectrepository}>{t("disconnectRepository")}</button></div>
     {:else}
       <div><button type="button" onclick={onconnectrepository}>{t("connectRepository")}</button></div>
@@ -249,6 +298,20 @@
   .folder {
     margin: 0;
     overflow-wrap: anywhere;
+  }
+  /* The command is a path: it wraps anywhere. */
+  .sync code {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .sync p {
+    margin: 0.3rem 0;
+  }
+  .copy {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.5rem;
   }
   .actions {
     display: flex;
