@@ -9,32 +9,33 @@ import { parseDocument } from "./document.ts";
 import { KANBAN_COLORS, MAX_COLUMNS as KANBAN_MAX_COLUMNS, parseKanbanBlock, type KanbanColor } from "./kanban.ts";
 export { KANBAN_COLORS };
 import { headingId } from "./links.ts";
+import { parseColumnComment } from "./directives.ts";
 import { compareRegions } from "./render.ts";
 
 export type SnippetKind =
-  | "heading-1" | "heading-2" | "heading-3" | "heading-4" | "separator" | "collapsible" | "unordered-list" | "ordered-list" | "table" | "kanban"
-  | "tree" | "code-block" | "compare"
+  | "heading-1" | "heading-2" | "heading-3" | "heading-4" | "separator" | "collapsible" | "columns" | "unordered-list" | "ordered-list" | "table" | "kanban"
+  | "tree" | "code-block" | "mermaid" | "compare"
   | "colored-text" | "colored-section" | "blockquote" | "emojis"
-  | "link" | "doc-link" | "anchor-link" | "anchor-doc-link" | "image";
+  | "link" | "doc-link" | "anchor-link" | "anchor-doc-link" | "image" | "attachment";
 
 export type SnippetCategory = "structure" | "code" | "rich-text" | "links-media";
 
 /** The picker's categories, with their kinds in display order. */
 export const SNIPPET_CATEGORIES: readonly { key: SnippetCategory; kinds: readonly SnippetKind[] }[] = [
-  { key: "structure", kinds: ["heading-1", "heading-2", "heading-3", "heading-4", "separator", "collapsible", "unordered-list", "ordered-list", "table", "kanban"] },
-  { key: "code", kinds: ["tree", "code-block", "compare"] },
+  { key: "structure", kinds: ["heading-1", "heading-2", "heading-3", "heading-4", "separator", "collapsible", "columns", "unordered-list", "ordered-list", "table", "kanban"] },
+  { key: "code", kinds: ["tree", "code-block", "mermaid", "compare"] },
   { key: "rich-text", kinds: ["colored-text", "colored-section", "blockquote", "emojis"] },
-  { key: "links-media", kinds: ["link", "doc-link", "anchor-link", "anchor-doc-link", "image"] },
+  { key: "links-media", kinds: ["link", "doc-link", "anchor-link", "anchor-doc-link", "image", "attachment"] },
 ];
 
 /** Kinds the reading view reopens in their form (all but emojis and kanban). */
 export const EDITABLE_KINDS: ReadonlySet<SnippetKind> = new Set(SNIPPET_CATEGORIES.flatMap((each) => each.kinds).filter((kind) => kind !== "emojis" && kind !== "kanban"));
 
-const WITHOUT_PREVIEW: ReadonlySet<SnippetKind> = new Set(["separator", "kanban", "compare", "emojis", "link", "doc-link", "anchor-link", "anchor-doc-link", "image"]);
+const WITH_PREVIEW: ReadonlySet<SnippetKind> = new Set(["separator", "columns", "kanban", "mermaid", "compare", "emojis", "link", "doc-link", "anchor-link", "anchor-doc-link", "image"]);
 
 /** Whether the dialog shows the Markdown preview for `kind` (the other kinds have their own live preview). */
 export function showsPreview(kind: SnippetKind): boolean {
-  return WITHOUT_PREVIEW.has(kind);
+  return WITH_PREVIEW.has(kind);
 }
 
 export type Swatch = "info" | "success" | "warning" | "danger" | "note" | "neutral";
@@ -79,7 +80,32 @@ export interface SnippetTexts {
   coloredText: string;
   coloredSection: string;
   kanbanColumns: readonly string[];
+  column: string;
+  attachment: string;
+  attachmentUrl: string;
+  mermaidItem: string;
+  mermaidPeriod: string;
+  mermaidEvent: string;
+  mermaidNode: string;
+  mermaidParticipant: string;
+  mermaidMessage: string;
+  /** The examples a new Mermaid form starts with. */
+  mermaid: {
+    pieTitle: string;
+    pie: readonly { label: string; value: number }[];
+    timelineTitle: string;
+    timeline: readonly { period: string; event: string }[];
+    tree: readonly { level: number; label: string; decorator: string; note: string }[];
+    sequence: readonly SequenceRow[];
+  };
 }
+
+export type MermaidChart = "pie" | "timeline" | "tree-view" | "sequence";
+export type SequenceArrow = "->>" | "-->>" | "--x" | "-x" | "-->" | "->";
+export type NotePosition = "left of" | "right of" | "over";
+export type SequenceRow =
+  | { type: "message"; from: string; arrow: SequenceArrow; to: string; message: string }
+  | { type: "note"; position: NotePosition; participant: string; text: string };
 
 export type SnippetData =
   | { kind: "heading-1" | "heading-2" | "heading-3" | "heading-4"; text: string }
@@ -99,7 +125,10 @@ export type SnippetData =
   | { kind: "doc-link"; text: string; path: string; title: string }
   | { kind: "anchor-link"; text: string; anchor: string }
   | { kind: "anchor-doc-link"; text: string; path: string; anchor: string }
-  | { kind: "image"; alt: string; url: string; width: Width; align: Align };
+  | { kind: "image"; alt: string; url: string; width: Width; align: Align }
+  | { kind: "mermaid"; chart: MermaidChart; pieTitle: string; pie: { label: string; value: number }[]; timelineTitle: string; timeline: { period: string; event: string }[]; tree: { level: number; label: string; decorator: string; note: string }[]; sequence: SequenceRow[] }
+  | { kind: "columns"; count: number; ratio: string; verticalAlign: "" | "top" | "center" | "bottom" | "stretch"; textAlign: "" | "left" | "center" | "right" | "justify"; gap: "" | "sm" | "md" | "lg"; body: string | null }
+  | { kind: "attachment"; text: string; url: string };
 
 /** The options of the forms, in the order the dialog offers them (the empty value, "default" or "none", left out). */
 export const WIDTHS: readonly Exclude<Width, "">[] = ["full", "3/4", "2/3", "1/2", "1/3", "1/4"];
@@ -108,6 +137,15 @@ export const TABLE_STYLES: readonly Exclude<TableStyle, "">[] = ["intermediate",
 export const TABLE_FILLS: readonly Exclude<TableFill, "">[] = ["striped", "full"];
 export const TABLE_BORDERS: readonly Exclude<TableBorder, "">[] = ["bordered", "soft-bordered"];
 export const TABLE_COLORS: readonly Exclude<TableColor, "">[] = ["info", "success", "warning", "danger", "note"];
+export const MERMAID_CHARTS: readonly MermaidChart[] = ["pie", "timeline", "tree-view", "sequence"];
+export const SEQUENCE_ARROWS: readonly SequenceArrow[] = ["->>", "-->>", "--x", "-x", "-->", "->"];
+export const NOTE_POSITIONS: readonly NotePosition[] = ["left of", "right of", "over"];
+export const COLUMN_COUNTS: readonly number[] = [2, 3, 4];
+export const VERTICAL_ALIGNS: readonly ("top" | "center" | "bottom" | "stretch")[] = ["top", "center", "bottom", "stretch"];
+export const TEXT_ALIGNS: readonly ("left" | "center" | "right" | "justify")[] = ["left", "center", "right", "justify"];
+export const GAPS: readonly ("sm" | "md" | "lg")[] = ["sm", "md", "lg"];
+/** The deepest level of a Mermaid tree view row. */
+export const MAX_TREE_LEVEL = 6;
 export const QUOTE_TYPES: readonly Exclude<QuoteType, "">[] = ["info", "success", "warning", "error"];
 /** Whether `value` is one of `options`. */
 const isOneOf = <T extends string>(options: readonly T[], value: string): value is T => (options as readonly string[]).includes(value);
@@ -164,6 +202,13 @@ export function newSnippet(kind: SnippetKind, texts: SnippetTexts): SnippetData 
     case "anchor-link": return { kind, text: "", anchor: "" };
     case "anchor-doc-link": return { kind, text: "", path: "", anchor: "" };
     case "image": return { kind, alt: "", url: "", width: "", align: "" };
+    case "attachment": return { kind, text: "", url: "" };
+    case "columns": return { kind, count: 2, ratio: "", verticalAlign: "", textAlign: "", gap: "", body: null };
+    case "mermaid": return {
+      kind, chart: "pie", pieTitle: texts.mermaid.pieTitle, pie: texts.mermaid.pie.map((each) => ({ ...each })),
+      timelineTitle: texts.mermaid.timelineTitle, timeline: texts.mermaid.timeline.map((each) => ({ ...each })),
+      tree: texts.mermaid.tree.map((each) => ({ ...each })), sequence: texts.mermaid.sequence.map((each) => ({ ...each })),
+    };
   }
 }
 
@@ -263,6 +308,66 @@ function buildQuote(data: Extract<SnippetData, { kind: "blockquote" }>, texts: S
   return [...directives, ...quoted].join("\n");
 }
 
+type MermaidData = Extract<SnippetData, { kind: "mermaid" }>;
+type ColumnsData = Extract<SnippetData, { kind: "columns" }>;
+
+/** One line: whitespace runs become one space, edges trimmed. */
+const cleanLine = (text: string) => text.replace(/\s+/g, " ").trim();
+const fence = (...lines: string[]) => ["```mermaid", ...lines, "```"].join("\n");
+
+function buildMermaid(data: MermaidData, texts: SnippetTexts): string {
+  switch (data.chart) {
+    case "timeline": {
+      const grouped = new Map<string, string[]>();
+      data.timeline.forEach((row, i) => {
+        const period = cleanLine(row.period) || `${texts.mermaidPeriod} ${i + 1}`;
+        grouped.set(period, [...(grouped.get(period) ?? []), cleanLine(row.event) || `${texts.mermaidEvent} ${i + 1}`]);
+      });
+      return fence("timeline", `    title ${cleanLine(data.timelineTitle) || texts.mermaid.timelineTitle}`, ...[...grouped].map(([period, events]) => `    ${period} : ${events.join(" : ")}`));
+    }
+    case "tree-view":
+      return fence("treeView-beta", ...data.tree.map((row, i) => {
+        const level = Number.isFinite(row.level) ? Math.min(MAX_TREE_LEVEL, Math.max(0, Math.round(row.level))) : 0;
+        const decorator = cleanLine(row.decorator);
+        const note = cleanLine(row.note);
+        return `${" ".repeat((level + 1) * 4)}${cleanLine(row.label) || `${texts.mermaidNode} ${i + 1}`}${decorator ? ` ${decorator}` : ""}${note ? ` ## ${note}` : ""}`;
+      }));
+    case "sequence":
+      return fence("sequenceDiagram", ...data.sequence.map((row, i) => {
+        const message = (value: string) => cleanLine(value) || `${texts.mermaidMessage} ${i + 1}`;
+        const actor = (value: string) => cleanLine(value) || `${texts.mermaidParticipant} ${i + 1}`;
+        if (row.type === "note") return `    Note ${isOneOf(NOTE_POSITIONS, row.position) ? row.position : "right of"} ${actor(row.participant)}: ${message(row.text)}`;
+        return `    ${actor(row.from)} ${isOneOf(SEQUENCE_ARROWS, row.arrow) ? row.arrow : "->>"} ${actor(row.to)}: ${message(row.message)}`;
+      }));
+    case "pie":
+      return fence(`pie title ${cleanLine(data.pieTitle) || texts.mermaid.pieTitle}`, ...data.pie.map((row, i) => {
+        const label = (cleanLine(row.label) || `${texts.mermaidItem} ${i + 1}`).replace(/"/g, '\\"');
+        return `         "${label}" : ${Number.isFinite(row.value) && row.value >= 0 ? String(row.value) : "0"}`;
+      }));
+  }
+}
+
+function buildColumns(data: ColumnsData, texts: SnippetTexts): string {
+  const options = [
+    data.ratio.trim(),
+    data.verticalAlign && data.verticalAlign !== "center" ? `vertical-align: ${data.verticalAlign}` : "",
+    data.textAlign ? `text-align: ${data.textAlign}` : "",
+    data.gap && data.gap !== "md" ? `gap: ${data.gap}` : "",
+  ].filter(Boolean);
+  const header = options.length > 0 ? `<!-- layout-columns: ${options.join(" | ")} -->` : "<!-- layout-columns -->";
+  if (data.body !== null) return `${header}${data.body}<!-- /layout-columns -->`;
+  const count = Math.max(2, Math.min(6, Math.round(Number(data.count)) || 2));
+  const columns = Array.from({ length: count }, (_, i) => `<!-- col -->\n\n${texts.column} ${i + 1}`);
+  return `${header}\n\n${columns.join("\n\n")}\n\n<!-- /layout-columns -->`;
+}
+
+function buildAttachment(data: Extract<SnippetData, { kind: "attachment" }>, texts: SnippetTexts): string {
+  const url = data.url.trim() || texts.attachmentUrl;
+  const name = data.url.trim() === "" ? "" : decode(url.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) ?? "");
+  const text = oneLine(data.text) || name || texts.attachment;
+  return `[📎 ${text.replace(/[[\]\\]/g, "\\$&")}](${url})`;
+}
+
 /** The Markdown of a filled form (formats in the brief; fallbacks from `texts`). No trailing newline. */
 export function buildSnippet(data: SnippetData, texts: SnippetTexts): string {
   switch (data.kind) {
@@ -293,6 +398,9 @@ export function buildSnippet(data: SnippetData, texts: SnippetTexts): string {
       const directives = [width(data.width) ? `<!-- image-width: ${data.width} -->` : "", align(data.align) ? `<!-- image-align: ${data.align} -->` : ""].filter(Boolean);
       return [...directives, `![${data.alt || texts.imageAlt}](${data.url || texts.imageUrl})`].join("\n");
     }
+    case "mermaid": return buildMermaid(data, texts);
+    case "columns": return buildColumns(data, texts);
+    case "attachment": return buildAttachment(data, texts);
   }
 }
 
@@ -404,8 +512,108 @@ function parseImage(markdown: string): SnippetData {
   return { kind: "image", alt: match?.[1] ?? "", url: match?.[2] ?? "", width: width(imageWidth), align: align(imageAlign) };
 }
 
+const SEQUENCE_ARROW = SEQUENCE_ARROWS.map((each) => each.replace(/[-]/g, "\\-")).join("|");
+const SEQUENCE_MESSAGE = new RegExp(`^(.+?) (${SEQUENCE_ARROW}) (.+?): (.+)$`);
+const SEQUENCE_NOTE = /^Note (left of|right of|over) (.+?): (.+)$/;
+const PIE_ROW = /^"((?:[^"\\]|\\.)*)"\s*:\s*(\d+(?:\.\d+)?(?:e[+-]?\d+)?)$/i;
+
+/** The rows of the chart `lines` hold (already past the header), or null when one line is not of the chart's row grammar. */
+function parseRows(chart: MermaidChart, lines: string[], into: MermaidData): boolean {
+  const rows = lines.filter((line) => line.trim() !== "");
+  if (chart === "pie") {
+    const pie: MermaidData["pie"] = [];
+    for (const line of rows) {
+      const match = PIE_ROW.exec(line.trim());
+      if (!match) return false;
+      pie.push({ label: match[1]!.replace(/\\"/g, '"'), value: Number(match[2]) });
+    }
+    into.pie = pie;
+  } else if (chart === "timeline") {
+    let title = "";
+    if (rows[0] && /^\s*title(?:\s+|$)/.test(rows[0])) title = rows.shift()!.trim().replace(/^title\s*/, "");
+    const timeline: MermaidData["timeline"] = [];
+    for (const line of rows) {
+      const [period, ...events] = line.trim().split(/\s+:\s+/);
+      if (!period || events.length === 0 || events.some((each) => each === "") || period.includes(" : ")) return false;
+      for (const event of events) timeline.push({ period, event });
+    }
+    into.timelineTitle = title;
+    into.timeline = timeline;
+  } else if (chart === "tree-view") {
+    const tree: MermaidData["tree"] = [];
+    for (const line of rows) {
+      const indent = /^ */.exec(line)![0].length;
+      if (indent < 4 || indent % 4 !== 0 || indent / 4 - 1 > MAX_TREE_LEVEL || line.includes("\t")) return false;
+      const text = line.slice(indent);
+      const marker = text.indexOf(" ## ");
+      const head = marker < 0 ? text : text.slice(0, marker);
+      const note = marker < 0 ? "" : text.slice(marker + 4);
+      const split = /( :::| icon\()/.exec(head)?.index ?? -1;
+      const label = split < 0 ? head : head.slice(0, split);
+      if (label.trim() === "") return false;
+      tree.push({ level: indent / 4 - 1, label, decorator: split < 0 ? "" : head.slice(split + 1), note });
+    }
+    into.tree = tree;
+  } else {
+    const sequence: SequenceRow[] = [];
+    for (const line of rows) {
+      const text = line.trim();
+      const note = SEQUENCE_NOTE.exec(text);
+      const message = note ? null : SEQUENCE_MESSAGE.exec(text);
+      if (text.startsWith("%%")) return false;
+      if (note) sequence.push({ type: "note", position: note[1] as NotePosition, participant: note[2]!, text: note[3]! });
+      else if (message) sequence.push({ type: "message", from: message[1]!, arrow: message[2] as SequenceArrow, to: message[3]!, message: message[4]! });
+      else return false;
+    }
+    into.sequence = sequence;
+  }
+  return true;
+}
+
+/** The builder rows of a Mermaid block written by the Mermaid Builder, or null when it is not exactly one of its four shapes. The other charts' rows are the examples of `texts` (empty without). */
+export function parseMermaid(markdown: string, texts?: SnippetTexts): MermaidData | null {
+  const lines = markdown.trim().split("\n");
+  const open = /^(`{3,})[ \t]*mermaid[ \t]*$/i.exec(lines[0] ?? "");
+  const close = /^(`{3,})[ \t]*$/.exec(lines.at(-1) ?? "");
+  if (!open || !close || lines.length < 2 || close[1]!.length < open[1]!.length) return null;
+  const content = lines.slice(1, -1);
+  const first = content.findIndex((line) => line.trim() !== "");
+  if (first < 0) return null;
+  const header = content[first]!.trim();
+  const data = newSnippet("mermaid", texts ?? EMPTY_TEXTS) as MermaidData;
+  const pie = /^pie(?:[ \t]+title(?:[ \t]+(.*))?)?$/.exec(header);
+  let chart: MermaidChart;
+  if (pie) {
+    chart = "pie";
+    data.pieTitle = (pie[1] ?? "").trim();
+  } else if (header === "timeline") chart = "timeline";
+  else if (header === "treeView-beta") chart = "tree-view";
+  else if (header === "sequenceDiagram") chart = "sequence";
+  else return null;
+  data.chart = chart;
+  return parseRows(chart, content.slice(first + 1), data) ? data : null;
+}
+
+const EMPTY_TEXTS = { mermaid: { pieTitle: "", pie: [], timelineTitle: "", timeline: [], tree: [], sequence: [] } } as unknown as SnippetTexts;
+
+function parseColumns(markdown: string): ColumnsData {
+  const open = /^<!--([\s\S]*?)-->/.exec(markdown);
+  const comment = open ? parseColumnComment(open[1]!) : null;
+  const options = comment?.kind === "open" ? comment.options : null;
+  const afterOpen = open ? open[0].length : 0;
+  const closing = /<!--\s*\/layout-columns\s*-->\s*$/i.exec(markdown);
+  const body = markdown.slice(afterOpen, closing && closing.index >= afterOpen ? closing.index : markdown.length);
+  const parts = body.split(/<!--\s*col\s*-->/i);
+  const count = Math.max(1, parts.length - 1 + (parts[0]!.trim() === "" ? 0 : 1));
+  const pick = <T extends string>(options_: readonly T[], value: string | null | undefined): T | "" => (value && isOneOf(options_, value) ? value : "");
+  return {
+    kind: "columns", count, ratio: options?.ratio ?? "", body,
+    verticalAlign: pick(VERTICAL_ALIGNS, options?.verticalAlign), textAlign: pick(TEXT_ALIGNS, options?.textAlign), gap: pick(GAPS, options?.gap),
+  };
+}
+
 /** The form state of a snippet of `kind` written as `markdown` (list indentation and quote markers already removed by the caller); the inverse of buildSnippet for every kind. doc-link / anchor-doc-link: `path` = decoded ?doc= id + ".md", title "". Unparseable parts give the newSnippet-like empty values, never throw. */
-export function parseSnippet(kind: SnippetKind, markdown: string): SnippetData {
+export function parseSnippet(kind: SnippetKind, markdown: string, texts?: SnippetTexts): SnippetData {
   const text = markdown.trim();
   switch (kind) {
     case "heading-1": case "heading-2": case "heading-3": case "heading-4":
@@ -451,16 +659,24 @@ export function parseSnippet(kind: SnippetKind, markdown: string): SnippetData {
       return { kind, text: match?.[1] ?? "", path: match ? `${decode(match[2]!)}.md` : "", anchor: match?.[3] ?? "" };
     }
     case "image": return parseImage(text);
+    case "mermaid": return parseMermaid(text, texts) ?? newSnippet("mermaid", texts ?? EMPTY_TEXTS);
+    case "columns": return parseColumns(text);
+    case "attachment": {
+      const match = /^\[📎 ?((?:[^\]\\]|\\[\s\S])*)\]\(([^\n]*)\)$/.exec(text);
+      return { kind, text: (match?.[1] ?? "").replace(/\\([[\]\\])/g, "$1"), url: match?.[2] ?? "" };
+    }
   }
 }
 
-/** The kind whose shape `markdown` has (trimmed), as the original's detectSnippetType did (its order of tests), restricted to the 22 kinds; also recognizes the `<a href=… target="_blank">` link; null otherwise. */
+/** The kind whose shape `markdown` has (trimmed), as the original's detectSnippetType did (its order of tests), restricted to the 25 kinds; also recognizes the `<a href=… target="_blank">` link; null otherwise. */
 export function detectSnippet(markdown: string): SnippetKind | null {
   const t = markdown.trim();
+  if (/^<!--\s*layout-columns\b[\s\S]*<!--\s*\/layout-columns\s*-->$/i.test(t)) return "columns";
   if (/^\[.*?\]\(\?doc=.+#.+\)$/.test(t)) return "anchor-doc-link";
   if (/^\[.*?\]\(\?doc=.+\)$/.test(t)) return "doc-link";
   if (/^\[.*?\]\(#.+\)$/.test(t)) return "anchor-link";
   if (/^<!--\s*image-(?:width|align):/.test(t) || /^!\[.*?\]\(.*?\)$/.test(t)) return "image";
+  if (/^\[📎(?:[^\]\\]|\\[\s\S])*\]\([^\n]*\)$/.test(t)) return "attachment";
   if (/^\[.*?\]\(.*?\)$/.test(t) || /^<a\s[^>]*href=[^>]*>[\s\S]*<\/a>$/i.test(t)) return "link";
   if (/^<details[\s>]/i.test(t)) return "collapsible";
   if (/^<span\s[^>]*color:[^>]*>[\s\S]*<\/span>$/.test(t)) return "colored-text";
@@ -468,6 +684,7 @@ export function detectSnippet(markdown: string): SnippetKind | null {
   if (/^<div\s[^>]*border-left[^>]*>/.test(t)) return "colored-section";
   if (/^```text\n/.test(t) && /[├└│]/.test(t)) return "tree";
   if (/^:::compare[ \t]*\n/.test(t)) return "compare";
+  if (parseMermaid(t) !== null) return "mermaid";
   if (/^<!--\s*(?:code|mermaid)-(?:width|align):/.test(t) || /^```/.test(t)) return "code-block";
   const lines = t.split("\n");
   const body = lines.slice(lines.findIndex((line) => !TABLE_DIRECTIVE.test(line.trim()) && line.trim() !== ""));

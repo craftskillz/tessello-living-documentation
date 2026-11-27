@@ -8,6 +8,7 @@ import { parseDocument } from "../src/lib/document.ts";
 import { applyEdits, type TextRange } from "../src/lib/edits.ts";
 import { openProject } from "../src/lib/project.ts";
 import { renderDocument } from "../src/lib/render.ts";
+import { buildSnippet, parseSnippet } from "../src/lib/snippets.ts";
 import { deleteBlock, insertAfter, replaceBlock, saveSnippet, snippetAt, snippetBlocks } from "../src/lib/snippetBlocks.ts";
 
 /** The article the View shows for `text`. */
@@ -370,5 +371,80 @@ describe("saving a snippet change on a Project", () => {
 
     await assert.rejects(saveSnippet(project, "a.md", base, { kind: "replace", block: heading, markdown: "# Z" }), { code: "quota_exceeded" });
     assert.equal(host.folders.read(disk, "a.md"), DOCUMENT);
+  });
+});
+
+const PIE = '```mermaid\npie title DOC WORKFLOW\n         "Drafting" : 50\n         "Reviewing" : 30\n```';
+const LAYOUT = "<!-- layout-columns: 1/1 -->\n<!-- col -->\nLeft\n<!-- col -->\nRight\n<!-- /layout-columns -->";
+// "<!-- layout-columns: 1/1 -->\n" is 29 characters, "<!-- col -->\n" 13: "Left" is 42-46, "Right" 60-65, the closing comment 66-90.
+const kindsOf = (text: string) => snippetBlocks(text).map((each) => each.kind);
+
+describe("Mermaid, attachment and layout blocks", () => {
+  test("a chart the Mermaid Builder wrote is a mermaid block; any other diagram stays a code block", () => {
+    const block = snippetBlocks(`${PIE}\n`)[0]!;
+    assert.deepEqual({ kind: block.kind, range: block.range, markdown: block.markdown }, { kind: "mermaid", range: { from: 0, to: PIE.length }, markdown: PIE });
+    assert.deepEqual(kindsOf("```mermaid\nsequenceDiagram\n    participant A\n    A ->> B: Hi\n```\n"), ["code-block"]);
+  });
+
+  test("a mermaid block with a width directive is a code block whose range starts at the directive", () => {
+    const text = `Intro\n\n<!-- mermaid-width: full -->\n${PIE}\n`;
+    const [block] = snippetBlocks(text);
+    assert.equal(block!.kind, "code-block");
+    assert.deepEqual(block!.range, { from: 7, to: text.length - 1 });
+    assert.equal(block!.element.from, 36);
+  });
+
+  test("a chart inside a collapsible is a mermaid block", () => {
+    const text = `<details>\n<summary>S</summary>\n\n${PIE}\n\n</details>\n`;
+    assert.ok(kindsOf(text).includes("mermaid"));
+  });
+
+  test("a paragraph that is one link starting with the paperclip is an attachment; a plain link is a link; inside a list it is no block", () => {
+    assert.deepEqual(snippetBlocks("[📎 a.pdf](files/a.pdf)\n\n[a](https://x.y)\n").map((each) => [each.kind, each.markdown]), [["attachment", "[📎 a.pdf](files/a.pdf)"], ["link", "[a](https://x.y)"]]);
+    assert.deepEqual(kindsOf("- [📎 a.pdf](files/a.pdf)\n"), ["unordered-list"]);
+  });
+
+  test("a layout is a block over its comments, and what a column holds is found too", () => {
+    const text = `${LAYOUT}\n`;
+    const [layout] = snippetBlocks(text);
+    assert.deepEqual(layout, { kind: "columns", element: { from: 0, to: 90 }, range: { from: 0, to: 90 }, prefix: "", markdown: LAYOUT });
+    const withTable = `# T\n\n<!-- layout-columns -->\n<!-- col -->\n| a |\n| --- |\n| 1 |\n\n<!-- col -->\nText\n\n<!-- /layout-columns -->\n`;
+    assert.deepEqual(kindsOf(withTable), ["heading-1", "columns", "table"]);
+  });
+
+  test("a click on a paragraph of a column edits the layout, on a table of a column the table", () => {
+    const text = "<!-- layout-columns -->\n<!-- col -->\nText\n\n<!-- col -->\n| a |\n| --- |\n| 1 |\n\n<!-- /layout-columns -->\n";
+    const html = render(text);
+    const layout = srcOf(html, 'div class="ld-columns"');
+    assert.equal(snippetAt(text, [srcOf(html, "p"), layout])!.kind, "columns");
+    assert.equal(snippetAt(text, [srcOf(html, "table"), layout])!.kind, "table");
+  });
+
+  test("a collapsible in a column is picked, not the layout", () => {
+    const text = "<!-- layout-columns -->\n<!-- col -->\n<details>\n<summary>S</summary>\n\nBody\n\n</details>\n\n<!-- col -->\nB\n\n<!-- /layout-columns -->\n";
+    const html = render(text);
+    const layout = srcOf(html, 'div class="ld-columns"');
+    const inner = srcOf(html, "p");
+    assert.equal(snippetAt(text, [inner, srcOf(html, "details"), layout])!.kind, "collapsible");
+  });
+
+  test("the grid's data-src is the layout block's element", () => {
+    const text = `Intro\n\n${LAYOUT}\n\nOutro\n`;
+    assert.deepEqual(srcOf(render(text), 'div class="ld-columns"'), snippetBlocks(text).find((each) => each.kind === "columns")!.element);
+  });
+
+  test("a rebuilt layout changes only its header line", () => {
+    const text = `Intro\n\n${LAYOUT}\n`;
+    const block = snippetBlocks(text).find((each) => each.kind === "columns")!;
+    const data = parseSnippet("columns", block.markdown, {} as never);
+    assert.equal(
+      replaced(text, block, buildSnippet({ ...(data as Extract<typeof data, { kind: "columns" }>), gap: "lg" }, {} as never)),
+      "Intro\n\n<!-- layout-columns: 1/1 | gap: lg -->\n<!-- col -->\nLeft\n<!-- col -->\nRight\n<!-- /layout-columns -->\n",
+    );
+  });
+
+  test("deleting a layout removes all of it and keeps one blank line between its neighbours", () => {
+    const text = `Before\n\n${LAYOUT}\n\nAfter\n`;
+    assert.equal(deleted(text, snippetBlocks(text).find((each) => each.kind === "columns")!), "Before\n\nAfter\n");
   });
 });

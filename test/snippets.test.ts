@@ -3,10 +3,19 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { EMOJI_GROUPS, searchEmojis } from "../src/lib/emojis.ts";
+import { pastedLink } from "../src/lib/pasted.ts";
 import {
   buildSnippet,
   detectSnippet,
   documentHeadings,
+  MAX_TREE_LEVEL,
+  MERMAID_CHARTS,
+  SEQUENCE_ARROWS,
+  NOTE_POSITIONS,
+  COLUMN_COUNTS,
+  VERTICAL_ALIGNS,
+  TEXT_ALIGNS,
+  GAPS,
   EDITABLE_KINDS,
   TABLE_FILLS,
   TABLE_STYLES,
@@ -42,19 +51,57 @@ const texts: SnippetTexts = {
   coloredText: "colored text",
   coloredSection: "colored section",
   kanbanColumns: ["Todo", "Doing", "Done"],
+  column: "Column",
+  attachment: "file",
+  attachmentUrl: "files/file",
+  mermaidItem: "Item",
+  mermaidPeriod: "Period",
+  mermaidEvent: "Event",
+  mermaidNode: "Node",
+  mermaidParticipant: "Participant",
+  mermaidMessage: "Message",
+  mermaid: {
+    pieTitle: "DOC WORKFLOW",
+    pie: [{ label: "Drafting the first version", value: 50 }, { label: "Reviewing with stakeholders", value: 30 }, { label: "Publishing updates", value: 20 }],
+    timelineTitle: "DOCUMENTATION ROADMAP",
+    timeline: [
+      { period: "2023", event: "First living notes" },
+      { period: "2024", event: "Shared review workflow" },
+      { period: "2024", event: "Visual diagram catalog" },
+      { period: "2025", event: "Agent-assisted documentation" },
+      { period: "2026", event: "Workspace automation" },
+    ],
+    tree: [
+      { level: 0, label: "knowledge-workspace/", decorator: "", note: "" },
+      { level: 1, label: "documents/", decorator: "", note: "" },
+      { level: 2, label: "getting-started.md", decorator: "", note: "Start here" },
+      { level: 2, label: "operations.md", decorator: "", note: "" },
+      { level: 1, label: "diagrams/", decorator: "", note: "" },
+      { level: 1, label: "automation.json", decorator: "", note: "Runs on every save" },
+    ],
+    sequence: [
+      { type: "message", from: "Author", arrow: "->>", to: "Reviewer", message: "Request a review" },
+      { type: "message", from: "Reviewer", arrow: "-->>", to: "Author", message: "Send comments" },
+      { type: "note", position: "right of", participant: "Reviewer", text: "Checks the style guide" },
+      { type: "message", from: "Author", arrow: "->>", to: "Reviewer", message: "Send the revised draft" },
+      { type: "message", from: "Reviewer", arrow: "->>", to: "Publisher", message: "Approve the document" },
+      { type: "message", from: "Publisher", arrow: "->>", to: "Author", message: "Document published" },
+      { type: "message", from: "Publisher", arrow: "-->>", to: "Reviewer", message: "Confirm the release" },
+    ],
+  },
 };
 
 const build = (data: SnippetData) => buildSnippet(data, texts);
 
 describe("the picker", () => {
-  test("lists the 22 kinds in four categories, in order", () => {
+  test("lists the 25 kinds in four categories, in order", () => {
     assert.deepEqual(
       SNIPPET_CATEGORIES.map((each) => [each.key, each.kinds.join(" ")]),
       [
-        ["structure", "heading-1 heading-2 heading-3 heading-4 separator collapsible unordered-list ordered-list table kanban"],
-        ["code", "tree code-block compare"],
+        ["structure", "heading-1 heading-2 heading-3 heading-4 separator collapsible columns unordered-list ordered-list table kanban"],
+        ["code", "tree code-block mermaid compare"],
         ["rich-text", "colored-text colored-section blockquote emojis"],
-        ["links-media", "link doc-link anchor-link anchor-doc-link image"],
+        ["links-media", "link doc-link anchor-link anchor-doc-link image attachment"],
       ],
     );
   });
@@ -62,12 +109,12 @@ describe("the picker", () => {
   test("the reading view reopens every kind but emojis and kanban", () => {
     const all = SNIPPET_CATEGORIES.flatMap((each) => each.kinds);
     assert.deepEqual(all.filter((kind) => !EDITABLE_KINDS.has(kind)), ["kanban", "emojis"]);
-    assert.equal(EDITABLE_KINDS.size, 20);
+    assert.equal(EDITABLE_KINDS.size, 23);
   });
 
   test("the dialog shows the Markdown preview only for kinds without their own live preview", () => {
     const shown = SNIPPET_CATEGORIES.flatMap((each) => each.kinds).filter(showsPreview);
-    assert.deepEqual(shown, ["separator", "kanban", "compare", "emojis", "link", "doc-link", "anchor-link", "anchor-doc-link", "image"]);
+    assert.deepEqual(shown, ["separator", "columns", "kanban", "mermaid", "compare", "emojis", "link", "doc-link", "anchor-link", "anchor-doc-link", "image"]);
   });
 });
 
@@ -483,5 +530,215 @@ describe("emoji picker", () => {
   test("fewer than two characters gives every emoji", () => {
     assert.equal(searchEmojis("r").length, 386);
     assert.equal(searchEmojis(" ").length, 386);
+  });
+});
+
+const MERMAID_PIE = '```mermaid\npie title DOC WORKFLOW\n         "Drafting the first version" : 50\n         "Reviewing with stakeholders" : 30\n         "Publishing updates" : 20\n```';
+const MERMAID_TIMELINE = "```mermaid\ntimeline\n    title DOCUMENTATION ROADMAP\n    2023 : First living notes\n    2024 : Shared review workflow : Visual diagram catalog\n    2025 : Agent-assisted documentation\n    2026 : Workspace automation\n```";
+const MERMAID_TREE = "```mermaid\ntreeView-beta\n    knowledge-workspace/\n        documents/\n            getting-started.md ## Start here\n            operations.md\n        diagrams/\n        automation.json ## Runs on every save\n```";
+const MERMAID_SEQUENCE = "```mermaid\nsequenceDiagram\n    Author ->> Reviewer: Request a review\n    Reviewer -->> Author: Send comments\n    Note right of Reviewer: Checks the style guide\n    Author ->> Reviewer: Send the revised draft\n    Reviewer ->> Publisher: Approve the document\n    Publisher ->> Author: Document published\n    Publisher -->> Reviewer: Confirm the release\n```";
+
+type MermaidData = Extract<SnippetData, { kind: "mermaid" }>;
+const mermaid = (changes: Partial<MermaidData>): MermaidData => ({ ...(newSnippet("mermaid", texts) as MermaidData), ...changes });
+type ColumnsData = Extract<SnippetData, { kind: "columns" }>;
+const columnsOf = (changes: Partial<ColumnsData>): ColumnsData => ({ ...(newSnippet("columns", texts) as ColumnsData), ...changes });
+
+describe("the Mermaid Builder", () => {
+  test("a new form starts as a pie with the four examples", () => {
+    const data = newSnippet("mermaid", texts) as MermaidData;
+    assert.equal(data.chart, "pie");
+    assert.equal(data.pie.length, 3);
+    assert.equal(data.timeline.length, 5);
+    assert.equal(data.tree.length, 6);
+    assert.equal(data.sequence.length, 7);
+    assert.equal(build(data), MERMAID_PIE);
+  });
+
+  test("each chart writes its example", () => {
+    assert.equal(build(mermaid({ chart: "timeline" })), MERMAID_TIMELINE);
+    assert.equal(build(mermaid({ chart: "tree-view" })), MERMAID_TREE);
+    assert.equal(build(mermaid({ chart: "sequence" })), MERMAID_SEQUENCE);
+  });
+
+  test("a pie has no total cap, writes a negative weight as 0, escapes quotes, and falls back for empty labels and title", () => {
+    assert.equal(
+      build(mermaid({ pieTitle: "  My   pie \n", pie: [{ label: " A \"b\" ", value: 70 }, { label: "", value: 60 }, { label: "C", value: -5 }, { label: "D", value: NaN }, { label: "E", value: 2.5 }] })),
+      '```mermaid\npie title My pie\n         "A \\"b\\"" : 70\n         "Item 2" : 60\n         "C" : 0\n         "D" : 0\n         "E" : 2.5\n```',
+    );
+    assert.equal(build(mermaid({ pieTitle: " ", pie: [] })), "```mermaid\npie title DOC WORKFLOW\n```");
+  });
+
+  test("a timeline groups events by period in first-seen order and falls back for empty cells", () => {
+    assert.equal(
+      build(mermaid({ chart: "timeline", timelineTitle: "", timeline: [{ period: "2024", event: "a" }, { period: "2023", event: "b" }, { period: "2024", event: "c" }, { period: "", event: "" }] })),
+      "```mermaid\ntimeline\n    title DOCUMENTATION ROADMAP\n    2024 : a : c\n    2023 : b\n    Period 4 : Event 4\n```",
+    );
+  });
+
+  test("a tree view indents by level (clamped to 0..6), with decorator and note", () => {
+    assert.equal(
+      build(mermaid({ chart: "tree-view", tree: [{ level: 9, label: "deep", decorator: ":::folder", note: "n" }, { level: -3, label: "", decorator: "", note: "" }, { level: NaN, label: "x  y", decorator: "", note: "" }] })),
+      "```mermaid\ntreeView-beta\n                            deep :::folder ## n\n    Node 2\n    x y\n```",
+    );
+    assert.equal(MAX_TREE_LEVEL, 6);
+  });
+
+  test("a sequence writes messages and notes, with fallbacks for empty and unknown values", () => {
+    assert.equal(
+      build(mermaid({
+        chart: "sequence",
+        sequence: [
+          { type: "message", from: "A", arrow: "--x", to: "B", message: "hi" },
+          { type: "message", from: "", arrow: "nope" as never, to: "", message: "" },
+          { type: "note", position: "over", participant: "A", text: "t" },
+          { type: "note", position: "nope" as never, participant: "", text: "" },
+        ],
+      })),
+      "```mermaid\nsequenceDiagram\n    A --x B: hi\n    Participant 2 ->> Participant 2: Message 2\n    Note over A: t\n    Note right of Participant 4: Message 4\n```",
+    );
+  });
+
+  test("an empty row list still writes the chart, and reads back", () => {
+    const written = build(mermaid({ chart: "sequence", sequence: [] }));
+    assert.equal(written, "```mermaid\nsequenceDiagram\n```");
+    assert.equal((parseSnippet("mermaid", written, texts) as MermaidData).chart, "sequence");
+  });
+
+  test("the option lists", () => {
+    assert.deepEqual(MERMAID_CHARTS, ["pie", "timeline", "tree-view", "sequence"]);
+    assert.deepEqual(SEQUENCE_ARROWS, ["->>", "-->>", "--x", "-x", "-->", "->"]);
+    assert.deepEqual(NOTE_POSITIONS, ["left of", "right of", "over"]);
+  });
+
+  test("reading a builder chart back fills its rows, the other charts keep the examples", () => {
+    const data = parseSnippet("mermaid", '```mermaid\npie title T\n  "a\\"b"   :   3.5\n  "c" : 0\n```', texts) as MermaidData;
+    assert.equal(data.chart, "pie");
+    assert.equal(data.pieTitle, "T");
+    assert.deepEqual(data.pie, [{ label: 'a"b', value: 3.5 }, { label: "c", value: 0 }]);
+    assert.equal(build({ ...data, chart: "timeline" }), MERMAID_TIMELINE);
+    assert.equal((parseSnippet("mermaid", "```mermaid\ntimeline\n    title T\n    2024 : a : b\n    2024 : c\n```", texts) as MermaidData).timeline.length, 3);
+    const tree = parseSnippet("mermaid", MERMAID_TREE, texts) as MermaidData;
+    assert.deepEqual(tree.tree[2], { level: 2, label: "getting-started.md", decorator: "", note: "Start here" });
+    assert.deepEqual((parseSnippet("mermaid", "```mermaid\ntreeView-beta\n    a :::folder ## n\n```", texts) as MermaidData).tree, [{ level: 0, label: "a", decorator: ":::folder", note: "n" }]);
+    assert.deepEqual((parseSnippet("mermaid", "```mermaid\nsequenceDiagram\n    A -x B: m\n    Note left of B: t\n```", texts) as MermaidData).sequence, [
+      { type: "message", from: "A", arrow: "-x", to: "B", message: "m" },
+      { type: "note", position: "left of", participant: "B", text: "t" },
+    ]);
+  });
+
+  test("a chart that is not a builder shape is not read, and falls back to the example", () => {
+    for (const code of ["sequenceDiagram\n    participant A\n    A ->> B: x", "sequenceDiagram\n    loop every\n    A ->> B: x\n    end", "pie title T\n    %% comment", "flowchart TD\n  A --> B", "", "treeView-beta\n  odd", "timeline\n    title T\n    section S"]) {
+      const markdown = "```mermaid\n" + code + "\n```";
+      assert.equal(detectSnippet(markdown), "code-block", code);
+      assert.equal(build(parseSnippet("mermaid", markdown, texts)), MERMAID_PIE);
+    }
+  });
+});
+
+describe("layout columns", () => {
+  test("a new layout has 2 columns", () => {
+    assert.equal(build(newSnippet("columns", texts)), "<!-- layout-columns -->\n\n<!-- col -->\n\nColumn 1\n\n<!-- col -->\n\nColumn 2\n\n<!-- /layout-columns -->");
+    assert.deepEqual(COLUMN_COUNTS, [2, 3, 4]);
+  });
+
+  test("4 columns with every option, in order", () => {
+    assert.equal(
+      build(columnsOf({ count: 4, ratio: " 2/1/1/1 ", verticalAlign: "top", textAlign: "justify", gap: "lg" })),
+      "<!-- layout-columns: 2/1/1/1 | vertical-align: top | text-align: justify | gap: lg -->\n\n<!-- col -->\n\nColumn 1\n\n<!-- col -->\n\nColumn 2\n\n<!-- col -->\n\nColumn 3\n\n<!-- col -->\n\nColumn 4\n\n<!-- /layout-columns -->",
+    );
+    assert.deepEqual([VERTICAL_ALIGNS, TEXT_ALIGNS, GAPS], [["top", "center", "bottom", "stretch"], ["left", "center", "right", "justify"], ["sm", "md", "lg"]]);
+  });
+
+  test("default options are omitted", () => {
+    assert.equal(build(columnsOf({ verticalAlign: "center", gap: "md" })).split("\n")[0], "<!-- layout-columns -->");
+    assert.equal(build(columnsOf({ gap: "sm" })).split("\n")[0], "<!-- layout-columns: gap: sm -->");
+  });
+
+  test("a reopened layout keeps its columns byte for byte while options change", () => {
+    const source = "<!-- layout-columns: 1/2 -->\n\n<!-- col -->\n\n**Left**   text\n\n<!-- col -->\n\n- a\n- b\n\n<!-- /layout-columns -->";
+    const data = parseSnippet("columns", source) as ColumnsData;
+    assert.deepEqual({ ...data, body: "…" }, { kind: "columns", count: 2, ratio: "1/2", verticalAlign: "", textAlign: "", gap: "", body: "…" });
+    assert.equal(build(data), source);
+    assert.equal(
+      build({ ...data, gap: "lg", ratio: "" }),
+      "<!-- layout-columns: gap: lg -->\n\n<!-- col -->\n\n**Left**   text\n\n<!-- col -->\n\n- a\n- b\n\n<!-- /layout-columns -->",
+    );
+  });
+
+  test("6 columns are counted and kept", () => {
+    const six = "<!-- layout-columns -->\n\n" + [1, 2, 3, 4, 5, 6].map((n) => `<!-- col -->\n\nc${n}`).join("\n\n") + "\n\n<!-- /layout-columns -->";
+    const data = parseSnippet("columns", six) as ColumnsData;
+    assert.equal(data.count, 6);
+    assert.equal(build(data), six);
+  });
+
+  test("content before the first column makes a group", () => {
+    const source = "<!-- layout-columns: vertical-align: bottom | text-align: right -->\n\nintro\n\n<!-- col -->\n\nx\n\n<!-- /layout-columns -->";
+    const data = parseSnippet("columns", source) as ColumnsData;
+    assert.deepEqual([data.count, data.verticalAlign, data.textAlign], [2, "bottom", "right"]);
+    assert.equal(build(data), source);
+  });
+});
+
+describe("attachments", () => {
+  test("a new attachment is empty and writes the fallbacks", () => {
+    assert.deepEqual(newSnippet("attachment", texts), { kind: "attachment", text: "", url: "" });
+    assert.equal(build(newSnippet("attachment", texts)), "[📎 file](files/file)");
+  });
+
+  test("writes what pastedLink writes", () => {
+    assert.equal(build({ kind: "attachment", text: "report.pdf", url: "files/report.pdf" }), "[📎 report.pdf](files/report.pdf)");
+    assert.equal(build({ kind: "attachment", text: "report.pdf", url: "files/report.pdf" }), pastedLink("a.md", "files/report.pdf", "file", "report.pdf"));
+    assert.equal(build({ kind: "attachment", text: "a [b] \\c", url: "files/x" }), pastedLink("a.md", "files/x", "file", "a [b] \\c"));
+    assert.equal(build({ kind: "attachment", text: "a [b] \\c", url: "files/x" }), "[📎 a \\[b\\] \\\\c](files/x)");
+  });
+
+  test("an empty text is the file name of the url", () => {
+    assert.equal(build({ kind: "attachment", text: "", url: "files/my%20report.pdf" }), "[📎 my report.pdf](files/my%20report.pdf)");
+  });
+
+  test("reads text (unescaped) and url back", () => {
+    assert.deepEqual(parseSnippet("attachment", "[📎 a \\[b\\] \\\\c](../files/x%20y.pdf)"), { kind: "attachment", text: "a [b] \\c", url: "../files/x%20y.pdf" });
+  });
+});
+
+describe("detecting the three kinds", () => {
+  test("builder Mermaid is mermaid, but not with a width directive", () => {
+    assert.equal(detectSnippet(MERMAID_PIE), "mermaid");
+    assert.equal(detectSnippet(MERMAID_SEQUENCE), "mermaid");
+    assert.equal(detectSnippet("<!-- mermaid-width: full -->\n" + MERMAID_PIE), "code-block");
+    assert.equal(detectSnippet("```mermaid\nsequenceDiagram\n    participant A\n```"), "code-block");
+    assert.equal(detectSnippet("```js\nx\n```"), "code-block");
+  });
+
+  test("layouts are columns", () => {
+    assert.equal(detectSnippet("<!-- layout-columns -->\n\n<!-- col -->\n\na\n\n<!-- /layout-columns -->"), "columns");
+  });
+
+  test("a paperclip link is an attachment; other links are unchanged", () => {
+    assert.equal(detectSnippet("[📎 report.pdf](files/report.pdf)"), "attachment");
+    assert.equal(detectSnippet("[report](files/report.pdf)"), "link");
+    assert.equal(detectSnippet("![📎 x](img.png)"), "image");
+    assert.equal(detectSnippet("[📎 x](?doc=a)"), "doc-link");
+  });
+});
+
+describe("round trips of the three kinds", () => {
+  test("every output reads back to itself", () => {
+    const outputs = [
+      MERMAID_PIE, MERMAID_TIMELINE, MERMAID_TREE, MERMAID_SEQUENCE,
+      "```mermaid\ntimeline\n    title T\n```",
+      '```mermaid\npie title T\n         "x" : 1e+21\n```',
+      "```mermaid\ntreeView-beta\n    a :::folder\n    b icon(file) ## note\n                            deep\n```",
+      "```mermaid\nsequenceDiagram\n    A -->> B: x: y\n    A --> B: z\n    A -> B: w\n    Note over A: t\n```",
+      "<!-- layout-columns: 1/2 | gap: sm -->\n\n<!-- col -->\n\nx\n\n<!-- /layout-columns -->",
+      "[📎 report.pdf](files/report.pdf)",
+      "[📎 a \\[b\\]](files/x)",
+    ];
+    for (const markdown of outputs) {
+      const kind = detectSnippet(markdown)!;
+      assert.ok(["mermaid", "columns", "attachment"].includes(kind), markdown);
+      assert.equal(buildSnippet(parseSnippet(kind, markdown, texts), texts), markdown);
+    }
   });
 });

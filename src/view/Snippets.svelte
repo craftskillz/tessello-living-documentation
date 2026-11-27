@@ -4,7 +4,7 @@
   import { onMount, tick } from "svelte";
   import { searchEmojis, EMOJI_GROUPS } from "../lib/emojis.ts";
   import { t, type MessageKey } from "../lib/i18n.ts";
-  import { ALIGNS, buildSnippet, KANBAN_COLORS, newSnippet, QUOTE_TYPES, SNIPPET_CATEGORIES, showsPreview, SWATCHES, type Swatch, type SnippetData, type SnippetKind, TABLE_BORDERS, TABLE_COLORS, TABLE_FILLS, TABLE_STYLES, WIDTHS } from "../lib/snippets.ts";
+  import { ALIGNS, buildSnippet, COLUMN_COUNTS, GAPS, KANBAN_COLORS, MAX_TREE_LEVEL, MERMAID_CHARTS, newSnippet, NOTE_POSITIONS, parseSnippet, QUOTE_TYPES, SEQUENCE_ARROWS, SNIPPET_CATEGORIES, showsPreview, SWATCHES, type Swatch, type SnippetData, type SnippetKind, TABLE_BORDERS, TABLE_COLORS, TABLE_FILLS, TABLE_STYLES, TEXT_ALIGNS, VERTICAL_ALIGNS, WIDTHS } from "../lib/snippets.ts";
   import { snippetTexts, type Heading, type SnippetFailure } from "./snippetDialog.ts";
 
   let {
@@ -14,6 +14,7 @@
     headings,
     headingsOf,
     onsubmit,
+    onattach,
     ondelete,
     focusCell,
     onclose,
@@ -29,6 +30,8 @@
     headingsOf: (path: string) => Promise<Heading[]>;
     /** Writes the Markdown; resolves null when done (the dialog closes) or with a failure to show inside the dialog. */
     onsubmit: (markdown: string, data: SnippetData) => Promise<SnippetFailure | null>;
+    /** File attachment: saves the chosen file (under files/) and resolves with the link Markdown, or rejects. */
+    onattach: (file: File) => Promise<string>;
     /** "stay": the User gave up (the confirmation was cancelled), the dialog stays as it is. */
     ondelete?: () => Promise<SnippetFailure | null | "stay">;
     /** A table form opens with this cell focused (a double-click on a cell of the reading view). */
@@ -52,7 +55,7 @@
   const ICONS: Record<SnippetKind, string> = {
     "heading-1": "H1", "heading-2": "H2", "heading-3": "H3", "heading-4": "H4", separator: "―", collapsible: "▸", "unordered-list": "•", "ordered-list": "🔢", table: "▦", kanban: "📋",
     tree: "🌳", "code-block": "💻", compare: "⚡",
-    "colored-text": "🖍", "colored-section": "🎨", blockquote: "❝", emojis: "😀",
+    "colored-text": "🖍", "colored-section": "🎨", blockquote: "❝", emojis: "😀", mermaid: "◌", columns: "🧱", attachment: "📎",
     link: "🔗", "doc-link": "📄", "anchor-link": "⚓", "anchor-doc-link": "📄⚓", image: "🖼",
   };
   const name = (kind: SnippetKind) => t(`snKind_${kind}`);
@@ -88,6 +91,38 @@
     }
   }
   const submit = () => run(() => onsubmit(markdown, $state.snapshot(data!) as SnippetData));
+
+  // ── File attachment ──
+  let fileInput = $state<HTMLInputElement>();
+  /** The file chosen, and its link once saved (so that a Retry after a refused submit does not save it twice). */
+  let attached: { file: File; link: string | null } | null = null;
+  const choosing = $derived(data?.kind === "attachment" && mode === "insert" && fromPicker);
+
+  async function attach(file: File) {
+    attached = { file, link: null };
+    await saveAttached();
+  }
+  async function saveAttached() {
+    const current = attached!;
+    busy = true;
+    failure = null;
+    copied = "";
+    try {
+      if (current.link === null) {
+        try {
+          current.link = await onattach(current.file);
+        } catch {
+          failure = { message: t("snAttachFailed"), copy: null, retry: true };
+          return;
+        }
+      }
+      const result = await onsubmit(current.link, parseSnippet("attachment", current.link));
+      if (result === null) onclose();
+      else failure = result;
+    } finally {
+      busy = false;
+    }
+  }
   const remove = () => run(ondelete!);
 
   async function copy() {
@@ -481,6 +516,112 @@
               <p class="hint muted">{t("snNoHeadings")}</p>
             {/if}
           {/if}
+        {:else if data.kind === "columns"}
+          {@const layout = data}
+          {@const reopened = layout.body !== null}
+          <label class="field">
+            {t("snColumnsCount")}
+            <select bind:value={layout.count} disabled={reopened}>
+              {#each reopened ? [...new Set([...COLUMN_COUNTS, layout.count])].sort((a, b) => a - b) : COLUMN_COUNTS as count (count)}<option value={count}>{count}</option>{/each}
+            </select>
+          </label>
+          {#if reopened}<p class="hint muted">{t("snColumnsKept")}</p>{/if}
+          <label class="field">
+            {t("snVAlign")}
+            <select value={layout.verticalAlign === "center" ? "" : layout.verticalAlign} onchange={(event) => (layout.verticalAlign = event.currentTarget.value as typeof layout.verticalAlign)}>
+              <option value="">{t("snVAlign_center")}</option>
+              {#each VERTICAL_ALIGNS.filter((each) => each !== "center") as align (align)}<option value={align}>{t(`snVAlign_${align}`)}</option>{/each}
+            </select>
+          </label>
+          <label class="field">
+            {t("snTextAlign")}
+            <select bind:value={layout.textAlign}>
+              <option value="">{t("snTextAlignDefault")}</option>
+              {#each TEXT_ALIGNS as align (align)}<option value={align}>{t(`snAlign_${align}`)}</option>{/each}
+            </select>
+          </label>
+          <label class="field">
+            {t("snGap")}
+            <select value={layout.gap === "md" ? "" : layout.gap} onchange={(event) => (layout.gap = event.currentTarget.value as typeof layout.gap)}>
+              <option value="">{t("snGap_md")}</option>
+              {#each GAPS.filter((each) => each !== "md") as gap (gap)}<option value={gap}>{t(`snGap_${gap}`)}</option>{/each}
+            </select>
+          </label>
+          <label class="field">{t("snRatio")}<input type="text" class="mono" bind:value={layout.ratio} placeholder={t("snRatioPlaceholder")} /></label>
+          <p class="hint muted">{t("snLayoutHint")}</p>
+        {:else if data.kind === "mermaid"}
+          {@const chart = data}
+          <label class="field">
+            {t("snMermaidType")}
+            <select bind:value={chart.chart}>
+              {#each MERMAID_CHARTS as each (each)}<option value={each}>{t(`snMermaid_${each}`)}</option>{/each}
+            </select>
+          </label>
+          {#if chart.chart === "pie"}
+            <label class="field">{t("snMermaidTitle")}<input type="text" bind:value={chart.pieTitle} /></label>
+            {#each chart.pie as row, i (i)}
+              <div class="row">
+                <input type="text" aria-label={t("snMmLabel", { n: i + 1 })} bind:value={row.label} />
+                <input type="number" min="0" step="any" class="narrow" aria-label={t("snMmWeight", { n: i + 1 })} bind:value={row.value} />
+                <button type="button" aria-label={t("snMmRemoveRow", { n: i + 1 })} title={t("snRemove")} disabled={chart.pie.length <= 1} onclick={() => chart.pie.splice(i, 1)}>×</button>
+              </div>
+            {/each}
+            <div><button type="button" onclick={() => chart.pie.push({ label: "", value: 10 })}>{t("snMmAddItem")}</button></div>
+          {:else if chart.chart === "timeline"}
+            <label class="field">{t("snMermaidTitle")}<input type="text" bind:value={chart.timelineTitle} /></label>
+            {#each chart.timeline as row, i (i)}
+              <div class="row">
+                <input type="text" class="narrow" aria-label={t("snMmPeriod", { n: i + 1 })} bind:value={row.period} />
+                <input type="text" aria-label={t("snMmEvent", { n: i + 1 })} bind:value={row.event} />
+                <button type="button" aria-label={t("snMmRemoveRow", { n: i + 1 })} title={t("snRemove")} disabled={chart.timeline.length <= 1} onclick={() => chart.timeline.splice(i, 1)}>×</button>
+              </div>
+            {/each}
+            <div><button type="button" onclick={() => chart.timeline.push({ period: chart.timeline.at(-1)?.period ?? "", event: "" })}>{t("snMmAddEvent")}</button></div>
+          {:else if chart.chart === "tree-view"}
+            {#each chart.tree as row, i (i)}
+              <div class="row">
+                <input type="number" min="0" max={MAX_TREE_LEVEL} step="1" class="narrow" aria-label={t("snMmLevel", { n: i + 1 })} bind:value={row.level} />
+                <input type="text" class="mono" aria-label={t("snMmNode", { n: i + 1 })} bind:value={row.label} />
+                <input type="text" class="mono" aria-label={t("snMmDecorator", { n: i + 1 })} placeholder={t("snMmDecoratorPlaceholder")} bind:value={row.decorator} />
+                <input type="text" aria-label={t("snMmNote", { n: i + 1 })} bind:value={row.note} />
+                <button type="button" aria-label={t("snMmRemoveRow", { n: i + 1 })} title={t("snRemove")} disabled={chart.tree.length <= 1} onclick={() => chart.tree.splice(i, 1)}>×</button>
+              </div>
+            {/each}
+            <div><button type="button" onclick={() => chart.tree.push({ level: Math.min(MAX_TREE_LEVEL, chart.tree.at(-1)?.level ?? 0), label: "", decorator: "", note: "" })}>{t("snMmAddNode")}</button></div>
+          {:else}
+            {#each chart.sequence as row, i (i)}
+              <div class="row">
+                {#if row.type === "message"}
+                  <input type="text" aria-label={t("snMmFrom", { n: i + 1 })} bind:value={row.from} />
+                  <select aria-label={t("snMmArrow", { n: i + 1 })} bind:value={row.arrow}>
+                    {#each SEQUENCE_ARROWS as arrow (arrow)}<option value={arrow}>{arrow}</option>{/each}
+                  </select>
+                  <input type="text" aria-label={t("snMmTo", { n: i + 1 })} bind:value={row.to} />
+                  <input type="text" aria-label={t("snMmMessage", { n: i + 1 })} bind:value={row.message} />
+                {:else}
+                  <select aria-label={t("snMmNotePosition", { n: i + 1 })} bind:value={row.position}>
+                    {#each NOTE_POSITIONS as position (position)}<option value={position}>{t(`snMmPos_${position.split(" ")[0] as "left" | "right" | "over"}`)}</option>{/each}
+                  </select>
+                  <input type="text" aria-label={t("snMmParticipant", { n: i + 1 })} bind:value={row.participant} />
+                  <input type="text" aria-label={t("snMmNoteText", { n: i + 1 })} bind:value={row.text} />
+                {/if}
+                <button type="button" aria-label={t("snMmRemoveRow", { n: i + 1 })} title={t("snRemove")} disabled={chart.sequence.length <= 1} onclick={() => chart.sequence.splice(i, 1)}>×</button>
+              </div>
+            {/each}
+            <div class="actions">
+              <button type="button" onclick={() => chart.sequence.push({ type: "message", from: "", arrow: "->>", to: "", message: "" })}>{t("snMmAddMessage")}</button>
+              <button type="button" onclick={() => chart.sequence.push({ type: "note", position: "right of", participant: "", text: "" })}>{t("snMmAddNote")}</button>
+            </div>
+          {/if}
+        {:else if data.kind === "attachment"}
+          {@const attachment = data}
+          {#if choosing}
+            <p class="hint muted">{t("snAttachHelp")}</p>
+            <p class="hint muted">{t("snAttachTip")}</p>
+          {:else}
+            <label class="field">{t("snAttachText")}<input type="text" bind:value={attachment.text} placeholder={texts.attachment} /></label>
+            <label class="field">{t("snAttachTarget")}<input type="text" class="mono" bind:value={attachment.url} placeholder={texts.attachmentUrl} /></label>
+          {/if}
         {:else if data.kind === "image"}
           <label class="field">
             {t("snWidth")}
@@ -512,7 +653,7 @@
         <div class="failure">
           <p class="invalid" role="alert">{failure.message}</p>
           <div class="actions">
-            {#if failure.retry}<button type="button" disabled={busy} onclick={() => void (ondelete && mode === "edit" && lastWasDelete ? remove() : submit())}>{t("snRetry")}</button>{/if}
+            {#if failure.retry}<button type="button" disabled={busy} onclick={() => void (ondelete && mode === "edit" && lastWasDelete ? remove() : attached ? saveAttached() : submit())}>{t("snRetry")}</button>{/if}
             {#if failure.copy !== null}<button type="button" onclick={() => void copy()}>{t("snCopyMarkdown")}</button>{/if}
             {#if copied === "done"}<span class="muted" role="status">{t("snCopied")}</span>{/if}
             {#if copied === "failed"}<span class="invalid" role="alert">{t("snCopyFailed")}</span>{/if}
@@ -520,10 +661,25 @@
         </div>
       {/if}
 
+      {#if choosing}
+        <input
+          type="file"
+          class="hidden"
+          tabindex="-1"
+          aria-hidden="true"
+          bind:this={fileInput}
+          onchange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            if (file) void attach(file);
+          }}
+        />
+      {/if}
+
       <div class="actions end">
         {#if mode === "edit" && ondelete}<button type="button" class="danger" disabled={busy} onclick={() => ((lastWasDelete = true), void remove())}>{t("snDelete")}</button>{/if}
         <button type="button" disabled={busy} onclick={onclose}>{t("snCancel")}</button>
-        <button type="button" class="primary" disabled={busy} onclick={() => ((lastWasDelete = false), void submit())}>{mode === "insert" ? t("snInsert") : t("snSave")}</button>
+        <button type="button" class="primary" disabled={busy} onclick={() => ((lastWasDelete = false), choosing ? (attached && failure ? void saveAttached() : fileInput?.click()) : void submit())}>{mode === "insert" ? t("snInsert") : t("snSave")}</button>
       </div>
     {/if}
   </div>
@@ -605,6 +761,12 @@
   .row input {
     flex: 1;
     min-width: 0;
+  }
+  .narrow {
+    flex: 0 0 6rem;
+  }
+  .hidden {
+    display: none;
   }
   .depth {
     min-width: 1.2em;

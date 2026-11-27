@@ -43,7 +43,7 @@
   import Editor from "./Editor.svelte";
   import Snippets from "./Snippets.svelte";
   import { saveSnippet, type SnippetBlock, type SnippetChange } from "../lib/snippetBlocks.ts";
-  import { isBlock, type SnippetFailure } from "./snippetDialog.ts";
+  import { isBlock, snippetTexts, type SnippetFailure } from "./snippetDialog.ts";
   import { detectSnippet, documentHeadings, parseSnippet, type SnippetData } from "../lib/snippets.ts";
   import Favorites from "./Favorites.svelte";
   import TemplatesMenu from "./TemplatesMenu.svelte";
@@ -1182,7 +1182,7 @@
     const editor = session?.kind === "section" ? sectionEditor : mainEditor;
     const selected = editor?.selection() ?? "";
     const kind = selected.trim() === "" ? null : detectSnippet(selected);
-    snippets = { editor, start: kind ? { kind: "form", data: parseSnippet(kind, selected) } : { kind: "picker" } };
+    snippets = { editor, start: kind ? { kind: "form", data: parseSnippet(kind, selected, snippetTexts()) } : { kind: "picker" } };
   }
 
   /**
@@ -1209,7 +1209,7 @@
 
   function editBlock(base: DocumentText, block: SnippetBlock, focusCell?: { row: number; column: number }) {
     blockDeletionConfirmed = false;
-    blockDialog = { base, place: { kind: "replace", block, markdown: "" }, start: { kind: "form", data: parseSnippet(block.kind, block.markdown) }, mode: "edit", focusCell };
+    blockDialog = { base, place: { kind: "replace", block, markdown: "" }, start: { kind: "form", data: parseSnippet(block.kind, block.markdown, snippetTexts()) }, mode: "edit", focusCell };
   }
 
   /** Saves `change` on `base`: what the dialog shows when it did not work, null when saved. `message` tells the failure when there is no dialog. */
@@ -1417,6 +1417,13 @@
       }
     }
     return links.length > 0 ? links.join("\n") : null;
+  }
+
+  /** File attachment: saves `file` under files/ as a pasted file (never as an image) and resolves with its link; rejects on failure. */
+  async function attachFile(file: File): Promise<string> {
+    const documentPath = path;
+    if (!project || documentPath === null) throw new Error("no document");
+    return saveFile(file, new Uint8Array(await file.arrayBuffer()), documentPath);
   }
 
   async function saveFile(file: File, bytes: Uint8Array, documentPath: string): Promise<string> {
@@ -2390,6 +2397,7 @@
     documents={documentsIn(tree).map(({ path, title }) => ({ path, title }))}
     headings={documentHeadings(composed(draft))}
     headingsOf={async (target) => documentHeadings((await project!.read(target)).text)}
+    onattach={attachFile}
     onsubmit={async (markdown, data) => {
       editor?.replaceSelection(markdown, isBlock(data.kind));
       return null;
@@ -2408,6 +2416,7 @@
     documents={documentsIn(tree).map(({ path, title }) => ({ path, title }))}
     headings={documentHeadings(blockDialog.base.text)}
     headingsOf={async (target) => documentHeadings((await project!.read(target)).text)}
+    onattach={attachFile}
     onsubmit={submitBlock}
     ondelete={blockDialog.mode === "edit" ? deleteBlockInDialog : undefined}
     focusCell={blockDialog.focusCell}

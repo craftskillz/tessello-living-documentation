@@ -203,7 +203,7 @@ describe("column layouts", () => {
     // "<!-- layout-columns: 2/1 -->\n" is 29 characters, "<!-- col -->\n" is 13: "Left" is 42-46.
     assert.equal(
       render(COLS("layout-columns: 2/1", "Left", "Right")),
-      '<div class="ld-columns" style="grid-template-columns: 2fr 1fr;"><div class="ld-column"><p data-src="42-46">Left</p></div><div class="ld-column"><p data-src="60-65">Right</p></div></div>',
+      '<div class="ld-columns" style="grid-template-columns: 2fr 1fr;" data-src="0-90"><div class="ld-column"><p data-src="42-46">Left</p></div><div class="ld-column"><p data-src="60-65">Right</p></div></div>',
     );
   });
 
@@ -214,7 +214,7 @@ describe("column layouts", () => {
 
   test("three columns", () => {
     const html = render(COLS("layout-columns: 1/2/1", "A", "B", "C"));
-    assert.match(html, /^<div class="ld-columns" style="grid-template-columns: 1fr 2fr 1fr;">/);
+    assert.match(html, /^<div class="ld-columns" style="grid-template-columns: 1fr 2fr 1fr;" data-src="\d+-\d+">/);
     assert.equal(html.match(/<div class="ld-column">/g)?.length, 3);
   });
 
@@ -230,12 +230,17 @@ describe("column layouts", () => {
   test("options become classes", () => {
     assert.match(
       render(COLS("layout-columns: 1/1 | vertical-align: center | text-align: justify | gap: lg", "A", "B")),
-      /^<div class="ld-columns ld-valign-center ld-text-justify ld-gap-lg" style="grid-template-columns: 1fr 1fr;">/,
+      /^<div class="ld-columns ld-valign-center ld-text-justify ld-gap-lg" style="grid-template-columns: 1fr 1fr;" data-src="\d+-\d+">/,
     );
   });
 
   test("invalid options are ignored", () => {
     assert.match(render(COLS("layout-columns: 1/1 | vertical-align: middle | gap: xl", "A", "B")), /^<div class="ld-columns" style=/);
+  });
+
+  test("the grid's data-src runs from the opening comment to the end of the closing comment", () => {
+    // "Intro\n\n" is 7 characters; the layout of the first test is 90 long ("<!-- /layout-columns -->" ends it): 7-97.
+    assert.match(render("Intro\n\n" + COLS("layout-columns: 2/1", "Left", "Right")), /<div class="ld-columns" style="grid-template-columns: 2fr 1fr;" data-src="7-97">/);
   });
 
   test("without a closing comment the blocks stay as they are and no comment is output", () => {

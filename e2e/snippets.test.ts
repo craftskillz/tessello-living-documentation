@@ -455,3 +455,226 @@ describe("block actions in the reading view", () => {
     assert.equal(page.url(), address);
   });
 });
+
+describe("Snippets II: Mermaid, Layout and File attachment", () => {
+  const fence = (...lines: string[]) => ["```mermaid", ...lines, "```"].join("\n");
+  const pie = (title: string, ...rows: [string, number][]) => fence(`pie title ${title}`, ...rows.map(([label, value]) => `         "${label}" : ${value}`));
+
+  test("a Mermaid pie from the picker: title and weights are written, no cap", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n\nFirst.\n" });
+    const address = page.url();
+    await startEditing(page);
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("button", { name: "Mermaid", exact: true }).click();
+    assert.equal(await dialog.getByLabel("Type").inputValue(), "pie");
+    await dialog.getByLabel("Title", { exact: true }).fill("MY PIE");
+    await dialog.getByLabel("Weight 1", { exact: true }).fill("70");
+    await dialog.getByLabel("Weight 2", { exact: true }).fill("60");
+    await dialog.getByLabel("Weight 3", { exact: true }).fill("");
+    await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+    const expected = pie("MY PIE", ["Drafting the first version", 70], ["Reviewing with stakeholders", 60], ["Publishing updates", 0]);
+    await until(() => host.folders.read(disk, "a.md") === `# A\n\nFirst.\n\n${expected}\n`, "the pie on disk");
+    assert.equal(page.url(), address);
+  });
+
+  test("the last row of a list cannot be removed; Add item adds one", async () => {
+    const { page } = await withProject({ "a.md": "# A\n" });
+    const address = page.url();
+    await startEditing(page);
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("button", { name: "Mermaid", exact: true }).click();
+    await dialog.getByRole("button", { name: "Remove row 3" }).click();
+    await dialog.getByRole("button", { name: "Remove row 2" }).click();
+    assert.equal(await dialog.getByRole("button", { name: "Remove row 1" }).isDisabled(), true);
+    await dialog.getByRole("button", { name: "Add item" }).click();
+    assert.equal(await dialog.getByLabel("Label 2", { exact: true }).count(), 1);
+    assert.equal(page.url(), address);
+  });
+
+  test("a Sequence diagram with an added note writes the Note line", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n" });
+    const address = page.url();
+    await startEditing(page);
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("button", { name: "Mermaid", exact: true }).click();
+    await dialog.getByLabel("Type").selectOption({ label: "Sequence diagram" });
+    await dialog.getByRole("button", { name: "Add note" }).click();
+    await dialog.getByLabel("Note position 8", { exact: true }).selectOption({ label: "Over" });
+    await dialog.getByLabel("Participant 8", { exact: true }).fill("Author");
+    await dialog.getByLabel("Note text 8", { exact: true }).fill("Thinks");
+    await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+    await until(() => host.folders.read(disk, "a.md")?.includes("    Note over Author: Thinks\n```") === true, "the note on disk");
+    assert.equal(page.url(), address);
+  });
+
+  test("Timeline and Tree view rows are written", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n" });
+    const address = page.url();
+    await startEditing(page);
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("button", { name: "Mermaid", exact: true }).click();
+    await dialog.getByLabel("Type").selectOption({ label: "Tree view" });
+    await dialog.getByLabel("Decorator 1", { exact: true }).fill(":::highlight");
+    await dialog.getByRole("button", { name: "Add node" }).click();
+    await dialog.getByLabel("Node 7", { exact: true }).fill("extra.md");
+    await dialog.getByLabel("Level 7", { exact: true }).fill("2");
+    await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+    await until(() => {
+      const text = host.folders.read(disk, "a.md") ?? "";
+      return text.includes("treeView-beta\n    knowledge-workspace/ :::highlight\n") && text.includes("            extra.md\n```");
+    }, "the tree on disk");
+    assert.equal(page.url(), address);
+  });
+
+  test("right-click a builder pie: Edit Mermaid chart reopens on Pie; Save changes only that block", async () => {
+    const block = pie("TITLE", ["Alpha", 40], ["Beta", 60]);
+    const source = `# A\n\nBefore.\n\n${block}\n\nAfter.\n`;
+    const { page, host, disk } = await withProject({ "a.md": source });
+    const address = page.url();
+    await page.locator(".ld-mermaid").first().click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit Mermaid chart" }).click();
+    const dialog = edit(page);
+    await dialog.waitFor();
+    assert.equal(await dialog.getByLabel("Type").inputValue(), "pie");
+    assert.equal(await dialog.getByLabel("Label 1", { exact: true }).inputValue(), "Alpha");
+    assert.equal(await dialog.getByLabel("Weight 2", { exact: true }).inputValue(), "60");
+    await dialog.getByLabel("Label 1", { exact: true }).fill("Gamma");
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await until(() => host.folders.read(disk, "a.md") === source.replace("Alpha", "Gamma"), "only the pie changed");
+    assert.equal(page.url(), address);
+  });
+
+  test("a Mermaid block with a participant line reopens as a code block", async () => {
+    const { page } = await withProject({ "a.md": `# A\n\n${fence("sequenceDiagram", "    participant A", "    A->>B: hi")}\n` });
+    const address = page.url();
+    await page.locator(".ld-mermaid").first().click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit code block" }).waitFor();
+    assert.equal(await page.getByRole("menuitem", { name: "Edit Mermaid chart" }).count(), 0);
+    assert.equal(page.url(), address);
+  });
+
+  test("a Layout of 3 columns, gap Large, vertical align Top is written", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n\nFirst.\n" });
+    const address = page.url();
+    await startEditing(page);
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("button", { name: "Layout", exact: true }).click();
+    assert.equal(await dialog.getByLabel("Vertical align").locator("option:checked").innerText(), "Center");
+    assert.equal(await dialog.getByLabel("Gap").locator("option:checked").innerText(), "Medium");
+    await dialog.getByLabel("Columns").selectOption("3");
+    await dialog.getByLabel("Gap").selectOption({ label: "Large" });
+    await dialog.getByLabel("Vertical align").selectOption({ label: "Top" });
+    await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+    const layout = "<!-- layout-columns: vertical-align: top | gap: lg -->\n\n<!-- col -->\n\nColumn 1\n\n<!-- col -->\n\nColumn 2\n\n<!-- col -->\n\nColumn 3\n\n<!-- /layout-columns -->";
+    await until(() => host.folders.read(disk, "a.md") === `# A\n\nFirst.\n\n${layout}\n`, "the layout on disk");
+    assert.equal(page.url(), address);
+  });
+
+  test("a reopened Layout: Columns is disabled, Gap changes the header, the columns stay byte-identical", async () => {
+    const source = "# A\n\n<!-- layout-columns: gap: sm -->\n\n<!-- col -->\n\nLeft *text*\n\n<!-- col -->\n\nRight text\n\n<!-- /layout-columns -->\n\nAfter.\n";
+    const { page, host, disk } = await withProject({ "a.md": source });
+    const address = page.url();
+    await page.getByText("Right text").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit layout" }).click();
+    const dialog = edit(page);
+    await dialog.waitFor();
+    assert.equal(await dialog.getByLabel("Columns").isDisabled(), true);
+    assert.equal(await dialog.getByLabel("Columns").locator("option:checked").innerText(), "2");
+    assert.equal(await dialog.getByLabel("Gap").locator("option:checked").innerText(), "Small");
+    await dialog.getByLabel("Gap").selectOption({ label: "Large" });
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await until(() => host.folders.read(disk, "a.md") === source.replace("gap: sm", "gap: lg"), "only the header changed");
+    assert.equal(page.url(), address);
+  });
+
+  const chooseFile = async (page: Page, dialog: ReturnType<Page["getByRole"]>, name: string, text: string) => {
+    const chooser = page.waitForEvent("filechooser");
+    await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+    await (await chooser).setFiles({ name, mimeType: "text/plain", buffer: Buffer.from(text) });
+  };
+
+  test("File attachment from Insert a snippet here saves under files/ and links after the clicked block", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n\nFirst.\n\nSecond.\n" });
+    const address = page.url();
+    await page.getByText("First.").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Insert a snippet here" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("button", { name: "File attachment" }).click();
+    await dialog.getByText("Click Insert to choose a file.", { exact: false }).waitFor();
+    await dialog.getByText("Tip: you can also drop a file onto the editor, or paste it.").waitFor();
+    await chooseFile(page, dialog, "notes.txt", "hello");
+    await until(() => host.folders.read(disk, "a.md") === "# A\n\nFirst.\n\n[📎 notes.txt](files/notes.txt)\n\nSecond.\n", "the link after the block");
+    assert.equal(host.folders.read(disk, "files/notes.txt"), "hello");
+    assert.equal(page.url(), address);
+  });
+
+  test("File attachment from the editor's Snippets button inserts the link at the caret", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n\nNotes: " });
+    const address = page.url();
+    await startEditing(page);
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("button", { name: "File attachment" }).click();
+    await chooseFile(page, dialog, "plan.png", "not really an image");
+    await until(() => host.folders.read(disk, "a.md")?.includes("Notes: [📎 plan.png](files/plan.png)") === true, "the link at the caret");
+    assert.equal(host.folders.read(disk, "files/plan.png"), "not really an image");
+    assert.equal(page.url(), address);
+  });
+
+  test("a file the disk refuses shows the translated failure with Retry", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n\nFirst.\n" });
+    const address = page.url();
+    await page.getByText("First.").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Insert a snippet here" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("button", { name: "File attachment" }).click();
+    host.folders.restart();
+    await chooseFile(page, dialog, "notes.txt", "hello");
+    await dialog.getByText("The file could not be saved.").waitFor();
+    await dialog.getByRole("button", { name: "Retry" }).waitFor();
+    assert.equal(host.folders.read(disk, "files/notes.txt"), null);
+    assert.equal(page.url(), address);
+  });
+
+  test("a reopened attachment edits its text and target", async () => {
+    const source = "# A\n\n[📎 old.txt](files/old.txt)\n\nAfter.\n";
+    const { page, host, disk } = await withProject({ "a.md": source });
+    const address = page.url();
+    await page.getByRole("link", { name: "📎 old.txt" }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit attachment" }).click();
+    const dialog = edit(page);
+    assert.equal(await dialog.getByLabel("Link text", { exact: true }).inputValue(), "old.txt");
+    assert.equal(await dialog.getByLabel("Target", { exact: true }).inputValue(), "files/old.txt");
+    assert.equal(await dialog.getByText("Click Insert to choose a file.", { exact: false }).count(), 0);
+    await dialog.getByLabel("Link text", { exact: true }).fill("The plan");
+    await dialog.getByLabel("Target", { exact: true }).fill("files/plan.pdf");
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await until(() => host.folders.read(disk, "a.md") === "# A\n\n[📎 The plan](files/plan.pdf)\n\nAfter.\n", "the attachment edited");
+    assert.equal(page.url(), address);
+  });
+
+  test("in French, the Mermaid and Layout forms and the menu entry are French", async () => {
+    const { page } = await withProject({ "a.md": "# A\n\n<!-- layout-columns -->\n\n<!-- col -->\n\nGauche\n\n<!-- col -->\n\nDroite\n\n<!-- /layout-columns -->\n" }, { locale: "fr" });
+    const address = page.url();
+    await page.getByText("Droite").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Éditer la mise en page" }).click();
+    const reopened = page.getByRole("dialog", { name: "Modifier le snippet" });
+    await reopened.getByLabel("Alignement vertical").waitFor();
+    await reopened.getByLabel("Espacement").waitFor();
+    await reopened.getByRole("button", { name: "Annuler" }).click();
+
+    await page.getByRole("button", { name: "Modifier", exact: true }).click();
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page, "🧩 Insérer un snippet");
+    await dialog.getByRole("button", { name: "Mermaid", exact: true }).click();
+    await dialog.getByRole("button", { name: "Ajouter un élément" }).waitFor();
+    await dialog.getByLabel("Type").selectOption({ label: "Diagramme de séquence" });
+    await dialog.getByRole("button", { name: "Ajouter une note" }).waitFor();
+    assert.equal(page.url(), address);
+  });
+});

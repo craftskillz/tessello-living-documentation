@@ -249,6 +249,12 @@ describe("standalone mode", () => {
     assert.match(page.html, /<svg><\/svg>[\s\S]*<pre><code>B-->C<\/code><\/pre>/);
   });
 
+  test("a column layout carries no source range", () => {
+    const page = build("## One\n\n<!-- layout-columns -->\n<!-- col -->\nLeft\n<!-- col -->\nRight\n<!-- /layout-columns -->\n", { standalone: standalone() });
+    assert.match(page.html, /<div class="ld-columns"/);
+    assert.doesNotMatch(page.html, /data-src/);
+  });
+
   test("source ranges are removed", () => {
     const page = build("# T\n\nLead <todo>\n\n## One\n\n- a\n", { standalone: standalone() });
     assert.doesNotMatch(page.html, /data-src/);

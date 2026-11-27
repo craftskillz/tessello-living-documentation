@@ -366,7 +366,7 @@ function remarkDirectives() {
   return (tree: MdastRoot, file: { data: object }) => {
     const { compares } = file.data as Pass;
     htmlSnippets(tree, (file.data as Pass).bodyStart);
-    columns(tree);
+    columns(tree, (file.data as Pass).bodyStart);
     if ((file.data as Pass).kanban) kanbanPreview(tree, (file.data as Pass).board);
     tagMarkers(tree, file.data as Pass);
     directives(tree, compares);
@@ -725,7 +725,7 @@ function tagMarkers(root: MdastRoot, { text, documentText, bodyStart }: Pass): v
 }
 
 /** Wraps the blocks between `layout-columns` and `/layout-columns` (top level only) in a grid of column divs. */
-function columns(root: MdastRoot): void {
+function columns(root: MdastRoot, bodyStart: number): void {
   const out: Nodes[] = [];
   const nodes = root.children as Nodes[];
   for (let at = 0; at < nodes.length; at++) {
@@ -740,6 +740,7 @@ function columns(root: MdastRoot): void {
       if (parseColumnComment(commentOf(node) ?? "\0")?.kind === "column") groups.push([]);
       else (groups.at(-1) ?? groups[groups.push([]) - 1]!).push(node);
     }
+    const openAt = at;
     at = close;
     if (groups.length === 0) continue;
     const { ratio, verticalAlign, textAlign, gap } = open.options;
@@ -751,6 +752,7 @@ function columns(root: MdastRoot): void {
         hProperties: {
           className: ["ld-columns", ...(verticalAlign ? [`ld-valign-${verticalAlign}`] : []), ...(textAlign ? [`ld-text-${textAlign}`] : []), ...(gap ? [`ld-gap-${gap}`] : [])],
           style: `grid-template-columns: ${gridTemplate(ratio, groups.length)};`,
+          dataSrc: `${bodyStart + nodes[openAt]!.position!.start.offset!}-${bodyStart + nodes[close]!.position!.end.offset!}`,
         },
       },
     } as never);

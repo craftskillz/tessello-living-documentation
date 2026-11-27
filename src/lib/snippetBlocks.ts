@@ -7,7 +7,7 @@ import type { Html, List, Nodes, Paragraph, Parents, Root } from "mdast";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
-import { parseDirective } from "./directives.ts";
+import { parseColumnComment, parseDirective } from "./directives.ts";
 import { parseDocument } from "./document.ts";
 import { applyEdits, type TextEdit, type TextRange } from "./edits.ts";
 import { Conflict, type DocumentText, type Project } from "./project.ts";
@@ -32,7 +32,7 @@ type Place = "root" | "quote" | "deep";
 const parser = unified().use(remarkParse).use(remarkGfm);
 
 /** Kinds that take directive comments before them. */
-const WITH_DIRECTIVES: ReadonlySet<SnippetKind> = new Set(["table", "image", "code-block", "tree", "blockquote"]);
+const WITH_DIRECTIVES: ReadonlySet<SnippetKind> = new Set(["table", "image", "code-block", "tree", "blockquote", "mermaid"]);
 
 /** The Markdown of the blocks of `text`, in text order. */
 export function snippetBlocks(text: string): SnippetBlock[] {
@@ -67,6 +67,17 @@ export function snippetBlocks(text: string): SnippetBlock[] {
   };
   visit(tree, "root");
 
+  // Layouts, paired as render's columns() does: an opening comment up to the first closing comment after it, top level only.
+  const top = tree.children as Nodes[];
+  const commentKind = (node: Nodes) => parseColumnComment(node.type === "html" ? /^<!--([\s\S]*?)-->$/.exec((node as Html).value.trim())?.[1] ?? "\0" : "\0")?.kind;
+  for (let at = 0; at < top.length; at++) {
+    if (commentKind(top[at]!) !== "open") continue;
+    const close = top.findIndex((each, index) => index > at && commentKind(each) === "close");
+    if (close < 0) continue;
+    if (close > at + 1) add("columns", { from: bodyStart + top[at]!.position!.start.offset!, to: bodyStart + top[close]!.position!.end.offset! }, bodyStart + top[at]!.position!.start.offset!);
+    at = close;
+  }
+
   return found.sort((a, b) => a.range.from - b.range.from || b.range.to - a.range.to);
 }
 
@@ -99,6 +110,7 @@ function kindOf(node: Nodes, text: string, element: TextRange, place: Place): Sn
 function paragraphKind(node: Paragraph, source: string): SnippetKind | null {
   const [only, ...others] = node.children;
   if (only && others.length === 0 && only.type === "link" && source.startsWith("[")) {
+    if (source.startsWith("[📎")) return "attachment";
     return only.url.startsWith("?doc=") ? (only.url.includes("#") ? "anchor-doc-link" : "doc-link") : only.url.startsWith("#") ? "anchor-link" : "link";
   }
   if (only && others.length === 0 && only.type === "image") return "image";
@@ -113,7 +125,8 @@ function directivesStart(children: Nodes[], index: number, bodyStart: number): n
   for (let at = index - 1; at >= 0; at--) {
     const node = children[at]!;
     const comment = node.type === "html" ? /^<!--([\s\S]*?)-->$/.exec((node as Html).value.trim())?.[1] : undefined;
-    if (comment === undefined || !parseDirective(comment)) break;
+    // The layout's own comments are not directives of the block after them.
+    if (comment === undefined || parseColumnComment(comment) || !parseDirective(comment)) break;
     from = bodyStart + node.position!.start.offset!;
   }
   return from;
@@ -127,10 +140,11 @@ function make(text: string, kind: SnippetKind, element: TextRange, from: number)
   const markdown = unprefixed(text.slice(from, element.to), prefix);
   const detected = detectSnippet(markdown);
   const confirmed = detected === kind || kind === "unordered-list" || kind === "ordered-list" || kind === "blockquote"
-    || (kind === "code-block" && (detected === "tree" || detected === "code-block"))
+    || (kind === "code-block" && (detected === "tree" || detected === "code-block" || detected === "mermaid"))
     || (kind === "tree" && detected === "code-block")
+    || (kind === "attachment" && detected === "attachment")
     || kind === "compare" || kind === "colored-section" || kind === "collapsible";
-  const final = kind === "code-block" && detected === "tree" ? "tree" : kind === "tree" && detected === "code-block" ? "code-block" : kind;
+  const final = kind === "code-block" && detected === "tree" ? "tree" : kind === "code-block" && detected === "mermaid" ? "mermaid" : kind === "tree" && detected === "code-block" ? "code-block" : kind;
   if (!confirmed || !EDITABLE_KINDS.has(final)) return null;
   return { kind: final, element, range: { from, to: element.to }, prefix, markdown };
 }
