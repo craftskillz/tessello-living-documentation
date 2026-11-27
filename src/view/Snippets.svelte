@@ -162,7 +162,14 @@
     };
     const addRow = () => table.rows.push(Array.from({ length: columns }, () => ""));
     const addColumn = () => table.rows.forEach((each) => each.push(""));
-    if (event.key === "Tab" && !event.shiftKey) {
+    if (event.key === "Enter" && event.shiftKey) {
+      // A line break in the cell: a GFM row stays on one line, so the cell gets a <br> at the caret.
+      event.preventDefault();
+      const from = input.selectionStart ?? input.value.length;
+      const to = input.selectionEnd ?? from;
+      table.rows[row]![column] = input.value.slice(0, from) + "<br>" + input.value.slice(to);
+      void tick().then(() => input.setSelectionRange(from + 4, from + 4));
+    } else if (event.key === "Tab" && !event.shiftKey) {
       if (column < columns - 1) go(row, column + 1);
       else if (row < rows - 1) go(row + 1, 0);
       else {

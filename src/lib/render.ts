@@ -1,5 +1,5 @@
 // A Document as HTML (docs/design.md §5): CommonMark and GitHub tables, task lists and strikethrough. Raw HTML in the
-// Document is left out. Blocks carry their source range, headings their id, and links and images never carry an
+// Document is left out, but for a bare `<br>`, a line break. Blocks carry their source range, headings their id, and links and images never carry an
 // address the View could navigate to: the View is an about:srcdoc page (see links.ts). The original's directives
 // (ADR 0005, catalogue in directives.ts), column layouts, `:::compare`, footnotes and code highlighting are rendered
 // here, with Mermaid placeholders, the Kanban preview and Tag markers.
@@ -637,6 +637,8 @@ const tagOf = (match: RegExpExecArray): Tag => ({ text: match[0], name: match[1]
 /** Turns lone marker tags of inline `html`, `text` and block `html` nodes into pills; skips code, comments and Kanban. */
 function tagMarkers(root: MdastRoot, { text, documentText, bodyStart }: Pass): void {
   const isMarker = (tag: Tag) => isMarkerName(tag.name, documentText);
+  /** A bare `<br>` (`<br/>`, `<br />`), the one raw HTML tag kept inline: the usual way to break a line in a table cell. */
+  const LINE_BREAK = /^<br\s*\/?>$/i;
   const walk = (parent: Parents, flow: boolean): void => {
     const out: Nodes[] = [];
     /** The raw region (`<code>`, `<pre>`…) written inline and still open: what it holds is never a marker. */
@@ -653,7 +655,9 @@ function tagMarkers(root: MdastRoot, { text, documentText, bodyStart }: Pass): v
         out.push(node);
         continue;
       }
-      if (node.type === "html" && !flow) {
+      if (node.type === "html" && !flow && LINE_BREAK.test(node.value)) {
+        out.push({ type: "break" });
+      } else if (node.type === "html" && !flow) {
         const match = new RegExp(`^${TAG_SOURCE}$`).exec(node.value);
         const tag = match && tagOf(match);
         out.push(tag && isMarker(tag) ? pill(tag, from, to, bodyStart) : node);

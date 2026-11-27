@@ -643,3 +643,19 @@ describe("sourceTargets option (links and images as written)", () => {
     assert.match(html("![x](https://x.org/a.png)", true), /src="https:\/\/x.org\/a.png" alt="x" data-md="https:\/\/x.org\/a.png"/);
   });
 });
+
+describe("<br> line breaks", () => {
+  test("a <br> in a table cell is a line break, in each of its spellings", () => {
+    const html = render("| A |\n| --- |\n| l1<br>l2 |\n| m1<br/>m2 |\n| n1<br />n2 |\n| o1<BR>o2 |\n");
+    for (const [a, b] of [["l1", "l2"], ["m1", "m2"], ["n1", "n2"], ["o1", "o2"]]) assert.match(html, new RegExp(`<td>${a}<br>\n${b}</td>`));
+  });
+
+  test("a <br> in a paragraph is a line break too", () => {
+    assert.equal(render("a<br>b\n"), '<p data-src="0-6">a<br>\nb</p>');
+  });
+
+  test("a <br> with attributes, or in inline code, is not one", () => {
+    assert.equal(render('a<br class="x">b\n'), '<p data-src="0-16">ab</p>');
+    assert.equal(render("`a<br>b`\n"), '<p data-src="0-8"><code>a&#x3C;br>b</code></p>');
+  });
+});

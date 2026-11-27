@@ -696,3 +696,28 @@ describe("the snippet dialog's width", () => {
     assert.equal(page.url(), address);
   });
 });
+
+describe("a line break in a table cell", () => {
+  test("Shift+Enter in a cell writes <br> at the caret; the reading shows it as a line break", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n\nFirst.\n" });
+    const address = page.url();
+    await startEditing(page);
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("searchbox", { name: "Search a snippet…" }).waitFor();
+    await page.keyboard.type("table");
+    await page.keyboard.press("Enter");
+    const cell = dialog.getByRole("textbox", { name: "Row 2, column 1" });
+    await cell.fill("one");
+    await cell.press("Shift+Enter");
+    await page.keyboard.type("two");
+    assert.equal(await cell.inputValue(), "one<br>two");
+    await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+    await page.getByRole("button", { name: "Done" }).click();
+
+    await until(() => host.folders.read(disk, "a.md")?.includes("one<br>two"), "the table on disk");
+    const td = page.getByRole("cell", { name: /one\s*two/ });
+    assert.equal(await td.evaluate((each) => each.querySelectorAll("br").length), 1);
+    assert.equal(page.url(), address);
+  });
+});
