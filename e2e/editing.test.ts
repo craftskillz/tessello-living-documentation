@@ -319,8 +319,15 @@ describe("the section dialog's layout", () => {
     await dialog.getByRole("button", { name: "Expand the Markdown" }).click();
     await preview.waitFor({ state: "hidden" });
     assert.ok((await editor.boundingBox())!.width > half * 1.8);
+    // Expanded, the Markdown no longer wraps: a long table line stays on one line and the editor scrolls horizontally.
+    const markdownScroller = dialog.locator(".cm-scroller");
+    await until(() => markdownScroller.evaluate((each) => each.scrollWidth > each.clientWidth + 50), "the Markdown scrolls horizontally");
+    const row = dialog.locator(".cm-line", { hasText: "Column39" });
+    const lineHeight = await dialog.locator(".cm-line").first().evaluate((each) => each.getBoundingClientRect().height);
+    assert.ok((await row.boundingBox())!.height <= lineHeight * 1.5, "the table's header stays on one line");
     await dialog.getByRole("button", { name: "Show both" }).click();
     await preview.waitFor();
+    assert.ok((await row.boundingBox())!.height > lineHeight * 1.5, "side by side, the Markdown wraps again");
     assert.equal(page.url(), address);
   });
 });

@@ -2409,7 +2409,7 @@
         <div class="pane-bar">
           <button type="button" onclick={() => toggleExpanded("editor")}>{expandedPane === "editor" ? t("showBoth") : t("expandEditor")}</button>
         </div>
-        <Editor bind:this={sectionEditor} text={draft} label={t("markdown")} onchange={typed} onfiles={pasteFiles} />
+        <Editor bind:this={sectionEditor} text={draft} label={t("markdown")} wrap={expandedPane !== "editor"} onchange={typed} onfiles={pasteFiles} />
       </div>
       <div class="pane" hidden={expandedPane === "editor"}>
         <div class="pane-bar">
@@ -2925,6 +2925,7 @@
   dialog.section[open] {
     display: flex;
     flex-direction: column;
+    gap: 0.75rem;
   }
   dialog.section .toolbar {
     display: flex;

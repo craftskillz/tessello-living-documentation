@@ -1,6 +1,7 @@
 <script lang="ts">
   // The Markdown editor (CodeMirror 6). `text` is set from outside only when it differs from what the editor holds.
   import { markdown } from "@codemirror/lang-markdown";
+  import { Compartment } from "@codemirror/state";
   import { EditorView, basicSetup } from "codemirror";
   import { onDestroy, onMount } from "svelte";
   import { blankLines } from "./snippetDialog.ts";
@@ -8,11 +9,14 @@
   let {
     text,
     label,
+    wrap = true,
     onchange,
     onfiles,
   }: {
     text: string;
     label: string;
+    /** Long lines wrap; false: they stay whole and the editor scrolls horizontally. */
+    wrap?: boolean;
     onchange: (text: string) => void;
     /** Files pasted or dropped: resolves to the Markdown to insert where they came in, or null to insert nothing. */
     onfiles?: (files: File[]) => Promise<string | null>;
@@ -20,6 +24,7 @@
 
   let element: HTMLDivElement;
   let view: EditorView | null = null;
+  const wrapping = new Compartment();
   /** The places where files came in and whose Markdown is awaited: followed through every change made meanwhile. */
   const waiting = new Set<{ at: number }>();
 
@@ -87,7 +92,7 @@
       extensions: [
         basicSetup,
         markdown(),
-        EditorView.lineWrapping,
+        wrapping.of(wrap ? EditorView.lineWrapping : []),
         EditorView.contentAttributes.of({ "aria-label": label }),
         EditorView.domEventHandlers({
           paste(event, editor) {
@@ -125,6 +130,11 @@
     if (view && view.state.doc.toString() !== wanted) {
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: wanted } });
     }
+  });
+
+  $effect(() => {
+    const extension = wrap ? EditorView.lineWrapping : [];
+    view?.dispatch({ effects: wrapping.reconfigure(extension) });
   });
 
   onDestroy(() => view?.destroy());
