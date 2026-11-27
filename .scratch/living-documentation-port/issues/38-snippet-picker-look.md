@@ -4,13 +4,14 @@
 
 **Blocked by:** none
 
-**Status:** built, awaiting the trial in the local Host
+**Status:** done (4e8a116)
 
 - [x] Grey cards, from the theme variables (`--ink` mixed into `--panel`), so they follow light and dark
 - [x] Mermaid 🧜‍♀️, Layout ◫, Compare ⚖️
 - [x] Typecheck and the snippets browser tests green
-- [ ] Tried in the local Host
+- [x] Tried in the local Host
 
 ## Comments
 
 - There is no Janus emoji. The balance says "compare" plainly; 🎭 (two faces) is the closest to Janus if the User prefers it.
+- Tried in the local Host by the User (2026-11-27): approved as is.
