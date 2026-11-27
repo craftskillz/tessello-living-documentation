@@ -14,6 +14,8 @@ const parser = unified().use(remarkParse).use(remarkGfm);
 
 interface HeadingStart {
   lineStart: number;
+  /** The offset just after the heading's last character. */
+  end: number;
   depth: number;
 }
 
@@ -31,6 +33,29 @@ export function sectionAt(text: string, offset: number): TextRange | null {
   return { from: heading.lineStart, to: next?.lineStart ?? text.length };
 }
 
+/**
+ * The section a right-click in the HTML page opens: `sectionAt`, except in the lead. The lead is what the page shows
+ * before the first `##`: after the leading `#` title (when the body starts with one) or from the body start. In the
+ * lead (a `###` there included) it is the lead only; on the title itself, null (the title is not a block of the page).
+ */
+export function htmlSectionAt(text: string, offset: number): TextRange | null {
+  if (!Number.isInteger(offset) || offset < 0 || offset > text.length) return null;
+  const { bodyStart } = parseDocument(text, "");
+  if (offset < bodyStart) return null;
+  const headings = headingsOf(text, bodyStart);
+  const first = headings[0];
+  const titled = first !== undefined && first.depth === 1 && text.slice(bodyStart, first.lineStart).trim() === "";
+  let from = bodyStart;
+  if (titled) {
+    const newline = text.indexOf("\n", first.end);
+    from = newline < 0 ? text.length : newline + 1;
+    if (offset < from) return null;
+  }
+  const to = headings.find((each) => each.depth === 2)?.lineStart ?? text.length;
+  if (offset >= from && (offset < to || to === text.length)) return { from, to };
+  return sectionAt(text, offset);
+}
+
 /** The top-level headings of the body (ATX and Setext), compare blocks masked, as offsets in the full text. */
 function headingsOf(text: string, bodyStart: number): HeadingStart[] {
   const body = text.slice(bodyStart);
@@ -42,7 +67,7 @@ function headingsOf(text: string, bodyStart: number): HeadingStart[] {
     .filter((node): node is Heading => node.type === "heading")
     .map((node) => {
       const at = bodyStart + node.position!.start.offset!;
-      return { lineStart: text.lastIndexOf("\n", at - 1) + 1, depth: node.depth };
+      return { lineStart: text.lastIndexOf("\n", at - 1) + 1, end: bodyStart + node.position!.end.offset!, depth: node.depth };
     });
 }
 

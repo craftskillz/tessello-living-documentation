@@ -186,12 +186,12 @@ describe("view mode", () => {
     assert.deepEqual(hrefs, ["https://example.com/x", "mailto:a@b.c"]);
   });
 
-  test("links keep the reading view's form, and blocks and images keep their data attributes", () => {
+  test("links keep the reading view's form plus data-md, and blocks and images keep their data attributes", () => {
     const page = build(SOURCE, { path: "notes/page.md" });
-    assert.match(page.html, /<a role="link" tabindex="0" data-doc="notes\/other\.md" data-anchor="part">other<\/a>/);
-    assert.match(page.html, /<a role="link" tabindex="0" data-file="notes\/files\/a\.pdf">file<\/a>/);
-    assert.match(page.html, /<a role="link" tabindex="0" data-anchor="one">up<\/a>/);
-    assert.match(page.html, /<img data-image="notes\/images\/a\.png" alt="alt">/);
+    assert.match(page.html, /<a role="link" tabindex="0" data-doc="notes\/other\.md" data-anchor="part" data-md="other\.md#part">other<\/a>/);
+    assert.match(page.html, /<a role="link" tabindex="0" data-file="notes\/files\/a\.pdf" data-md="files\/a\.pdf">file<\/a>/);
+    assert.match(page.html, /<a role="link" tabindex="0" data-anchor="one" data-md="#one">up<\/a>/);
+    assert.match(page.html, /<img data-image="notes\/images\/a\.png" alt="alt" data-md="images\/a\.png">/);
     assert.doesNotMatch(page.html, /<img[^>]* src=/);
     assert.match(page.html, /<p data-src="\d+-\d+">/);
   });
@@ -285,5 +285,17 @@ describe("standalone footnotes", () => {
     assert.match(ref, /id="ld-fnref-1"/);
     assert.doesNotMatch(ref, /role=|tabindex=/);
     assert.match(page.html, /href="#ld-fnref-1"/);
+  });
+});
+
+describe("links and images as written (editing)", () => {
+  const text = "# T\n\n[A](other.md) ![x](images/a.png)\n\n## S\n\nText\n";
+  test("the view page keeps data-md", () => {
+    assert.match(build(text).html, /data-md="other.md"/);
+    assert.match(build(text).html, /data-md="images\/a.png"/);
+  });
+  test("the standalone page does not", () => {
+    const html = build(text, { standalone: { images: { "notes/images/a.png": "data:x" }, diagrams: [] } }).html;
+    assert.doesNotMatch(html, /data-md/);
   });
 });

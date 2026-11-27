@@ -47,6 +47,8 @@ type Pass = {
   documentText: string;
   /** Every newline of a paragraph is a line break (the Project setting), not only two trailing spaces. */
   softBreaks: boolean;
+  /** Links and Project/external images keep their target as written in the Markdown, in `data-md` (the HTML view's editing). */
+  sourceTargets: boolean;
 };
 
 /** The unified pipeline, up to the hast tree. `clobberPrefix` starts the ids of footnotes. */
@@ -89,11 +91,11 @@ export function renderDocumentTree(
   model: DocumentModel,
   path: string,
   labels: Partial<RenderLabels>,
-  options: { frontmatter?: boolean; softBreaks: boolean; board?: boolean },
+  options: { frontmatter?: boolean; softBreaks: boolean; board?: boolean; sourceTargets?: boolean },
 ): Root {
   const all = { ...ENGLISH, ...labels };
   const documentText = `${model.frontmatterText ?? ""}\n${model.body}`;
-  const tree = renderTree(model.body, path, model.bodyStart, all, "ld-", { documentText, topLevel: true, softBreaks: options.softBreaks, board: options.board ?? false });
+  const tree = renderTree(model.body, path, model.bodyStart, all, "ld-", { documentText, topLevel: true, softBreaks: options.softBreaks, board: options.board ?? false, sourceTargets: options.sourceTargets ?? false });
   if (options.frontmatter && model.frontmatterText !== null && model.frontmatterEnd !== null) {
     const fence = "`".repeat(Math.max(3, ...(model.frontmatterText.match(/`+/g) ?? []).map((run) => run.length + 1)));
     const block = renderTree(`${fence}yaml\n${model.frontmatterText}\n${fence}`, path, 0, all, "ld-frontmatter-", { softBreaks: false });
@@ -115,17 +117,17 @@ function renderTree(
   bodyStart: number,
   labels: RenderLabels,
   clobberPrefix: string,
-  { documentText = text, topLevel = false, softBreaks, board = false }: { documentText?: string; topLevel?: boolean; softBreaks: boolean; board?: boolean },
+  { documentText = text, topLevel = false, softBreaks, board = false, sourceTargets = false }: { documentText?: string; topLevel?: boolean; softBreaks: boolean; board?: boolean; sourceTargets?: boolean },
 ): Root {
   const regions = compareRegions(text);
   const rendered = regions.map((region, index) => {
     const source = region.inner.endsWith("\n") ? region.inner.slice(0, -1) : region.inner;
-    const inner = renderTree(source, path, bodyStart + region.innerFrom, labels, `${clobberPrefix}compare-${index}-`, { documentText, softBreaks });
+    const inner = renderTree(source, path, bodyStart + region.innerFrom, labels, `${clobberPrefix}compare-${index}-`, { documentText, softBreaks, sourceTargets });
     return compareElement(source, inner, labels, region, bodyStart);
   });
   const masked = maskCompares(text, regions);
   const compares = new Map(regions.map((region, index) => [region.from, index]));
-  const pass: Pass = { path, bodyStart, compares, rendered, kanban: topLevel, board, text, documentText, softBreaks };
+  const pass: Pass = { path, bodyStart, compares, rendered, kanban: topLevel, board, text, documentText, softBreaks, sourceTargets };
   return pipeline(labels, clobberPrefix).processSync({ value: masked, data: pass }).result as Root;
 }
 
@@ -222,7 +224,7 @@ function visit(nodes: ElementContent[], change: (element: Element) => ElementCon
   });
 }
 
-function annotate(element: Element, { path, bodyStart, rendered }: Pass): ElementContent[] | null {
+function annotate(element: Element, { path, bodyStart, rendered, sourceTargets }: Pass): ElementContent[] | null {
   if (element.properties.dataCompare !== undefined) return [rendered[Number(element.properties.dataCompare)]!];
   const start = element.position?.start.offset;
   const end = element.position?.end.offset;
@@ -250,8 +252,8 @@ function annotate(element: Element, { path, bodyStart, rendered }: Pass): Elemen
   if (element.tagName === "td" || element.tagName === "th") {
     if (element.children.length === 0) element.children = [{ type: "text", value: "\u00a0" }];
   }
-  if (element.tagName === "a") return linkOf(element, path);
-  if (element.tagName === "img") return imageOf(element, path);
+  if (element.tagName === "a") return linkOf(element, path, sourceTargets);
+  if (element.tagName === "img") return imageOf(element, path, sourceTargets);
   return null;
 }
 
@@ -266,8 +268,9 @@ function mermaidOf(pre: Element, code: Element): void {
 }
 
 /** The link without an `href` unless it is external; an unresolvable one becomes its children in a span. */
-function linkOf(element: Element, path: string): ElementContent[] | null {
-  const { href, ...rest } = element.properties;
+function linkOf(element: Element, path: string, sourceTargets: boolean): ElementContent[] | null {
+  const { href, ...others } = element.properties;
+  const rest = sourceTargets ? { dataMd: String(href ?? ""), ...others } : others;
   const target = resolveLink(path, String(href ?? ""));
   switch (target.kind) {
     case "document":
@@ -289,8 +292,9 @@ function linkOf(element: Element, path: string): ElementContent[] | null {
 }
 
 /** A Project image has no `src`: the View reads it through the Host. An unresolvable one becomes its alt text. */
-function imageOf(element: Element, path: string): ElementContent[] | null {
-  const { src, alt, ...rest } = element.properties;
+function imageOf(element: Element, path: string, sourceTargets: boolean): ElementContent[] | null {
+  const { src, alt, ...others } = element.properties;
+  const rest = sourceTargets ? { dataMd: String(src ?? ""), ...others } : others;
   const text = String(alt ?? "");
   const target = resolveImage(path, String(src ?? ""));
   switch (target.kind) {

@@ -4,7 +4,7 @@
   import { onDestroy, onMount, tick, untrack } from "svelte";
   import { createAutosave, type Autosave } from "../lib/autosave.ts";
   import { sideBySide } from "../lib/diff.ts";
-  import { applyEdits, type TextRange } from "../lib/edits.ts";
+  import { applyEdits, type TextEdit, type TextRange } from "../lib/edits.ts";
   import { replaceSection, sectionAt } from "../lib/sections.ts";
   import { parseDocument, setField, setType } from "../lib/document.ts";
   import { htmlTemplateOf, type HtmlTemplateId } from "../lib/htmlTemplates.ts";
@@ -77,8 +77,8 @@
   let error = $state<string | null>(null);
   /** The raw text of the failure behind `error`, shown only as a detail. */
   let detail = $state<string | null>(null);
-  /** The Documents left through links, oldest first; the Tree clears it. */
-  let trail = $state.raw<{ path: string; title: string }[]>([]);
+  /** The Documents left through links, oldest first; the Tree clears it. `html`: the HTML view of that Document was open, so Back returns to it. */
+  let trail = $state.raw<{ path: string; title: string; html: boolean }[]>([]);
   let article = $state<HTMLElement>();
   /** The sticky header's height: the table of contents and scrolled-to headings sit below it. */
   let headerHeight = $state(0);
@@ -299,6 +299,7 @@
 
   /** The HTML view is open on the Document (a View state, never an address), and the template dialog with its saving state. */
   let htmlOpen = $state(false);
+  let htmlView = $state<ReturnType<typeof HtmlView>>();
   let choosing = $state<{ saving: boolean; failure: string | null } | null>(null);
   const templateOf = $derived(model ? htmlTemplateOf(model.htmlTemplate) : null);
 
@@ -752,7 +753,9 @@
   /** Follows a link to a Document: it is read first, so a missing one leaves the open Document in place. */
   async function follow(target: string, anchor: string | null) {
     // A link to the open Document only moves within it.
-    if (target === path) return scrollTo(anchor);
+    if (target === path) return htmlOpen ? htmlView?.scrollToAnchor(anchor) : scrollTo(anchor);
+    // From the HTML view, the target opens in its HTML view when it has a known template.
+    const fromHtml = htmlOpen;
     if (!(await leave())) return;
     let loaded: DocumentText;
     try {
@@ -762,8 +765,15 @@
       else report(t("linkFailed", { path: target }), reason);
       return;
     }
-    if (current && path && model) trail = [...trail, { path, title: model.title }];
+    if (current && path && model) trail = [...trail, { path, title: model.title, html: fromHtml }];
     await show(target, loaded);
+    if (path !== target || !current) return;
+    if (fromHtml && htmlTemplateOf(parseDocument(loaded.text, target).htmlTemplate)) {
+      htmlOpen = true;
+      await tick();
+      htmlView?.scrollToAnchor(anchor);
+      return;
+    }
     await tick();
     scrollTo(anchor);
   }
@@ -772,6 +782,8 @@
     const entry = trail[index]!;
     trail = trail.slice(0, index);
     await show(entry.path);
+    // The view mode recorded comes back with the Document (the HTML view only while the Document still has a template).
+    if (entry.html && path === entry.path && model && htmlTemplateOf(model.htmlTemplate)) htmlOpen = true;
   }
 
   /** Scrolls to the element of the article with this id, or to the top. */
@@ -1198,6 +1210,21 @@
 
   function startEditing() {
     open({ kind: "document" }, current!.text);
+  }
+
+  /** An edit made in the HTML page, on the text the page was drawn from: a changed file is a Conflict and nothing is written. */
+  async function saveHtmlEdit(base: DocumentText, edit: TextEdit): Promise<"saved" | "conflict" | "failed"> {
+    const asked = path!;
+    try {
+      const text = applyEdits(base.text, [edit]);
+      const version = await project!.save(asked, text, base.version);
+      if (path === asked) current = { text, version };
+      return "saved";
+    } catch (reason) {
+      if (reason instanceof Conflict) return "conflict";
+      report(t("saveFailed"), reason);
+      return "failed";
+    }
   }
 
   function startSection(range: TextRange) {
@@ -1969,6 +1996,16 @@
   </section>
 {/snippet}
 
+{#snippet trailButtons()}
+  {#if trail.length > 0}
+    <div class="trail" role="group" aria-label={t("trail")}>
+      {#each trail as entry, index (index)}
+        <button onclick={() => void back(index)}>← {entry.title}</button>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+
 {#snippet compareTable(mine: string, theirs: string)}
   <section class="compare" aria-label={t("compare")}>
     <table>
@@ -2093,18 +2130,21 @@
       {:else if current && model}
         {#if htmlOpen && !editing && !readOnly}
           <HtmlView
+            bind:this={htmlView}
             {model}
+            {current}
             path={path!}
             softBreaks={settings.softBreaks}
+            paused={session?.kind === "section"}
+            onedit={saveHtmlEdit}
+            onsection={startSection}
             readBytes={(imagePath) => project!.readBytes(imagePath)}
             onback={() => (htmlOpen = false)}
             onchoose={openChooser}
-            onfollow={(doc, anchor) => {
-              htmlOpen = false;
-              void follow(doc, anchor);
-            }}
+            onfollow={(doc, anchor) => void follow(doc, anchor)}
             onfile={(file) => report(t("fileUnavailable", { path: file }))}
             onfail={report}
+            trailBar={trailButtons}
           />
         {:else}
         <!-- The header stays on top while the Document scrolls, while reading and while editing. -->
@@ -2169,13 +2209,7 @@
         {#if editing}
           <Editor bind:this={mainEditor} text={draft} label={t("markdown")} onchange={typed} onfiles={pasteFiles} />
         {:else}
-          {#if trail.length > 0}
-            <div class="trail" role="group" aria-label={t("trail")}>
-              {#each trail as entry, index (index)}
-                <button onclick={() => void back(index)}>← {entry.title}</button>
-              {/each}
-            </div>
-          {/if}
+          {@render trailButtons()}
           <div class="reading">
             <div class="page">
             {#if !readOnly}

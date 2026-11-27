@@ -218,6 +218,297 @@ describe("the HTML view", () => {
   });
 });
 
+describe("links in the HTML view", () => {
+  const T = "---\nhtml_template: article\n---\n";
+  const filler = Array.from({ length: 80 }, (_, i) => `Line ${i}.\n`).join("\n");
+  const region = (page: Opened["page"]) => page.getByRole("region", { name: "HTML view of the document" });
+
+  test("a link to a Document with a template opens its HTML view, and Back returns to the HTML view", async () => {
+    const { page } = await project({ "a.md": `${T}# Alpha\n\n## S\n\n[to bee](?doc=b)\n`, "b.md": `${T}# Bee\n\n## T\n\nBee text.\n` });
+    await page.getByRole("link", { name: "a.md", exact: true }).click();
+    await page.getByRole("button", { name: "View as HTML" }).click();
+    await region(page).getByRole("link", { name: "to bee" }).click();
+    await region(page).getByText("Bee text.").waitFor();
+    assert.equal(await page.locator("article.document").count(), 0);
+
+    await page.getByRole("group", { name: "Back to" }).getByRole("button", { name: "← Alpha" }).click();
+    await region(page).getByRole("link", { name: "to bee" }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "← Alpha" }).count(), 0);
+  });
+
+  test("a link to a Document without a template opens its reading view, and Back returns to the HTML view", async () => {
+    const { page } = await project({ "a.md": `${T}# Alpha\n\n## S\n\n[to cee](?doc=c)\n`, "c.md": "# Cee\n\nPlain.\n" });
+    await page.getByRole("link", { name: "a.md", exact: true }).click();
+    await page.getByRole("button", { name: "View as HTML" }).click();
+    await region(page).getByRole("link", { name: "to cee" }).click();
+    await page.getByRole("heading", { level: 1, name: "Cee" }).waitFor();
+    assert.equal(await region(page).count(), 0);
+
+    await page.getByRole("button", { name: "← Alpha" }).click();
+    await region(page).getByRole("link", { name: "to cee" }).waitFor();
+  });
+
+  test("from the reading view, a link to a templated Document opens its reading view, and Back returns to reading", async () => {
+    const { page } = await project({ "a.md": "# Alpha\n\n[to bee](?doc=b)\n", "b.md": `${T}# Bee\n\n## T\n\nBee text.\n` });
+    await page.getByRole("link", { name: "a.md", exact: true }).click();
+    await page.getByRole("link", { name: "to bee" }).click();
+    await page.getByRole("heading", { level: 1, name: "Bee" }).waitFor();
+    assert.equal(await region(page).count(), 0);
+
+    await page.getByRole("button", { name: "← Alpha" }).click();
+    await page.getByRole("heading", { level: 1, name: "Alpha" }).waitFor();
+    assert.equal(await region(page).count(), 0);
+  });
+
+  test("a link to a missing Document leaves the HTML view in place with the message", async () => {
+    const { page } = await project({ "a.md": `${T}# Alpha\n\n## S\n\n[gone](?doc=nope)\n` });
+    await page.getByRole("link", { name: "a.md", exact: true }).click();
+    await page.getByRole("button", { name: "View as HTML" }).click();
+    await region(page).getByRole("link", { name: "gone" }).click();
+    await page.getByText(/nope/).first().waitFor();
+    await region(page).getByRole("link", { name: "gone" }).waitFor();
+    assert.equal(await page.getByRole("group", { name: "Back to" }).count(), 0);
+  });
+
+  test("a link with an anchor scrolls to that section of the target's HTML view", async () => {
+    const { page } = await project({
+      "a.md": `${T}# Alpha\n\n## S\n\n[x](?doc=b#second-part)\n`,
+      "b.md": `${T}# Bee\n\n## First part\n\n${filler}\n## Second part\n\nEnd.\n\n${filler}`,
+    });
+    await page.getByRole("link", { name: "a.md", exact: true }).click();
+    await page.getByRole("button", { name: "View as HTML" }).click();
+    await region(page).getByRole("link", { name: "x" }).click();
+    await region(page).locator("section#second-part").waitFor();
+    await until(async () => (await region(page).locator("section#second-part").boundingBox())!.y < 400, "scrolled to the section");
+  });
+
+  test("a link to the open Document only scrolls in its HTML view, without a trail entry", async () => {
+    const { page } = await project({ "a.md": `${T}# Alpha\n\n## One\n\n[self](?doc=a#two)\n\n${filler}\n## Two\n\nEnd.\n\n${filler}` });
+    await page.getByRole("link", { name: "a.md", exact: true }).click();
+    await page.getByRole("button", { name: "View as HTML" }).click();
+    await region(page).getByRole("link", { name: "self" }).click();
+    await until(async () => (await region(page).locator("section#two").boundingBox())!.y < 400, "scrolled to the section");
+    assert.equal(await page.getByRole("group", { name: "Back to" }).count(), 0);
+  });
+});
+
+const FRONT = "---\nhtml_template: article\n---\n";
+const doc = (body: string) => `${FRONT}# Title\n\n${body}`;
+const SOFT_OFF = { ".living-doc.json": '{"markdownSoftBreaks":false}' };
+const regionOf = (page: Opened["page"]) => page.getByRole("region", { name: "HTML view of the document" });
+
+async function openHtml(files: Record<string, string>) {
+  const opened = await project(files);
+  await opened.page.getByRole("button", { name: "View as HTML" }).click();
+  const view = regionOf(opened.page);
+  await view.locator(".ld-html-page").waitFor();
+  return { ...opened, view };
+}
+
+/** Double-clicks the first word of a block (it stays selected) and puts the caret right after it. */
+async function editAfterFirstWord(page: Opened["page"], block: ReturnType<Opened["page"]["locator"]>) {
+  await block.dblclick({ position: { x: 4, y: 6 } });
+  await page.locator("[contenteditable]").waitFor();
+  await page.keyboard.press("ArrowRight");
+}
+
+describe("editing in the HTML view", () => {
+  const BODY = "Lead one.\n\n## First\n\nAlpha beta.\n\nOmega.\n\n### Sub\n\nIn sub.\n\n## Second\n\nTail.\n";
+
+  test("a paragraph is edited in place; leaving it writes only its lines, and the page shows it", async () => {
+    const { page, host, disk, view } = await openHtml({ "a.md": doc(BODY) });
+    await editAfterFirstWord(page, view.locator("p", { hasText: "Alpha beta." }));
+    await page.keyboard.type(" Added");
+    await page.getByRole("button", { name: "Change the HTML template" }).focus();
+    await until(() => host.folders.read(disk, "a.md") === doc(BODY.replace("Alpha beta.", "Alpha Added beta.")), "only that paragraph on disk");
+    await view.getByText("Alpha Added beta.").waitFor();
+    assert.equal(await view.locator("[contenteditable]").count(), 0);
+  });
+
+  test("the scroll position is kept after a save", async () => {
+    const filler = Array.from({ length: 60 }, (_, i) => `Line ${i}.\n`).join("\n");
+    const { page, host, disk, view } = await openHtml({ "a.md": doc(`## One\n\n${filler}\n## Two\n\nTarget here.\n\n${filler}`) });
+    const target = view.locator("p", { hasText: "Target here." });
+    await target.scrollIntoViewIfNeeded();
+    await editAfterFirstWord(page, target);
+    const before = await page.locator("main").first().evaluate((main) => main.scrollTop);
+    assert.ok(before > 300);
+    await page.keyboard.type(" more");
+    await page.keyboard.press("Enter");
+    await until(() => host.folders.read(disk, "a.md")?.includes("Target more here."), "saved");
+    await view.getByText("Target more here.").waitFor();
+    const after = await page.locator("main").first().evaluate((main) => main.scrollTop);
+    assert.ok(Math.abs(after - before) < 5, `scroll ${before} -> ${after}`);
+  });
+
+  test("renaming a heading with Enter makes the table of contents follow", async () => {
+    const { page, host, disk, view } = await openHtml({ "a.md": doc(BODY) });
+    await view.locator("h2", { hasText: "Second" }).dblclick({ position: { x: 4, y: 6 } });
+    await page.keyboard.type("Renamed");
+    await page.keyboard.press("Enter");
+    await until(() => host.folders.read(disk, "a.md") === doc(BODY.replace("## Second", "## Renamed")), "heading on disk");
+    await view.locator('[data-anchor="renamed"]').first().waitFor();
+  });
+
+  test("Escape writes nothing, and an unchanged block writes nothing", async () => {
+    const { page, host, disk, view } = await openHtml({ "a.md": doc(BODY) });
+    const text = doc(BODY);
+    await editAfterFirstWord(page, view.locator("p", { hasText: "Omega." }));
+    await page.keyboard.type(" nope");
+    await page.keyboard.press("Escape");
+    await view.getByText("Omega.", { exact: true }).waitFor();
+    assert.equal(await view.locator("[contenteditable]").count(), 0);
+    await editAfterFirstWord(page, view.locator("p", { hasText: "Omega." }));
+    await page.keyboard.press("Enter");
+    await until(async () => (await view.locator("[contenteditable]").count()) === 0, "closed");
+    assert.equal(host.folders.read(disk, "a.md"), text);
+  });
+
+  test("emptying a paragraph removes it", async () => {
+    const { page, host, disk, view } = await openHtml({ "a.md": doc(BODY) });
+    await view.locator("p", { hasText: "Omega." }).dblclick({ position: { x: 4, y: 6 } });
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Delete");
+    await page.keyboard.press("Enter");
+    await until(() => host.folders.read(disk, "a.md") === doc(BODY.replace("Omega.\n\n", "")), "paragraph removed");
+  });
+
+  test("Shift+Enter in a paragraph writes a hard break when soft breaks are off", async () => {
+    const { page, host, disk, view } = await openHtml({ "a.md": doc(BODY), ...SOFT_OFF });
+    await editAfterFirstWord(page, view.locator("p", { hasText: "Omega." }));
+    await page.keyboard.press("Shift+Enter");
+    await page.keyboard.type("Next");
+    await page.keyboard.press("Enter");
+    await until(() => host.folders.read(disk, "a.md") === doc(BODY.replace("Omega.", "Omega  \nNext.")), "hard break on disk");
+  });
+
+  test("Shift+Enter in a paragraph writes a bare line ending when soft breaks are on", async () => {
+    const { page, host, disk, view } = await openHtml({ "a.md": doc(BODY) });
+    await editAfterFirstWord(page, view.locator("p", { hasText: "Omega." }));
+    await page.keyboard.press("Shift+Enter");
+    await page.keyboard.type("Next");
+    await page.keyboard.press("Enter");
+    await until(() => host.folders.read(disk, "a.md") === doc(BODY.replace("Omega.", "Omega\nNext.")), "line ending on disk");
+  });
+
+  test("escaped text opens the section editor instead, and writes nothing", async () => {
+    const text = doc("## S\n\nPrix \\*barré\\* ici.\n");
+    const { page, host, disk, view } = await openHtml({ "a.md": text });
+    await view.locator("p", { hasText: "Prix" }).dblclick();
+    await page.getByRole("dialog", { name: "Edit section" }).waitFor();
+    assert.equal(host.folders.read(disk, "a.md"), text);
+    assert.equal(await view.locator("[contenteditable]").count(), 0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog", { name: "Edit section" }).waitFor({ state: "detached" });
+    await view.locator("p", { hasText: "Prix" }).waitFor();
+  });
+
+  test("an h5 does nothing on double-click", async () => {
+    const text = doc("## S\n\n##### Tiny\n\nBody.\n");
+    const { page, host, disk, view } = await openHtml({ "a.md": text });
+    await view.locator("h5").dblclick();
+    assert.equal(await view.locator("[contenteditable], textarea").count(), 0);
+    assert.equal(await page.getByRole("dialog").count(), 0);
+    assert.equal(host.folders.read(disk, "a.md"), text);
+  });
+
+  test("a list is edited as Markdown in a field: Tab, Shift+Enter, Enter", async () => {
+    const text = doc("## S\n\n- a\n- b\n\nAfter.\n");
+    const { page, host, disk, view } = await openHtml({ "a.md": text });
+    await view.locator("ul").dblclick();
+    const field = view.getByRole("textbox", { name: "Markdown of this block" });
+    assert.equal(await field.inputValue(), "- a\n- b");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("End");
+    await page.keyboard.press("Shift+Enter");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("- c");
+    await page.keyboard.press("Enter");
+    await until(() => host.folders.read(disk, "a.md") === doc("## S\n\n- a\n- b\n  - c\n\nAfter.\n"), "list on disk");
+    await view.locator("li", { hasText: "c" }).last().waitFor();
+  });
+
+  test("emptying a code block removes it", async () => {
+    const { page, host, disk, view } = await openHtml({ "a.md": doc("## S\n\n```\ncode\n```\n\nAfter.\n") });
+    await view.locator("pre").dblclick();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Delete");
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await until(() => host.folders.read(disk, "a.md") === doc("## S\n\nAfter.\n"), "code removed");
+  });
+
+  test("a conflict writes nothing, keeps the edit open and says so", async () => {
+    const { page, host, disk, view } = await openHtml({ "a.md": doc(BODY) });
+    await editAfterFirstWord(page, view.locator("p", { hasText: "Omega." }));
+    await page.keyboard.type(" mine");
+    const agent = doc(BODY.replace("Tail.", "Agent tail."));
+    host.folders.write(disk, "a.md", agent);
+    await page.keyboard.press("Enter");
+    await page.getByText("The document changed after opening. Copy your edits and reopen the section to avoid overwriting those changes.").waitFor();
+    assert.equal(host.folders.read(disk, "a.md"), agent);
+    assert.equal(await view.locator("[contenteditable]").count(), 1);
+    assert.match(await view.locator("[contenteditable]").innerText(), /Omega\s+mine\./);
+  });
+
+  test("an agent edit during an edit does not redraw the page until the edit closes", async () => {
+    const { page, host, disk, view } = await openHtml({ "a.md": doc(BODY) });
+    await editAfterFirstWord(page, view.locator("p", { hasText: "Omega." }));
+    host.folders.write(disk, "a.md", doc(BODY.replace("Tail.", "Agent tail.")));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    assert.equal(await view.locator("[contenteditable]").count(), 1);
+    await page.keyboard.press("Escape");
+    await view.getByText("Agent tail.").waitFor();
+  });
+
+  test("a link click does nothing and the browser menu stays during an edit", async () => {
+    const { page, view } = await openHtml({ "a.md": doc("## S\n\nSee [bee](b.md) now.\n"), "b.md": "# Bee\n" });
+    await editAfterFirstWord(page, view.locator("p", { hasText: "See" }));
+    await view.getByRole("link", { name: "bee" }).click();
+    await view.locator("p", { hasText: "See" }).click({ button: "right" });
+    assert.equal(await page.getByRole("dialog", { name: "Edit section" }).count(), 0);
+    assert.equal(await page.getByRole("heading", { level: 1, name: "Bee" }).count(), 0);
+    assert.equal(await view.locator("[contenteditable]").count(), 1);
+  });
+});
+
+describe("right-click in the HTML view", () => {
+  const BODY = "Lead one.\n\n## First\n\nAlpha.\n\n### Sub\n\nIn sub.\n\n## Second\n\nTail.\n";
+  const sectionEditor = (page: Opened["page"]) => page.getByRole("dialog", { name: "Edit section" });
+
+  test("on a paragraph under a ### opens the editor on that section only, the HTML view stays under, closing returns to it", async () => {
+    const { page, view } = await openHtml({ "a.md": doc(BODY) });
+    await view.getByText("In sub.").click({ button: "right" });
+    const dialog = sectionEditor(page);
+    await dialog.waitFor();
+    const content = await dialog.getByRole("textbox", { name: "Markdown" }).innerText();
+    assert.ok(content.includes("### Sub") && content.includes("In sub.") && !content.includes("Alpha.") && !content.includes("Tail."));
+    assert.equal(await view.locator(".ld-html-page").count(), 1);
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "detached" });
+    await view.locator(".ld-html-page").waitFor();
+  });
+
+  test("in the lead opens only the lead", async () => {
+    const { page, view } = await openHtml({ "a.md": doc(BODY) });
+    await view.getByText("Lead one.").click({ button: "right" });
+    const dialog = sectionEditor(page);
+    await dialog.waitFor();
+    const content = await dialog.getByRole("textbox", { name: "Markdown" }).innerText();
+    assert.ok(content.includes("Lead one.") && !content.includes("## First"));
+  });
+
+  test("with text selected, or on the title, no section editor opens", async () => {
+    const { page, view } = await openHtml({ "a.md": doc(BODY) });
+    await view.getByText("Tail.").dblclick();
+    await view.getByText("Tail.").click({ button: "right" });
+    await page.keyboard.press("Escape");
+    assert.equal(await sectionEditor(page).count(), 0);
+    await view.locator("h1").click({ button: "right" });
+    await page.keyboard.press("Escape");
+    assert.equal(await sectionEditor(page).count(), 0);
+  });
+});
+
 describe("Download HTML", () => {
   test("hands over one standalone file with the style, the image and no script", async () => {
     const { page } = await project({ "guide.md": GUIDE, "pic.png": PNG });

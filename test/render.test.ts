@@ -5,6 +5,8 @@ import { describe, test } from "node:test";
 import { parseDocument } from "../src/lib/document.ts";
 import { kanbanBlockText } from "../src/lib/kanban.ts";
 import type { Element, ElementContent, Root } from "hast";
+import rehypeStringify from "rehype-stringify";
+import { unified } from "unified";
 import { applyEdits } from "../src/lib/edits.ts";
 import { htmlWrappers, kanbanBlockAt, kanbanBlockOf, locateClick, markersOf, renderDocument, renderDocumentTree } from "../src/lib/render.ts";
 
@@ -613,5 +615,31 @@ describe("locating a click", () => {
       { name: "B-one", range: { from: 2, to: 9 } },
       { name: "c-two", range: { from: 14, to: 31 } },
     ]);
+  });
+});
+
+describe("sourceTargets option (links and images as written)", () => {
+  const html = (text: string, sourceTargets?: boolean) => {
+    const tree = renderDocumentTree(parseDocument(text, "guide/intro.md"), "guide/intro.md", {}, { softBreaks: false, sourceTargets });
+    return unified().use(rehypeStringify).stringify(tree);
+  };
+
+  test("off by default: the output is the reading view's", () => {
+    assert.equal(html("[A](other.md) ![x](a.png)"), render("[A](other.md) ![x](a.png)"));
+    assert.doesNotMatch(html("[A](other.md) ![x](a.png)"), /data-md/);
+  });
+
+  test("a Document link keeps its href as written in data-md, and its title", () => {
+    assert.match(html('[A](other.md#sec "T")', true), /<a role="link" tabindex="0" data-doc="guide\/other.md" data-anchor="sec" data-md="other.md#sec" title="T">A<\/a>/);
+  });
+
+  test("an external link and an anchor link keep theirs", () => {
+    assert.match(html("[A](https://x.org/a)", true), /href="https:\/\/x.org\/a"[^>]* data-md="https:\/\/x.org\/a"/);
+    assert.match(html("[A](#top)", true), /data-md="#top"/);
+  });
+
+  test("a Project image and an external image keep their src as written", () => {
+    assert.match(html("![x](../images/a.png)", true), /data-image="images\/a.png" alt="x" data-md="..\/images\/a.png"/);
+    assert.match(html("![x](https://x.org/a.png)", true), /src="https:\/\/x.org\/a.png" alt="x" data-md="https:\/\/x.org\/a.png"/);
   });
 });

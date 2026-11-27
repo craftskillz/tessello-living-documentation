@@ -44,7 +44,7 @@ export function htmlPage(
   labels: Partial<RenderLabels>,
   options: { softBreaks: boolean; standalone?: StandaloneAssets },
 ): HtmlPage {
-  const nodes = renderDocumentTree(model, path, labels, { softBreaks: options.softBreaks }).children.filter((node) => !isBlank(node));
+  const nodes = renderDocumentTree(model, path, labels, { softBreaks: options.softBreaks, sourceTargets: !options.standalone }).children.filter((node) => !isBlank(node));
   const first = nodes[0];
   const leading = first?.type === "element" && first.tagName === "h1" ? first : null;
   const title = (leading && textOf(leading).trim()) || model.title;
@@ -156,6 +156,7 @@ function retarget(body: RootContent[], headings: Map<string, string>, standalone
         return [node];
       }
       delete props.dataSrc;
+      delete props.dataMd;
       if (node.tagName === "img" && props.dataImage !== undefined) {
         const { dataImage, ...rest } = props;
         const data = standalone.images[String(dataImage)];

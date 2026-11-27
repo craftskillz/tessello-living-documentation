@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { applyEdits } from "../src/lib/edits.ts";
-import { replaceSection, sectionAt } from "../src/lib/sections.ts";
+import { htmlSectionAt, replaceSection, sectionAt } from "../src/lib/sections.ts";
 
 /** The text of the section holding the first occurrence of `needle`. */
 function sectionOf(source: string, needle: string): string | null {
@@ -109,5 +109,46 @@ describe("replaceSection", () => {
 
   test("a lone LF file stays LF", () => {
     assert.equal(replace("## A\n\nx\n\n## B\n", "x", "## A\r\n\r\nnew"), "## A\n\nnew\n\n## B\n");
+  });
+});
+
+describe("htmlSectionAt", () => {
+  // "# T\n" 0-4, "\n", "lead\n" 5-10, "\n", "### In lead\n" 11-23, "\n", "x\n" 24-26, "\n", "## S\n" 27-32, "\n", "### U\n" 33-39, "\n", "z\n" 40-42
+  const page = "# T\n\nlead\n\n### In lead\n\nx\n\n## S\n\n### U\n\nz\n";
+
+  test("in the lead of a titled page: the lead only, from after the title to the first ##", () => {
+    assert.deepEqual(htmlSectionAt(page, 6), { from: 4, to: 27 });
+    assert.deepEqual(htmlSectionAt(page, 4), { from: 4, to: 27 });
+  });
+
+  test("a ### inside the lead is the lead, not its own section", () => {
+    assert.deepEqual(htmlSectionAt(page, 15), { from: 4, to: 27 });
+  });
+
+  test("on the title: null", () => {
+    assert.equal(htmlSectionAt(page, 1), null);
+  });
+
+  test("a ## section and a ### under it are what sectionAt says", () => {
+    assert.deepEqual(htmlSectionAt(page, 30), { from: 27, to: 42 });
+    assert.deepEqual(htmlSectionAt(page, 36), { from: 33, to: 42 });
+  });
+
+  test("without a title the lead starts at the body", () => {
+    assert.deepEqual(htmlSectionAt("lead\n\n## S\n\nx\n", 2), { from: 0, to: 6 });
+  });
+
+  test("a titled page without any ## is all lead after the title", () => {
+    assert.deepEqual(htmlSectionAt("# T\n\nonly\n", 6), { from: 4, to: 10 });
+  });
+
+  test("the frontmatter: null; the lead starts after it", () => {
+    const text = "---\ntitle: x\n---\n# T\n\nlead\n\n## S\n";
+    assert.equal(htmlSectionAt(text, 3), null);
+    assert.deepEqual(htmlSectionAt(text, 24), { from: 21, to: 28 });
+  });
+
+  test("outside the text: null", () => {
+    assert.equal(htmlSectionAt(page, 999), null);
   });
 });
