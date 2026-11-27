@@ -54,8 +54,8 @@
 
   const ICONS: Record<SnippetKind, string> = {
     "heading-1": "H1", "heading-2": "H2", "heading-3": "H3", "heading-4": "H4", separator: "―", collapsible: "▸", "unordered-list": "•", "ordered-list": "🔢", table: "▦", kanban: "📋",
-    tree: "🌳", "code-block": "💻", compare: "⚡",
-    "colored-text": "🖍", "colored-section": "🎨", blockquote: "❝", emojis: "😀", mermaid: "◌", columns: "🧱", attachment: "📎",
+    tree: "🌳", "code-block": "💻", compare: "⚖️",
+    "colored-text": "🖍", "colored-section": "🎨", blockquote: "❝", emojis: "😀", mermaid: "🧜‍♀️", columns: "◫", attachment: "📎",
     link: "🔗", "doc-link": "📄", "anchor-link": "⚓", "anchor-doc-link": "📄⚓", image: "🖼",
   };
   const name = (kind: SnippetKind) => t(`snKind_${kind}`);
@@ -737,11 +737,16 @@
     grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
     gap: 0.4rem;
   }
+  /* A light grey card, so that the choices stand out from the dialog's background (light and dark). */
   .card {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     text-align: left;
+    background: color-mix(in srgb, var(--ink) 6%, var(--panel));
+  }
+  .card:hover {
+    background: color-mix(in srgb, var(--ink) 11%, var(--panel));
   }
   .icon {
     min-width: 1.6em;
