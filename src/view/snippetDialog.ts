@@ -44,6 +44,7 @@ export function snippetTexts(): SnippetTexts {
     coloredSection: t("snDef_coloredSection"),
     kanbanColumns: [t("snDef_todo"), t("snDef_doing"), t("snDef_done")],
     column: t("snDef_column"),
+    card: t("snDef_card"),
     attachment: t("snDef_attachment"),
     attachmentUrl: t("snDef_attachmentUrl"),
     mermaidItem: t("snDef_mermaidItem"),

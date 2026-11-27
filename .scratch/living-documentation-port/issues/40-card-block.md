@@ -3,7 +3,7 @@
 **What to build:** A new block, the Card: a frame around free Markdown, with a title, a style, a width and an alignment. Written like the column layouts (ADR 0005):
 
 ```markdown
-<!-- card: My title | style: bristol | width: 50% | align: right -->
+<!-- card: My title | style: bristol | width: 1/2 | align: right -->
 
 Free **Markdown**: lists, tables, images, code…
 
@@ -12,19 +12,19 @@ Free **Markdown**: lists, tables, images, code…
 
 Outside the Module (GitHub, IDE previews) the comments are invisible and the content reads as plain Markdown.
 
-**Blocked by:** the User's choice of styles in the prototype (below)
+**Blocked by:** none
 
-**Status:** needs-info
+**Status:** built, awaiting the trial in the local Host
 
-- [ ] `src/lib/directives.ts`: `card` (title, `style`, `width`, `align`) and `/card`; unknown values ignored, like every directive
-- [ ] `src/lib/render.ts`: the Card as a container around its content (rendered like any other Markdown), its source range on the whole block
-- [ ] Styles in `src/lib/document.css`, light and dark: `plain`, `bristol` (perforated index card), `deck` (playing card); `plain` by default
-- [ ] Width as the images' presets (100% by default, 75%, 66%, 50%, 33%, 25%); `align` left (default), center, right; the Card stays alone on its line (text never flows around it)
-- [ ] Snippet "Card" in the picker's **Structure** category, with its own icon: title, style, width, alignment; a Card reopens in its form from the reading view's block actions, its content untouched
-- [ ] HTML generation: the HTML view, its templates (Interview sheet, Article) and **Download HTML** render the Card in its style, the standalone file carrying the Card CSS
-- [ ] Format (ticket 36) leaves the comments as they are and formats the content
-- [ ] Every text in English and French; spec in `docs/spec/documents-snippets.md` and reading rule 7
-- [ ] Typecheck, unit and browser suites green
+- [x] `src/lib/directives.ts`: `card` (title, `style`, `width`, `align`) and `/card`; unknown values ignored, like every directive
+- [x] `src/lib/render.ts`: the Card as a container around its content (rendered like any other Markdown), its source range on the whole block
+- [x] Styles in `src/lib/document.css`, light and dark: `plain`, `bristol` (perforated index card), `deck` (playing card); `plain` by default
+- [x] Width as the images' presets (`full` by default, `3/4`, `2/3`, `1/2`, `1/3`, `1/4`); `align` left (default), center, right; the Card stays alone on its line (text never flows around it)
+- [x] Snippet "Card" in the picker's **Structure** category, with its own icon: title, style, width, alignment; a Card reopens in its form from the reading view's block actions, its content untouched
+- [x] HTML generation: the HTML view, its templates (Interview sheet, Article) and **Download HTML** render the Card in its style, the standalone file carrying the Card CSS
+- [x] Format (ticket 36) leaves the comments as they are and formats the content
+- [x] Every text in English and French; spec in `docs/spec/documents-snippets.md` and reading rule 7
+- [x] Typecheck, unit and browser suites green
 - [ ] Tried in the local Host
 
 ## Settled
@@ -33,4 +33,14 @@ Outside the Module (GitHub, IDE previews) the comments are invisible and the con
   - The title lives in the directive (`card: Title`), not as a heading inside: it stays out of the table of contents and the sections (it does not show on GitHub).
   - A Card narrower than the page stays alone on its line; two Cards side by side go in a column layout.
   - The Card is a snippet of the Structure category, and the HTML generation supports it.
-  - The styles are chosen from a throwaway prototype first: `prototypes/PROTOTYPE-card-styles/index.html` (variants A Realistic, B Minimal, C Labelled; theme, width and alignment switchable).
+  - The styles were chosen from a throwaway prototype first: `prototypes/PROTOTYPE-card-styles/index.html` (variants A Realistic, B Minimal, C Labelled; theme, width and alignment switchable).
+  - Prototype verdict: variant A (Realistic) for Plain and Playing card; Bristol is A's cream paper, title font and colour, with one row of punched holes across the top, no red margin and no ruled lines. The prototype is kept on the branch `prototype/card-styles` (283cf32), out of main.
+
+## Comments
+
+- The glossary already had **Card** (a Kanban board's Card): the new block is the **Card block** in the code and the docs, labelled "Card" in the snippet picker only.
+- Widths are written as the images' presets (`width: 1/2`), not as percentages.
+- The bristol's holes are cut out with a CSS mask, so they show whatever is behind the card (the page, an Interview sheet section…), with a light rim drawn around each one to stay visible on a white page.
+- A card's comment before a table is not taken for the table's directive, in the rendering and in the block actions.
+- The snippet's icon is 🃏. The picker now lists 26 kinds, 24 of them reopened from the reading view.
+- Typecheck, 1189 unit tests and 411 browser tests green. Not yet tried in the local Host.

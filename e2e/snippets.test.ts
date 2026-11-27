@@ -721,3 +721,44 @@ describe("a line break in a table cell", () => {
     assert.equal(page.url(), address);
   });
 });
+
+describe("the Card snippet", () => {
+  test("a Card with a title, the Bristol style, half width and right alignment is written and shown", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n\nFirst.\n" });
+    const address = page.url();
+    await startEditing(page);
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("group", { name: "Structure" }).getByRole("button", { name: "Card", exact: true }).click();
+    await dialog.getByLabel("Title").fill("My recipe");
+    await dialog.getByLabel("Style").selectOption({ label: "Bristol card" });
+    await dialog.getByLabel("Width").selectOption({ label: "Half (1/2)" });
+    await dialog.getByLabel("Alignment").selectOption({ label: "Right" });
+    await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+    const card = "<!-- card: My recipe | style: bristol | width: 1/2 | align: right -->\n\nCard content\n\n<!-- /card -->";
+    await until(() => host.folders.read(disk, "a.md") === `# A\n\nFirst.\n\n${card}\n`, "the card on disk");
+
+    await page.getByRole("button", { name: "Done" }).click();
+    const shown = page.locator(".ld-card.ld-card-bristol.ld-card-width-half.ld-card-align-right");
+    await shown.getByText("My recipe").waitFor();
+    await shown.getByText("Card content").waitFor();
+    assert.equal(page.url(), address);
+  });
+
+  test("a reopened Card: its options change, its content stays byte-identical", async () => {
+    const source = "# A\n\n<!-- card: Old | style: deck -->\n\nInside *text*\n\n- a\n\n<!-- /card -->\n\nAfter.\n";
+    const { page, host, disk } = await withProject({ "a.md": source });
+    const address = page.url();
+    await page.getByText("Inside").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit card" }).click();
+    const dialog = edit(page);
+    await dialog.waitFor();
+    assert.equal(await dialog.getByLabel("Title").inputValue(), "Old");
+    assert.equal(await dialog.getByLabel("Style").locator("option:checked").innerText(), "Playing card");
+    await dialog.getByLabel("Title").fill("New");
+    await dialog.getByLabel("Style").selectOption({ label: "Plain" });
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await until(() => host.folders.read(disk, "a.md") === source.replace("<!-- card: Old | style: deck -->", "<!-- card: New -->"), "only the header changed");
+    assert.equal(page.url(), address);
+  });
+});

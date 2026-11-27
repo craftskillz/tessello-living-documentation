@@ -448,3 +448,43 @@ describe("Mermaid, attachment and layout blocks", () => {
     assert.equal(deleted(text, snippetBlocks(text).find((each) => each.kind === "columns")!), "Before\n\nAfter\n");
   });
 });
+
+describe("card blocks", () => {
+  const CARD = "<!-- card: T | style: deck -->\n\nBody\n\n<!-- /card -->";
+
+  test("a card is a block over its comments, its data-src the rendered card's", () => {
+    const text = `Intro\n\n${CARD}\n\nOutro\n`;
+    const card = snippetBlocks(text).find((each) => each.kind === "card")!;
+    assert.deepEqual(card, { kind: "card", element: { from: 7, to: 7 + CARD.length }, range: { from: 7, to: 7 + CARD.length }, prefix: "", markdown: CARD });
+    assert.deepEqual(srcOf(render(text), 'div class="ld-card ld-card-deck"'), card.element);
+  });
+
+  test("a click on a paragraph of a card edits the card, on a table of a card the table", () => {
+    const text = "<!-- card: T -->\n\nText\n\n| a |\n| --- |\n| 1 |\n\n<!-- /card -->\n";
+    const html = render(text);
+    const card = srcOf(html, 'div class="ld-card ld-card-plain"');
+    assert.equal(snippetAt(text, [srcOf(html, "p"), card])!.kind, "card");
+    assert.equal(snippetAt(text, [srcOf(html, "table"), card])!.kind, "table");
+  });
+
+  test("the card's comment is not a directive of the table right after it", () => {
+    const text = "<!-- card: T -->\n| a |\n| --- |\n| 1 |\n<!-- /card -->\n";
+    const table = snippetBlocks(text).find((each) => each.kind === "table")!;
+    assert.equal(table.range.from, text.indexOf("| a |"));
+  });
+
+  test("nested cards and a card in a column are blocks each, paired with their own closing", () => {
+    const nested = "<!-- card: Out -->\n\n<!-- card: In -->\n\nX\n\n<!-- /card -->\n\n<!-- /card -->\n";
+    const cards = snippetBlocks(nested).filter((each) => each.kind === "card");
+    assert.deepEqual(cards.map((each) => nested.slice(each.range.from, each.range.to)), [nested.trimEnd(), "<!-- card: In -->\n\nX\n\n<!-- /card -->"]);
+    const inColumns = "<!-- layout-columns -->\n<!-- col -->\n<!-- card: A -->\nA\n<!-- /card -->\n<!-- col -->\nB\n<!-- /layout-columns -->\n";
+    assert.deepEqual(kindsOf(inColumns), ["columns", "card"]);
+  });
+
+  test("a rebuilt card changes only its header line", () => {
+    const text = `Intro\n\n${CARD}\n`;
+    const block = snippetBlocks(text).find((each) => each.kind === "card")!;
+    const data = parseSnippet("card", block.markdown, {} as never);
+    assert.equal(applyEdits(text, [replaceBlock(text, block, buildSnippet({ ...data, title: "New" } as never, {} as never))]), `Intro\n\n<!-- card: New | style: deck -->\n\nBody\n\n<!-- /card -->\n`);
+  });
+});

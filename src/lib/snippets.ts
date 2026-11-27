@@ -9,11 +9,11 @@ import { parseDocument } from "./document.ts";
 import { KANBAN_COLORS, MAX_COLUMNS as KANBAN_MAX_COLUMNS, parseKanbanBlock, type KanbanColor } from "./kanban.ts";
 export { KANBAN_COLORS };
 import { headingId } from "./links.ts";
-import { parseColumnComment } from "./directives.ts";
+import { CARD_STYLES as CARD_STYLE_NAMES, parseCardComment, parseColumnComment } from "./directives.ts";
 import { compareRegions } from "./render.ts";
 
 export type SnippetKind =
-  | "heading-1" | "heading-2" | "heading-3" | "heading-4" | "separator" | "collapsible" | "columns" | "unordered-list" | "ordered-list" | "table" | "kanban"
+  | "heading-1" | "heading-2" | "heading-3" | "heading-4" | "separator" | "collapsible" | "columns" | "card" | "unordered-list" | "ordered-list" | "table" | "kanban"
   | "tree" | "code-block" | "mermaid" | "compare"
   | "colored-text" | "colored-section" | "blockquote" | "emojis"
   | "link" | "doc-link" | "anchor-link" | "anchor-doc-link" | "image" | "attachment";
@@ -22,7 +22,7 @@ export type SnippetCategory = "structure" | "code" | "rich-text" | "links-media"
 
 /** The picker's categories, with their kinds in display order. */
 export const SNIPPET_CATEGORIES: readonly { key: SnippetCategory; kinds: readonly SnippetKind[] }[] = [
-  { key: "structure", kinds: ["heading-1", "heading-2", "heading-3", "heading-4", "separator", "collapsible", "columns", "unordered-list", "ordered-list", "table", "kanban"] },
+  { key: "structure", kinds: ["heading-1", "heading-2", "heading-3", "heading-4", "separator", "collapsible", "columns", "card", "unordered-list", "ordered-list", "table", "kanban"] },
   { key: "code", kinds: ["tree", "code-block", "mermaid", "compare"] },
   { key: "rich-text", kinds: ["colored-text", "colored-section", "blockquote", "emojis"] },
   { key: "links-media", kinds: ["link", "doc-link", "anchor-link", "anchor-doc-link", "image", "attachment"] },
@@ -31,7 +31,7 @@ export const SNIPPET_CATEGORIES: readonly { key: SnippetCategory; kinds: readonl
 /** Kinds the reading view reopens in their form (all but emojis and kanban). */
 export const EDITABLE_KINDS: ReadonlySet<SnippetKind> = new Set(SNIPPET_CATEGORIES.flatMap((each) => each.kinds).filter((kind) => kind !== "emojis" && kind !== "kanban"));
 
-const WITH_PREVIEW: ReadonlySet<SnippetKind> = new Set(["separator", "columns", "kanban", "mermaid", "compare", "emojis", "link", "doc-link", "anchor-link", "anchor-doc-link", "image"]);
+const WITH_PREVIEW: ReadonlySet<SnippetKind> = new Set(["separator", "columns", "card", "kanban", "mermaid", "compare", "emojis", "link", "doc-link", "anchor-link", "anchor-doc-link", "image"]);
 
 /** Whether the dialog shows the Markdown preview for `kind` (the other kinds have their own live preview). */
 export function showsPreview(kind: SnippetKind): boolean {
@@ -43,6 +43,9 @@ export type TableStyle = "" | "compact" | "intermediate";
 export type TableFill = "" | "striped" | "full";
 export type TableBorder = "" | "bordered" | "soft-bordered";
 export type TableColor = "" | "info" | "success" | "warning" | "danger" | "note";
+/** A card's style; "" is the default, plain. */
+export type CardStyle = "" | "plain" | "bristol" | "deck";
+export const CARD_STYLES: readonly Exclude<CardStyle, "">[] = CARD_STYLE_NAMES;
 export type Width = "" | "full" | "3/4" | "2/3" | "1/2" | "1/3" | "1/4";
 export type Align = "" | "left" | "center" | "right";
 export type QuoteType = "" | "info" | "success" | "warning" | "error";
@@ -81,6 +84,8 @@ export interface SnippetTexts {
   coloredSection: string;
   kanbanColumns: readonly string[];
   column: string;
+  /** The placeholder content of a new card. */
+  card: string;
   attachment: string;
   attachmentUrl: string;
   mermaidItem: string;
@@ -128,6 +133,8 @@ export type SnippetData =
   | { kind: "image"; alt: string; url: string; width: Width; align: Align }
   | { kind: "mermaid"; chart: MermaidChart; pieTitle: string; pie: { label: string; value: number }[]; timelineTitle: string; timeline: { period: string; event: string }[]; tree: { level: number; label: string; decorator: string; note: string }[]; sequence: SequenceRow[] }
   | { kind: "columns"; count: number; ratio: string; verticalAlign: "" | "top" | "center" | "bottom" | "stretch"; textAlign: "" | "left" | "center" | "right" | "justify"; gap: "" | "sm" | "md" | "lg"; body: string | null }
+  /** `body`: the content of a reopened card, kept byte for byte; null for a new one (a placeholder). `style` "" is plain. */
+  | { kind: "card"; title: string; style: CardStyle; width: Width; align: Align; body: string | null }
   | { kind: "attachment"; text: string; url: string };
 
 /** The options of the forms, in the order the dialog offers them (the empty value, "default" or "none", left out). */
@@ -204,6 +211,7 @@ export function newSnippet(kind: SnippetKind, texts: SnippetTexts): SnippetData 
     case "image": return { kind, alt: "", url: "", width: "", align: "" };
     case "attachment": return { kind, text: "", url: "" };
     case "columns": return { kind, count: 2, ratio: "", verticalAlign: "", textAlign: "", gap: "", body: null };
+    case "card": return { kind, title: "", style: "", width: "", align: "", body: null };
     case "mermaid": return {
       kind, chart: "pie", pieTitle: texts.mermaid.pieTitle, pie: texts.mermaid.pie.map((each) => ({ ...each })),
       timelineTitle: texts.mermaid.timelineTitle, timeline: texts.mermaid.timeline.map((each) => ({ ...each })),
@@ -361,6 +369,36 @@ function buildColumns(data: ColumnsData, texts: SnippetTexts): string {
   return `${header}\n\n${columns.join("\n\n")}\n\n<!-- /layout-columns -->`;
 }
 
+type CardData = Extract<SnippetData, { kind: "card" }>;
+
+/** A card: its comment (the title, then the options that differ from plain, full width, left), its content, its closing comment. */
+function buildCard(data: CardData, texts: SnippetTexts): string {
+  // The title lives in a comment, between options separated by "|": neither may appear in it.
+  const title = cleanLine(data.title).replace(/\|/g, "/").replace(/--/g, "—");
+  const options = [
+    data.style && data.style !== "plain" ? `style: ${data.style}` : "",
+    data.width && data.width !== "full" ? `width: ${data.width}` : "",
+    data.align && data.align !== "left" ? `align: ${data.align}` : "",
+  ].filter(Boolean);
+  const header = `<!-- ${[title ? `card: ${title}` : "card", ...options].join(" | ")} -->`;
+  if (data.body !== null) return `${header}${data.body}<!-- /card -->`;
+  return `${header}\n\n${texts.card}\n\n<!-- /card -->`;
+}
+
+/** The form state of a card written as `markdown`: its options, and its content kept as it is. */
+function parseCard(markdown: string): CardData {
+  const open = /^<!--([\s\S]*?)-->/.exec(markdown);
+  const comment = open ? parseCardComment(open[1]!) : null;
+  const options = comment?.kind === "open" ? comment.options : null;
+  const afterOpen = open ? open[0].length : 0;
+  const closing = /<!--\s*\/card\s*-->\s*$/i.exec(markdown);
+  const pick = <T extends string>(allowed: readonly T[], value: string | null | undefined): T | "" => (value && isOneOf(allowed, value) ? value : "");
+  return {
+    kind: "card", title: options?.title ?? "", style: pick(CARD_STYLES, options?.style), width: pick(WIDTHS, options?.width), align: pick(ALIGNS, options?.align),
+    body: markdown.slice(afterOpen, closing && closing.index >= afterOpen ? closing.index : markdown.length),
+  };
+}
+
 function buildAttachment(data: Extract<SnippetData, { kind: "attachment" }>, texts: SnippetTexts): string {
   const url = data.url.trim() || texts.attachmentUrl;
   const name = data.url.trim() === "" ? "" : decode(url.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) ?? "");
@@ -400,6 +438,7 @@ export function buildSnippet(data: SnippetData, texts: SnippetTexts): string {
     }
     case "mermaid": return buildMermaid(data, texts);
     case "columns": return buildColumns(data, texts);
+    case "card": return buildCard(data, texts);
     case "attachment": return buildAttachment(data, texts);
   }
 }
@@ -661,6 +700,7 @@ export function parseSnippet(kind: SnippetKind, markdown: string, texts?: Snippe
     case "image": return parseImage(text);
     case "mermaid": return parseMermaid(text, texts) ?? newSnippet("mermaid", texts ?? EMPTY_TEXTS);
     case "columns": return parseColumns(text);
+    case "card": return parseCard(text);
     case "attachment": {
       const match = /^\[📎 ?((?:[^\]\\]|\\[\s\S])*)\]\(([^\n]*)\)$/.exec(text);
       return { kind, text: (match?.[1] ?? "").replace(/\\([[\]\\])/g, "$1"), url: match?.[2] ?? "" };
@@ -672,6 +712,7 @@ export function parseSnippet(kind: SnippetKind, markdown: string, texts?: Snippe
 export function detectSnippet(markdown: string): SnippetKind | null {
   const t = markdown.trim();
   if (/^<!--\s*layout-columns\b[\s\S]*<!--\s*\/layout-columns\s*-->$/i.test(t)) return "columns";
+  if (/^<!--\s*card(?![\w-])[\s\S]*<!--\s*\/card\s*-->$/i.test(t)) return "card";
   if (/^\[.*?\]\(\?doc=.+#.+\)$/.test(t)) return "anchor-doc-link";
   if (/^\[.*?\]\(\?doc=.+\)$/.test(t)) return "doc-link";
   if (/^\[.*?\]\(#.+\)$/.test(t)) return "anchor-link";

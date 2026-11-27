@@ -93,6 +93,10 @@ describe("tables", () => {
 });
 
 describe("regions left as they are", () => {
+  test("a Card block's comments stay as written, its content is formatted", () => {
+    formats("<!-- card: T | style: deck -->\n\n|a|b|\n|-|-|\n|1|2|\n\n\n<!-- /card -->\n", "<!-- card: T | style: deck -->\n\n| a   | b   |\n| --- | --- |\n| 1   | 2   |\n\n<!-- /card -->\n");
+  });
+
   test("the frontmatter is untouched", () => {
     formats("---\ntitle: x   \nlist:  \n\n\n  - a\n---\n\n\n\nbody  \n", "---\ntitle: x   \nlist:  \n\n\n  - a\n---\n\nbody\n");
   });

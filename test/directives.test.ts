@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { parseDocument } from "../src/lib/document.ts";
+import { parseCardComment } from "../src/lib/directives.ts";
 import { renderDocument } from "../src/lib/render.ts";
 
 const render = (text: string, path = "guide/intro.md") => renderDocument(parseDocument(text, path), path, {}, { softBreaks: false });
@@ -345,5 +346,52 @@ describe("code highlighting", () => {
 describe("raw HTML and comments", () => {
   test("raw HTML and unknown comments are left out", () => {
     assert.equal(render("<!-- just a note -->\n\n<div>raw</div>\n\nText\n"), '<p data-src="38-42">Text</p>');
+  });
+});
+
+describe("cards", () => {
+  test("the comment: a title first, then its options; the close; anything else is no card comment", () => {
+    assert.deepEqual(parseCardComment(" card: My title | style: deck | width: 1/2 | align: right "), { kind: "open", options: { title: "My title", style: "deck", width: "1/2", align: "right" } });
+    assert.deepEqual(parseCardComment("card"), { kind: "open", options: { title: null, style: null, width: null, align: null } });
+    assert.deepEqual(parseCardComment("card | style: bristol"), { kind: "open", options: { title: null, style: "bristol", width: null, align: null } });
+    assert.deepEqual(parseCardComment("card: Note: read me | align: center"), { kind: "open", options: { title: "Note: read me", style: null, width: null, align: "center" } });
+    assert.deepEqual(parseCardComment("card: T | style: neon | width: 40% | align: top"), { kind: "open", options: { title: "T", style: null, width: null, align: null } });
+    assert.deepEqual(parseCardComment(" /card "), { kind: "close" });
+    assert.equal(parseCardComment("cards"), null);
+    assert.equal(parseCardComment("table-style: compact"), null);
+  });
+
+  test("a card wraps its blocks under its title, with its style, width and alignment as classes", () => {
+    // "<!-- card: Hello | style: bristol | width: 1/2 | align: right -->\n\n" is 67 characters: "Body" is 67-71, "<!-- /card -->" 73-87.
+    assert.equal(
+      render("<!-- card: Hello | style: bristol | width: 1/2 | align: right -->\n\nBody\n\n<!-- /card -->\n"),
+      '<div class="ld-card ld-card-bristol ld-card-width-half ld-card-align-right" data-src="0-87"><div class="ld-card-title">Hello</div><div class="ld-card-body"><p data-src="67-71">Body</p></div></div>',
+    );
+  });
+
+  test("a bare card is plain, full width, without a title", () => {
+    assert.equal(render("<!-- card -->\nBody\n<!-- /card -->\n"), '<div class="ld-card ld-card-plain" data-src="0-33"><div class="ld-card-body"><p data-src="14-18">Body</p></div></div>');
+  });
+
+  test("the title is text, never markup", () => {
+    assert.match(render("<!-- card: <b>x</b> & y -->\nBody\n<!-- /card -->\n"), /<div class="ld-card-title">&#x3C;b>x&#x3C;\/b> &#x26; y<\/div>/);
+  });
+
+  test("directives apply inside a card, and a card's comment is not a directive of the block after it", () => {
+    const html = render("<!-- card: T -->\n<!-- table-style: compact -->\n" + TABLE + "\n<!-- /card -->\n");
+    assert.match(html, /<div class="ld-card-body"><div class="overflow-x-auto"><table class="table-style-compact"/);
+  });
+
+  test("cards nest, and go inside and around column layouts", () => {
+    const nested = render("<!-- card: Out -->\n\n<!-- card: In -->\n\nX\n\n<!-- /card -->\n\nY\n\n<!-- /card -->\n");
+    assert.match(nested, /^<div class="ld-card ld-card-plain" data-src="\d+-\d+"><div class="ld-card-title">Out<\/div><div class="ld-card-body"><div class="ld-card ld-card-plain" data-src="\d+-\d+"><div class="ld-card-title">In<\/div><div class="ld-card-body"><p data-src="\d+-\d+">X<\/p><\/div><\/div><p data-src="\d+-\d+">Y<\/p><\/div><\/div>$/);
+    const inColumns = render("<!-- layout-columns -->\n<!-- col -->\n<!-- card: A -->\nA\n<!-- /card -->\n<!-- col -->\nB\n<!-- /layout-columns -->\n");
+    assert.match(inColumns, /<div class="ld-column"><div class="ld-card ld-card-plain" data-src="\d+-\d+"><div class="ld-card-title">A<\/div>/);
+    const aroundColumns = render("<!-- card: C -->\n<!-- layout-columns -->\n<!-- col -->\nA\n<!-- col -->\nB\n<!-- /layout-columns -->\n<!-- /card -->\n");
+    assert.match(aroundColumns, /<div class="ld-card-body"><div class="ld-columns"/);
+  });
+
+  test("without a closing comment the blocks stay as they are and no comment is output", () => {
+    assert.equal(render("<!-- card: T -->\nA\n"), '<p data-src="17-18">A</p>');
   });
 });

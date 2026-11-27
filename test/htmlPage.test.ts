@@ -127,6 +127,8 @@ describe("templates", () => {
     assert.ok(page.css.startsWith(ARTICLE.css));
     assert.ok(page.css.indexOf(".ld-callout-header") > ARTICLE.css.length);
     assert.match(page.css, /\.ld-columns \{/);
+    assert.match(page.css, /\.ld-card-bristol \{/);
+    assert.match(page.css, /\.ld-card-deck \{/);
     assert.match(page.css, /\.ld-compare \{/);
     assert.match(page.css, /\.ld-kanban \{/);
     assert.match(page.css, /\.image-missing \{/);
@@ -153,6 +155,11 @@ describe("directives, footnotes and markers come out as in the reading view", ()
     assert.match(page.html, /<blockquote class="ld-callout ld-callout-info"/);
     assert.match(page.html, /<div class="ld-columns"/);
     assert.match(page.html, /<mark class="ld-tag-marker"/);
+  });
+
+  test("a card, in its style and width", () => {
+    const page = build("## One\n\n<!-- card: Recipe | style: deck | width: 1/2 -->\n\nStep\n\n<!-- /card -->\n");
+    assert.match(page.html, /<div class="ld-card ld-card-deck ld-card-width-half"[^>]*><div class="ld-card-title">Recipe<\/div><div class="ld-card-body"><p[^>]*>Step<\/p><\/div><\/div>/);
   });
 
   test("footnotes follow the last section", () => {

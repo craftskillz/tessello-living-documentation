@@ -14,7 +14,7 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import type { DocumentModel } from "./document.ts";
 import type { TextRange } from "./edits.ts";
-import { calloutIcon, gridTemplate, parseColumnComment, type Directive, parseDirective, quoteAttrs, type QuoteAttrs, sizeAttrs, tableAttrs } from "./directives.ts";
+import { calloutIcon, gridTemplate, parseColumnComment, type Directive, parseDirective, quoteAttrs, type QuoteAttrs, sizeAttrs, tableAttrs, parseCardComment, widthClassOf } from "./directives.ts";
 import { type KanbanBlock, parseKanbanBlock } from "./kanban.ts";
 import { isMarkerName, pillLabel, TAG_SOURCE } from "./tagMarkers.ts";
 import { headingId, resolveImage, resolveLink } from "./links.ts";
@@ -366,6 +366,7 @@ function remarkDirectives() {
   return (tree: MdastRoot, file: { data: object }) => {
     const { compares } = file.data as Pass;
     htmlSnippets(tree, (file.data as Pass).bodyStart);
+    cards(tree, (file.data as Pass).bodyStart);
     columns(tree, (file.data as Pass).bodyStart);
     if ((file.data as Pass).kanban) kanbanPreview(tree, (file.data as Pass).board);
     tagMarkers(tree, file.data as Pass);
@@ -726,6 +727,53 @@ function tagMarkers(root: MdastRoot, { text, documentText, bodyStart }: Pass): v
   }
 
   walk(root, true);
+}
+
+/**
+ * Wraps the blocks between `card: …` and its `/card` in a card: its title, then its body. Top level only (a card in a
+ * column is still a top-level block of the Markdown); cards nest, each opening paired with its own closing. A card's
+ * body gets its own column layouts; an opening without its closing leaves the blocks as they are.
+ */
+function cards(root: { children: MdastRoot["children"] }, bodyStart: number): void {
+  const nodes = root.children as Nodes[];
+  const kindAt = (index: number) => parseCardComment(commentOf(nodes[index]!) ?? "\0");
+  const out: Nodes[] = [];
+  for (let at = 0; at < nodes.length; at++) {
+    const open = kindAt(at);
+    let close = -1;
+    if (open?.kind === "open") {
+      for (let index = at + 1, depth = 0; index < nodes.length && close < 0; index++) {
+        const kind = kindAt(index)?.kind;
+        if (kind === "open") depth++;
+        else if (kind === "close" && depth-- === 0) close = index;
+      }
+    }
+    if (open?.kind !== "open" || close < 0) {
+      out.push(nodes[at]!);
+      continue;
+    }
+    const body = { type: "root", children: nodes.slice(at + 1, close) } as MdastRoot;
+    cards(body, bodyStart);
+    columns(body, bodyStart);
+    const { title, style, width, align } = open.options;
+    const widthClass = widthClassOf(width);
+    out.push({
+      type: "ldCard",
+      children: [
+        ...(title ? [{ type: "ldCardTitle", children: [{ type: "text", value: title }], data: { hName: "div", hProperties: { className: ["ld-card-title"] } } }] : []),
+        { type: "ldCardBody", children: body.children, data: { hName: "div", hProperties: { className: ["ld-card-body"] } } },
+      ],
+      data: {
+        hName: "div",
+        hProperties: {
+          className: ["ld-card", `ld-card-${style ?? "plain"}`, ...(widthClass ? [`ld-card-width-${widthClass}`] : []), ...(align ? [`ld-card-align-${align}`] : [])],
+          dataSrc: `${bodyStart + nodes[at]!.position!.start.offset!}-${bodyStart + nodes[close]!.position!.end.offset!}`,
+        },
+      },
+    } as never);
+    at = close;
+  }
+  root.children = out as never;
 }
 
 /** Wraps the blocks between `layout-columns` and `/layout-columns` (top level only) in a grid of column divs. */

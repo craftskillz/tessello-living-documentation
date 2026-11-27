@@ -125,3 +125,7 @@ _Avoid_: Lane, swimlane, status
 **Card**:
 A Document stored directly in a Column's Folder, in that Folder manifest's order then alphabetical. Moving a Card between Columns moves its file.
 _Avoid_: Item, task, ticket
+
+**Card block**:
+A frame around free Markdown inside a Document, written between `<!-- card: Title | style: … | width: … | align: … -->` and `<!-- /card -->`: a title, a style (plain, bristol, deck), a width and an alignment. Labelled "Card" in the snippet picker; unrelated to a Kanban board's Cards.
+_Avoid_: Card (alone, in the code and the docs), box, panel, callout

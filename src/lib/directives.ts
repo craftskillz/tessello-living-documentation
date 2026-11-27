@@ -171,3 +171,45 @@ export function gridTemplate(ratio: string | null, columnCount: number): string 
   const count = parseInt(ratio, 10);
   return count > 0 ? `repeat(${count}, minmax(0, 1fr))` : equal;
 }
+
+// ---- cards ----
+
+export interface CardOptions {
+  /** The title, as written (text, never markup); null without one. */
+  title: string | null;
+  style: string | null;
+  /** One of the images' widths (`1/2`…). */
+  width: string | null;
+  align: string | null;
+}
+
+export type CardComment = { kind: "open"; options: CardOptions } | { kind: "close" };
+
+export const CARD_STYLES = ["plain", "bristol", "deck"] as const;
+
+/** The width's class suffix (`half` for `1/2`), as for images; null for none. */
+export const widthClassOf = (width: string | null): string | null => (width === null ? null : (WIDTH_SUFFIX[width] ?? null));
+
+/**
+ * What a comment means to a card: `card: Title | style: deck | width: 1/2 | align: right` opens one (with a colon, the
+ * first part is the title, colons and all; without one, every part is an option), `/card` closes it. Invalid options
+ * are ignored.
+ */
+export function parseCardComment(comment: string): CardComment | null {
+  if (/^\s*\/card\s*$/i.test(comment)) return { kind: "close" };
+  const open = /^\s*card(?![\w-])\s*(:?)([\s\S]*)$/i.exec(comment);
+  if (!open) return null;
+  const parts = open[2]!.split("|");
+  const options: CardOptions = { title: null, style: null, width: null, align: null };
+  if (open[1] === ":") options.title = parts.shift()!.trim() || null;
+  for (const part of parts) {
+    const pair = /^\s*([\w-]+)\s*:\s*(.+?)\s*$/.exec(part);
+    if (!pair) continue;
+    const key = pair[1]!.toLowerCase();
+    const value = pair[2]!.toLowerCase();
+    if (key === "style") options.style = oneOf(CARD_STYLES, value) ?? options.style;
+    else if (key === "width") options.width = oneOf(WIDTHS, value) ?? options.width;
+    else if (key === "align") options.align = oneOf(ALIGNS, value) ?? options.align;
+  }
+  return { kind: "open", options };
+}

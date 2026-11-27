@@ -1,4 +1,4 @@
-// The page styles shared by both templates: the reading view's rules for directives, columns, compare, Kanban preview,
+// The page styles shared by both templates: the reading view's rules for directives, columns, cards, compare, Kanban preview,
 // missing image and Tag markers, without the `.document` prefix and without the dark rules (the page keeps its light colours).
 
 export const SHARED_CSS = String.raw`
@@ -61,6 +61,49 @@ img.ld-image-align-right { margin-left: auto; margin-right: 0; }
 .ld-column > :last-child { margin-bottom: 0; }
 @media (max-width: 640px) {
   .ld-columns { grid-template-columns: 1fr !important; }
+}
+/* ── Cards (card comments): a frame around free Markdown, its title, style, width and alignment ── */
+.ld-card { box-sizing: border-box; width: 100%; margin: 1.75em 0; }
+.ld-card-width-full { width: 100%; }
+.ld-card-width-three-quarters { width: 75%; }
+.ld-card-width-two-thirds { width: 66.6667%; }
+.ld-card-width-half { width: 50%; }
+.ld-card-width-third { width: 33.3333%; }
+.ld-card-width-quarter { width: 25%; }
+.ld-card-align-center { margin-left: auto; margin-right: auto; }
+.ld-card-align-right { margin-left: auto; margin-right: 0; }
+.ld-card-title { font-weight: 700; }
+.ld-card-body > :first-child { margin-top: 0; }
+.ld-card-body > :last-child { margin-bottom: 0; }
+.ld-card-plain { --card-frame: #d1d5db; border: 1px solid var(--card-frame); border-radius: 10px; box-shadow: 0 1px 3px rgb(0 0 0 / 0.08); }
+.ld-card-plain > .ld-card-title { padding: 0.7rem 1.1rem; color: var(--doc-headings, #111827); border-bottom: 1px solid var(--card-frame); }
+.ld-card-plain > .ld-card-body { padding: 0.9rem 1.1rem; }
+/* Paper cards stay light in a dark Document, like a real card on the desk: the light palette inside them. */
+:is(.ld-card-bristol, .ld-card-deck) {
+  --doc-body: #374151; --doc-headings: #111827; --doc-bold: #111827; --doc-counters: #6b7280; --doc-bullets: #d1d5db;
+  --doc-hr: #e5e7eb; --doc-quotes: #111827; --doc-quote-borders: #e5e7eb; --doc-captions: #6b7280; --doc-code: #111827;
+  --doc-pre-code: #24292e; --doc-pre-bg: #f6f8fa; --doc-pre-bg-solid: #f6f8fa; --doc-th-borders: #d1d5db; --doc-td-borders: #e5e7eb;
+  color: var(--doc-body);
+}
+/* A bristol index card: cream paper, a red title, a row of punched holes across the top (cut out, so they show what is behind). */
+.ld-card-bristol {
+  background: radial-gradient(circle at 50% 0.85rem, transparent 0.3rem, rgb(0 0 0 / 0.22) 0.31rem 0.4rem, transparent 0.42rem) 0 0 / 1.6rem 100% repeat-x #fffdf6;
+  border: 1px solid #ebe4cf;
+  border-radius: 3px;
+  padding: 1.7rem 1.4rem 1.1rem;
+  -webkit-mask: radial-gradient(circle at 50% 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 1.6rem 100% repeat-x;
+  mask: radial-gradient(circle at 50% 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 1.6rem 100% repeat-x;
+}
+.ld-card-bristol > .ld-card-title { color: #9b2c2c; margin-bottom: 0.4rem; }
+/* A playing card: white face, rounded corners, a shadow, the ace of hearts in two corners, a centred serif title. */
+.ld-card-deck { --suit: #b91c1c; position: relative; background: #fff; border: 1px solid #d6d3d1; border-radius: 16px; box-shadow: 0 10px 25px rgb(0 0 0 / 0.18); padding: 2.4rem 3rem; }
+.ld-card-deck::before,
+.ld-card-deck::after { content: "A\A\2665"; white-space: pre; position: absolute; color: var(--suit); font: 700 1.05rem/1.05 Georgia, serif; text-align: center; }
+.ld-card-deck::before { top: 0.7rem; left: 0.8rem; }
+.ld-card-deck::after { bottom: 0.7rem; right: 0.8rem; transform: rotate(180deg); }
+.ld-card-deck > .ld-card-title { text-align: center; font: 700 1.35rem Georgia, serif; color: var(--suit); margin-bottom: 0.6rem; }
+@media (max-width: 640px) {
+  .ld-card[class*="ld-card-width-"] { width: 100%; }
 }
 /* ── Code blocks: width and alignment presets, and the collapsed look of long ones ── */
 pre[class*="ld-code-width-"] { max-width: 100%; }

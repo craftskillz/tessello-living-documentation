@@ -7,7 +7,7 @@ import type { Html, List, Nodes, Paragraph, Parents, Root } from "mdast";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
-import { parseColumnComment, parseDirective } from "./directives.ts";
+import { parseCardComment, parseColumnComment, parseDirective } from "./directives.ts";
 import { parseDocument } from "./document.ts";
 import { applyEdits, type TextEdit, type TextRange } from "./edits.ts";
 import { Conflict, type DocumentText, type Project } from "./project.ts";
@@ -78,6 +78,21 @@ export function snippetBlocks(text: string): SnippetBlock[] {
     at = close;
   }
 
+  // Cards, paired as render's cards() does: each opening with its own closing (cards nest), top level only.
+  const cardKind = (node: Nodes) => parseCardComment(node.type === "html" ? /^<!--([\s\S]*?)-->$/.exec((node as Html).value.trim())?.[1] ?? "\0" : "\0")?.kind;
+  for (let at = 0; at < top.length; at++) {
+    if (cardKind(top[at]!) !== "open") continue;
+    let close = -1;
+    for (let index = at + 1, depth = 0; index < top.length && close < 0; index++) {
+      const kind = cardKind(top[index]!);
+      if (kind === "open") depth++;
+      else if (kind === "close" && depth-- === 0) close = index;
+    }
+    if (close < 0) continue;
+    const from = bodyStart + top[at]!.position!.start.offset!;
+    add("card", { from, to: bodyStart + top[close]!.position!.end.offset! }, from);
+  }
+
   return found.sort((a, b) => a.range.from - b.range.from || b.range.to - a.range.to);
 }
 
@@ -125,8 +140,8 @@ function directivesStart(children: Nodes[], index: number, bodyStart: number): n
   for (let at = index - 1; at >= 0; at--) {
     const node = children[at]!;
     const comment = node.type === "html" ? /^<!--([\s\S]*?)-->$/.exec((node as Html).value.trim())?.[1] : undefined;
-    // The layout's own comments are not directives of the block after them.
-    if (comment === undefined || parseColumnComment(comment) || !parseDirective(comment)) break;
+    // The comments of a layout or a card are not directives of the block after them.
+    if (comment === undefined || parseColumnComment(comment) || parseCardComment(comment) || !parseDirective(comment)) break;
     from = bodyStart + node.position!.start.offset!;
   }
   return from;

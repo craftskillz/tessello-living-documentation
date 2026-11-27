@@ -4,7 +4,7 @@
   import { onMount, tick } from "svelte";
   import { searchEmojis, EMOJI_GROUPS } from "../lib/emojis.ts";
   import { t, type MessageKey } from "../lib/i18n.ts";
-  import { ALIGNS, buildSnippet, COLUMN_COUNTS, GAPS, KANBAN_COLORS, MAX_TREE_LEVEL, MERMAID_CHARTS, newSnippet, NOTE_POSITIONS, parseSnippet, QUOTE_TYPES, SEQUENCE_ARROWS, SNIPPET_CATEGORIES, showsPreview, SWATCHES, type Swatch, type SnippetData, type SnippetKind, TABLE_BORDERS, TABLE_COLORS, TABLE_FILLS, TABLE_STYLES, TEXT_ALIGNS, VERTICAL_ALIGNS, WIDTHS } from "../lib/snippets.ts";
+  import { ALIGNS, buildSnippet, CARD_STYLES, COLUMN_COUNTS, GAPS, KANBAN_COLORS, MAX_TREE_LEVEL, MERMAID_CHARTS, newSnippet, NOTE_POSITIONS, parseSnippet, QUOTE_TYPES, SEQUENCE_ARROWS, SNIPPET_CATEGORIES, showsPreview, SWATCHES, type Swatch, type SnippetData, type SnippetKind, TABLE_BORDERS, TABLE_COLORS, TABLE_FILLS, TABLE_STYLES, TEXT_ALIGNS, VERTICAL_ALIGNS, WIDTHS } from "../lib/snippets.ts";
   import { snippetTexts, type Heading, type SnippetFailure } from "./snippetDialog.ts";
 
   let {
@@ -55,7 +55,7 @@
   const ICONS: Record<SnippetKind, string> = {
     "heading-1": "H1", "heading-2": "H2", "heading-3": "H3", "heading-4": "H4", separator: "―", collapsible: "▸", "unordered-list": "•", "ordered-list": "🔢", table: "▦", kanban: "📋",
     tree: "🌳", "code-block": "💻", compare: "⚖️",
-    "colored-text": "🖍", "colored-section": "🎨", blockquote: "❝", emojis: "😀", mermaid: "🧜‍♀️", columns: "◫", attachment: "📎",
+    "colored-text": "🖍", "colored-section": "🎨", blockquote: "❝", emojis: "😀", mermaid: "🧜‍♀️", columns: "◫", card: "🃏", attachment: "📎",
     link: "🔗", "doc-link": "📄", "anchor-link": "⚓", "anchor-doc-link": "📄⚓", image: "🖼",
   };
   const name = (kind: SnippetKind) => t(`snKind_${kind}`);
@@ -557,6 +557,30 @@
           </label>
           <label class="field">{t("snRatio")}<input type="text" class="mono" bind:value={layout.ratio} placeholder={t("snRatioPlaceholder")} /></label>
           <p class="hint muted">{t("snLayoutHint")}</p>
+        {:else if data.kind === "card"}
+          {@const card = data}
+          <label class="field">{t("snCardTitle")}<input type="text" bind:value={card.title} /></label>
+          <label class="field">
+            {t("snCardStyle")}
+            <select value={card.style === "" ? "plain" : card.style} onchange={(event) => (card.style = event.currentTarget.value as typeof card.style)}>
+              {#each CARD_STYLES as style (style)}<option value={style}>{t(`snCardStyle_${style}`)}</option>{/each}
+            </select>
+          </label>
+          <label class="field">
+            {t("snWidth")}
+            <select bind:value={card.width}>
+              <option value="">{t("snWidthDefault")}</option>
+              {#each WIDTHS as width (width)}<option value={width}>{t(`snWidth_${width}`)}</option>{/each}
+            </select>
+          </label>
+          <label class="field">
+            {t("snAlign")}
+            <select bind:value={card.align}>
+              <option value="">{t("snAlignDefault")}</option>
+              {#each ALIGNS as align (align)}<option value={align}>{t(`snAlign_${align}`)}</option>{/each}
+            </select>
+          </label>
+          <p class="hint muted">{t(card.body !== null ? "snCardKept" : "snCardHint")}</p>
         {:else if data.kind === "mermaid"}
           {@const chart = data}
           <label class="field">

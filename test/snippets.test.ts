@@ -52,6 +52,7 @@ const texts: SnippetTexts = {
   coloredSection: "colored section",
   kanbanColumns: ["Todo", "Doing", "Done"],
   column: "Column",
+  card: "Card content",
   attachment: "file",
   attachmentUrl: "files/file",
   mermaidItem: "Item",
@@ -94,11 +95,11 @@ const texts: SnippetTexts = {
 const build = (data: SnippetData) => buildSnippet(data, texts);
 
 describe("the picker", () => {
-  test("lists the 25 kinds in four categories, in order", () => {
+  test("lists the 26 kinds in four categories, in order", () => {
     assert.deepEqual(
       SNIPPET_CATEGORIES.map((each) => [each.key, each.kinds.join(" ")]),
       [
-        ["structure", "heading-1 heading-2 heading-3 heading-4 separator collapsible columns unordered-list ordered-list table kanban"],
+        ["structure", "heading-1 heading-2 heading-3 heading-4 separator collapsible columns card unordered-list ordered-list table kanban"],
         ["code", "tree code-block mermaid compare"],
         ["rich-text", "colored-text colored-section blockquote emojis"],
         ["links-media", "link doc-link anchor-link anchor-doc-link image attachment"],
@@ -109,12 +110,12 @@ describe("the picker", () => {
   test("the reading view reopens every kind but emojis and kanban", () => {
     const all = SNIPPET_CATEGORIES.flatMap((each) => each.kinds);
     assert.deepEqual(all.filter((kind) => !EDITABLE_KINDS.has(kind)), ["kanban", "emojis"]);
-    assert.equal(EDITABLE_KINDS.size, 23);
+    assert.equal(EDITABLE_KINDS.size, 24);
   });
 
   test("the dialog shows the Markdown preview only for kinds without their own live preview", () => {
     const shown = SNIPPET_CATEGORIES.flatMap((each) => each.kinds).filter(showsPreview);
-    assert.deepEqual(shown, ["separator", "columns", "kanban", "mermaid", "compare", "emojis", "link", "doc-link", "anchor-link", "anchor-doc-link", "image"]);
+    assert.deepEqual(shown, ["separator", "columns", "card", "kanban", "mermaid", "compare", "emojis", "link", "doc-link", "anchor-link", "anchor-doc-link", "image"]);
   });
 });
 
@@ -740,5 +741,38 @@ describe("round trips of the three kinds", () => {
       assert.ok(["mermaid", "columns", "attachment"].includes(kind), markdown);
       assert.equal(buildSnippet(parseSnippet(kind, markdown, texts), texts), markdown);
     }
+  });
+});
+
+describe("cards", () => {
+  type CardData = Extract<SnippetData, { kind: "card" }>;
+  const cardOf = (changes: Partial<CardData>): CardData => ({ ...(newSnippet("card", texts) as CardData), ...changes });
+
+  test("a new card is plain, full width, without a title, around a placeholder", () => {
+    assert.deepEqual(newSnippet("card", texts), { kind: "card", title: "", style: "", width: "", align: "", body: null });
+    assert.equal(build(newSnippet("card", texts)), "<!-- card -->\n\nCard content\n\n<!-- /card -->");
+  });
+
+  test("the title, then the options that are set, in order", () => {
+    assert.equal(build(cardOf({ title: " My  recipe ", style: "bristol", width: "1/2", align: "right" })).split("\n")[0], "<!-- card: My recipe | style: bristol | width: 1/2 | align: right -->");
+    assert.equal(build(cardOf({ style: "deck" })).split("\n")[0], "<!-- card | style: deck -->");
+    assert.equal(build(cardOf({ title: "T", style: "plain", width: "full", align: "left" })).split("\n")[0], "<!-- card: T -->");
+  });
+
+  test("a title cannot break the comment or its options", () => {
+    assert.equal(build(cardOf({ title: "a | b --> c" })).split("\n")[0], "<!-- card: a / b —> c -->");
+  });
+
+  test("a reopened card keeps its content byte for byte while its options change", () => {
+    const source = "<!-- card: Old | width: 1/3 -->\n\n**Body**   text\n\n- a\n\n<!-- /card -->";
+    const data = parseSnippet("card", source) as CardData;
+    assert.deepEqual(data, { kind: "card", title: "Old", style: "", width: "1/3", align: "", body: "\n\n**Body**   text\n\n- a\n\n" });
+    assert.equal(build({ ...data, title: "New", style: "deck" }), "<!-- card: New | style: deck | width: 1/3 -->\n\n**Body**   text\n\n- a\n\n<!-- /card -->");
+  });
+
+  test("a card is recognized, with or without options, around anything", () => {
+    assert.equal(detectSnippet("<!-- card -->\n\nx\n\n<!-- /card -->"), "card");
+    assert.equal(detectSnippet("<!-- card: T | style: deck -->\n\n<!-- layout-columns -->\n<!-- col -->\na\n<!-- /layout-columns -->\n\n<!-- /card -->"), "card");
+    assert.equal(detectSnippet("<!-- cards -->\n\nx\n\n<!-- /card -->"), null);
   });
 });
