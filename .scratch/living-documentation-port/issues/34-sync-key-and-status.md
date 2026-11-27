@@ -4,12 +4,12 @@
 
 **Blocked by:** none (the `tessello` side is `../tessello/.scratch/git-integration/issues/11-sync-living-documentation.md`, which needs this key)
 
-**Status:** ready-for-agent
+**Status:** ready-for-human (built in 8a1133d; awaiting the trial in the local Host with `tessello sync --living-documentation` running, which needs the `tessello` ticket 11)
 
-- [ ] Key `sync`: `{ "projects": [{ "id", "name", "repository": "<folder name>", "path": "<in the repository>", "location"?: "<typed>" }] }`, written, refreshed and removed as above; nothing else of the storage changes
-- [ ] Project settings › Repository shows the `syncStatus` of the Project (last commit or problem) and the command to run when there is none
-- [ ] Every text in English and French; every failure shows a translated message
-- [ ] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
+- [x] Key `sync`: `{ "projects": [{ "id", "name", "repository": "<folder name>", "path"?: "<in the repository>", "location"?: "<typed>" }] }`, written, refreshed and removed as above; nothing else of the storage changes
+- [x] Project settings › Repository shows the `syncStatus` of the Project (last commit or problem) and the command to run when there is none
+- [x] Every text in English and French; every failure shows a translated message
+- [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
 - [ ] Tried in the local Host with `npx tessello sync --living-documentation <repository>` running; differences noted in the ticket
 
 Decision: `docs/adr/0011-tessello-sync-commits-the-projects-of-a-repository.md`. Spec: `docs/spec/git-versioning.md`.
@@ -39,3 +39,15 @@ Decision: `docs/adr/0011-tessello-sync-commits-the-projects-of-a-repository.md`.
   Project settings › Repository shows "Last automatic commit: today at 14:31 (a1b2c3d), 2 documents", or the problem in red, or, when `heartbeat` is missing or older than three intervals, "The synchronisation is not running" with the command to copy.
 
 - `sync` recognises a repository given on the command line by the Project's typed `location` lying inside it when there is one, else by the repository folder's name with the Project path existing in it (User, 2026-11-27).
+
+- `path` is absent while unknown (User, 2026-11-27). Versions finds the Project folder only among the files git tracks, so a Project never committed has no path; `sync` then recognises it by its typed `location`, and Project settings asks for the location ("Type this Project's location above…").
+
+## Comments
+
+- **`path` optional**: the key differs from the format above in that one point (see Settled). The `tessello` ticket 11 must treat a missing `path` as "recognise by `location` only".
+- **`name`** is the Project folder's name, not the name the User gave it.
+- **When the path is looked for**: when Versions reads a history, and in the background when Project settings opens with an available grant whose entry has no path (also creates the entry for a grant connected before this ticket). Typing the location also creates the entry of such a grant.
+- **Display**: Project settings reads `syncStatus` when it opens and every 15 s while open. Besides "not running", a third case: sync running with no entry for this Project → "running, but not for this repository" with the command. When running with a problem, only the problem shows (no command). `sync`'s own message is English; a translated lead precedes it. A failed read of `syncStatus` shows a translated message (not covered by e2e: the Test Host cannot fail a storage read).
+- **The command's path**: the path `sync` used, else the typed location minus `path`, else a placeholder `<path of <repository>>` to replace (also what Copy copies).
+- **"Not running"** uses three of the default 60 s intervals (180 s): the Module cannot read Git Integration's configured interval.
+- **Left**: the trial in the local Host, once `tessello sync --living-documentation` exists.
