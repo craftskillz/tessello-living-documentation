@@ -4,7 +4,7 @@
 
 **Blocked by:** none
 
-**Status:** built, awaiting the trial in the local Host
+**Status:** done (133d9a2)
 
 - [x] `src/lib/annotations.ts`: `Annotation` carries `status` and `replies` (malformed values read as absent); `replyToAnnotation` (appends a `user` Reply, Refused("empty") for a blank text) and `setAnnotationStatus`, version-checked and re-applied on a conflict like `editAnnotation`; every unknown key kept
 - [x] Done annotations are green (highlight and column button); to-do ones keep their yellow; orphans and "surrounding text changed" keep their marks
@@ -12,7 +12,7 @@
 - [x] An `.annotations.json` changed by an agent (status, Reply, re-anchored passage) shows without reloading
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host, an agent's change written by hand into `.annotations.json`; differences noted in the ticket
+- [x] Tried in the local Host, an agent's change written by hand into `.annotations.json`; differences noted in the ticket
 
 Decision: `docs/adr/0012-annotations-are-tasks-for-agents.md`. Spec: `docs/spec/annotations.md` rules 11–15.
 
@@ -27,3 +27,4 @@ Decision: `docs/adr/0012-annotations-are-tasks-for-agents.md`. Spec: `docs/spec/
 - Mark as done / Reopen keep the popup open on the new status; Reply opens a form like Edit (Escape cancels, Cmd/Ctrl+Enter saves).
 - A done orphan keeps its red ⚠ button; a done passage whose surroundings changed keeps the orange button and a green highlight.
 - The popup's four actions wrap on two rows in its 320 px.
+- Tried in the local Host by the User (2026-11-27): no difference from the spec.
