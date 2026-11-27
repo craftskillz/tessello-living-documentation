@@ -45,3 +45,4 @@ Outside the Module (GitHub, IDE previews) the comments are invisible and the con
 - The snippet's icon is 🃏. The picker now lists 26 kinds, 24 of them reopened from the reading view.
 - Typecheck, 1189 unit tests and 411 browser tests green. Not yet tried in the local Host.
 - After the User's first look (2026-11-27): the bristol paper is a little darker (`#f8efd4`, `#ece2c3` in a dark Document) and keeps two holes in every four places (● · · ●, the two mask layers intersected); the playing card shows a neutral double lozenge ◈ in both top corners instead of the ace of hearts in two opposite corners.
+- Background colour, asked by the User (2026-11-27): `color:` after `style`, one of twelve backgrounds (`CARD_PALETTE` in snippets.ts, repeated in document.css and the HTML pages' CSS); the text, title and plain-frame inks come with it. Swatches in the form, Default first (the style's own).

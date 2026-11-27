@@ -9,7 +9,7 @@ import { parseDocument } from "./document.ts";
 import { KANBAN_COLORS, MAX_COLUMNS as KANBAN_MAX_COLUMNS, parseKanbanBlock, type KanbanColor } from "./kanban.ts";
 export { KANBAN_COLORS };
 import { headingId } from "./links.ts";
-import { CARD_STYLES as CARD_STYLE_NAMES, parseCardComment, parseColumnComment } from "./directives.ts";
+import { CARD_COLORS as CARD_COLOR_NAMES, CARD_STYLES as CARD_STYLE_NAMES, parseCardComment, parseColumnComment } from "./directives.ts";
 import { compareRegions } from "./render.ts";
 
 export type SnippetKind =
@@ -46,6 +46,24 @@ export type TableColor = "" | "info" | "success" | "warning" | "danger" | "note"
 /** A card's style; "" is the default, plain. */
 export type CardStyle = "" | "plain" | "bristol" | "deck";
 export const CARD_STYLES: readonly Exclude<CardStyle, "">[] = CARD_STYLE_NAMES;
+/** A card's background; "" keeps the style's own (white, cream paper, white face). */
+export type CardColor = "" | (typeof CARD_COLOR_NAMES)[number];
+export const CARD_COLORS: readonly Exclude<CardColor, "">[] = CARD_COLOR_NAMES;
+/** Each background with the ink of its text and the colour of its title, chosen for it (document.css and the HTML pages repeat them). */
+export const CARD_PALETTE: Record<Exclude<CardColor, "">, { bg: string; ink: string; title: string }> = {
+  white: { bg: "#ffffff", ink: "#374151", title: "#111827" },
+  cream: { bg: "#fdf8e7", ink: "#3f3a2e", title: "#8a5a00" },
+  lemon: { bg: "#fef9c3", ink: "#422006", title: "#854d0e" },
+  peach: { bg: "#ffedd5", ink: "#431407", title: "#c2410c" },
+  rose: { bg: "#ffe4e6", ink: "#4c0519", title: "#be123c" },
+  lavender: { bg: "#ede9fe", ink: "#2e1065", title: "#6d28d9" },
+  sky: { bg: "#e0f2fe", ink: "#082f49", title: "#0369a1" },
+  mint: { bg: "#dcfce7", ink: "#052e16", title: "#15803d" },
+  sage: { bg: "#e7efe3", ink: "#1f2d1a", title: "#3f6212" },
+  slate: { bg: "#e2e8f0", ink: "#1e293b", title: "#334155" },
+  navy: { bg: "#1e293b", ink: "#e2e8f0", title: "#fde68a" },
+  forest: { bg: "#14532d", ink: "#ecfdf5", title: "#bbf7d0" },
+};
 export type Width = "" | "full" | "3/4" | "2/3" | "1/2" | "1/3" | "1/4";
 export type Align = "" | "left" | "center" | "right";
 export type QuoteType = "" | "info" | "success" | "warning" | "error";
@@ -134,7 +152,7 @@ export type SnippetData =
   | { kind: "mermaid"; chart: MermaidChart; pieTitle: string; pie: { label: string; value: number }[]; timelineTitle: string; timeline: { period: string; event: string }[]; tree: { level: number; label: string; decorator: string; note: string }[]; sequence: SequenceRow[] }
   | { kind: "columns"; count: number; ratio: string; verticalAlign: "" | "top" | "center" | "bottom" | "stretch"; textAlign: "" | "left" | "center" | "right" | "justify"; gap: "" | "sm" | "md" | "lg"; body: string | null }
   /** `body`: the content of a reopened card, kept byte for byte; null for a new one (a placeholder). `style` "" is plain. */
-  | { kind: "card"; title: string; style: CardStyle; width: Width; align: Align; body: string | null }
+  | { kind: "card"; title: string; style: CardStyle; color: CardColor; width: Width; align: Align; body: string | null }
   | { kind: "attachment"; text: string; url: string };
 
 /** The options of the forms, in the order the dialog offers them (the empty value, "default" or "none", left out). */
@@ -211,7 +229,7 @@ export function newSnippet(kind: SnippetKind, texts: SnippetTexts): SnippetData 
     case "image": return { kind, alt: "", url: "", width: "", align: "" };
     case "attachment": return { kind, text: "", url: "" };
     case "columns": return { kind, count: 2, ratio: "", verticalAlign: "", textAlign: "", gap: "", body: null };
-    case "card": return { kind, title: "", style: "", width: "", align: "", body: null };
+    case "card": return { kind, title: "", style: "", color: "", width: "", align: "", body: null };
     case "mermaid": return {
       kind, chart: "pie", pieTitle: texts.mermaid.pieTitle, pie: texts.mermaid.pie.map((each) => ({ ...each })),
       timelineTitle: texts.mermaid.timelineTitle, timeline: texts.mermaid.timeline.map((each) => ({ ...each })),
@@ -377,6 +395,7 @@ function buildCard(data: CardData, texts: SnippetTexts): string {
   const title = cleanLine(data.title).replace(/\|/g, "/").replace(/--/g, "—");
   const options = [
     data.style && data.style !== "plain" ? `style: ${data.style}` : "",
+    data.color ? `color: ${data.color}` : "",
     data.width && data.width !== "full" ? `width: ${data.width}` : "",
     data.align && data.align !== "left" ? `align: ${data.align}` : "",
   ].filter(Boolean);
@@ -394,7 +413,7 @@ function parseCard(markdown: string): CardData {
   const closing = /<!--\s*\/card\s*-->\s*$/i.exec(markdown);
   const pick = <T extends string>(allowed: readonly T[], value: string | null | undefined): T | "" => (value && isOneOf(allowed, value) ? value : "");
   return {
-    kind: "card", title: options?.title ?? "", style: pick(CARD_STYLES, options?.style), width: pick(WIDTHS, options?.width), align: pick(ALIGNS, options?.align),
+    kind: "card", title: options?.title ?? "", style: pick(CARD_STYLES, options?.style), color: pick(CARD_COLORS, options?.color), width: pick(WIDTHS, options?.width), align: pick(ALIGNS, options?.align),
     body: markdown.slice(afterOpen, closing && closing.index >= afterOpen ? closing.index : markdown.length),
   };
 }

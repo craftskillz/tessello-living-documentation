@@ -4,7 +4,7 @@
   import { onMount, tick } from "svelte";
   import { searchEmojis, EMOJI_GROUPS } from "../lib/emojis.ts";
   import { t, type MessageKey } from "../lib/i18n.ts";
-  import { ALIGNS, buildSnippet, CARD_STYLES, COLUMN_COUNTS, GAPS, KANBAN_COLORS, MAX_TREE_LEVEL, MERMAID_CHARTS, newSnippet, NOTE_POSITIONS, parseSnippet, QUOTE_TYPES, SEQUENCE_ARROWS, SNIPPET_CATEGORIES, showsPreview, SWATCHES, type Swatch, type SnippetData, type SnippetKind, TABLE_BORDERS, TABLE_COLORS, TABLE_FILLS, TABLE_STYLES, TEXT_ALIGNS, VERTICAL_ALIGNS, WIDTHS } from "../lib/snippets.ts";
+  import { ALIGNS, buildSnippet, CARD_COLORS, CARD_PALETTE, CARD_STYLES, COLUMN_COUNTS, GAPS, KANBAN_COLORS, MAX_TREE_LEVEL, MERMAID_CHARTS, newSnippet, NOTE_POSITIONS, parseSnippet, QUOTE_TYPES, SEQUENCE_ARROWS, SNIPPET_CATEGORIES, showsPreview, SWATCHES, type Swatch, type SnippetData, type SnippetKind, TABLE_BORDERS, TABLE_COLORS, TABLE_FILLS, TABLE_STYLES, TEXT_ALIGNS, VERTICAL_ALIGNS, WIDTHS } from "../lib/snippets.ts";
   import { snippetTexts, type Heading, type SnippetFailure } from "./snippetDialog.ts";
 
   let {
@@ -566,6 +566,16 @@
               {#each CARD_STYLES as style (style)}<option value={style}>{t(`snCardStyle_${style}`)}</option>{/each}
             </select>
           </label>
+          <!-- The background only: the ink of the text and of the title go with it. -->
+          <div class="field">
+          <span id="card-color-label">{t("snCardColor")}</span>
+          <div role="radiogroup" aria-labelledby="card-color-label" class="swatches">
+            <label><input type="radio" name="card-color" value="" bind:group={card.color} /><span class="chip default"></span> {t("snCardColorDefault")}</label>
+            {#each CARD_COLORS as color (color)}
+              <label><input type="radio" name="card-color" value={color} bind:group={card.color} /><span class="chip" style="background:{CARD_PALETTE[color].bg};border-color:{CARD_PALETTE[color].title}"></span> {t(`snCardColor_${color}`)}</label>
+            {/each}
+          </div>
+          </div>
           <label class="field">
             {t("snWidth")}
             <select bind:value={card.width}>
@@ -825,6 +835,11 @@
     height: 1rem;
     border: 2px solid;
     border-radius: 4px;
+  }
+  /* The style's own background: a chip crossed out, no colour of its own. */
+  .chip.default {
+    border-color: var(--line);
+    background: linear-gradient(to top right, transparent 45%, var(--muted) 45% 55%, transparent 55%);
   }
   .grid {
     overflow: auto;

@@ -755,7 +755,7 @@ function cards(root: { children: MdastRoot["children"] }, bodyStart: number): vo
     const body = { type: "root", children: nodes.slice(at + 1, close) } as MdastRoot;
     cards(body, bodyStart);
     columns(body, bodyStart);
-    const { title, style, width, align } = open.options;
+    const { title, style, color, width, align } = open.options;
     const widthClass = widthClassOf(width);
     out.push({
       type: "ldCard",
@@ -766,7 +766,7 @@ function cards(root: { children: MdastRoot["children"] }, bodyStart: number): vo
       data: {
         hName: "div",
         hProperties: {
-          className: ["ld-card", `ld-card-${style ?? "plain"}`, ...(widthClass ? [`ld-card-width-${widthClass}`] : []), ...(align ? [`ld-card-align-${align}`] : [])],
+          className: ["ld-card", `ld-card-${style ?? "plain"}`, ...(color ? [`ld-card-color-${color}`] : []), ...(widthClass ? [`ld-card-width-${widthClass}`] : []), ...(align ? [`ld-card-align-${align}`] : [])],
           dataSrc: `${bodyStart + nodes[at]!.position!.start.offset!}-${bodyStart + nodes[close]!.position!.end.offset!}`,
         },
       },

@@ -745,6 +745,30 @@ describe("the Card snippet", () => {
     assert.equal(page.url(), address);
   });
 
+  test("a Card's background is chosen from the palette; its text and title follow", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n\nFirst.\n" });
+    const address = page.url();
+    await startEditing(page);
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("group", { name: "Structure" }).getByRole("button", { name: "Card", exact: true }).click();
+    const colors = dialog.getByRole("radiogroup", { name: "Background" });
+    assert.equal(await colors.getByRole("radio").count(), 13);
+    assert.ok(await colors.getByRole("radio", { name: "Default" }).isChecked());
+    await dialog.getByLabel("Title").fill("Night");
+    await colors.getByRole("radio", { name: "Navy" }).check();
+    await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+    await until(() => host.folders.read(disk, "a.md")?.includes("<!-- card: Night | color: navy -->"), "the card on disk");
+
+    await page.getByRole("button", { name: "Done" }).click();
+    const card = page.locator(".ld-card.ld-card-color-navy");
+    await card.getByText("Card content").waitFor();
+    assert.equal(await card.evaluate((each) => getComputedStyle(each).backgroundColor), "rgb(30, 41, 59)");
+    assert.equal(await card.getByText("Card content").evaluate((each) => getComputedStyle(each).color), "rgb(226, 232, 240)");
+    assert.equal(await card.getByText("Night").evaluate((each) => getComputedStyle(each).color), "rgb(253, 230, 138)");
+    assert.equal(page.url(), address);
+  });
+
   test("a reopened Card: its options change, its content stays byte-identical", async () => {
     const source = "# A\n\n<!-- card: Old | style: deck -->\n\nInside *text*\n\n- a\n\n<!-- /card -->\n\nAfter.\n";
     const { page, host, disk } = await withProject({ "a.md": source });

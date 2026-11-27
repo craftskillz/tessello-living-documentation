@@ -178,6 +178,8 @@ export interface CardOptions {
   /** The title, as written (text, never markup); null without one. */
   title: string | null;
   style: string | null;
+  /** One of the palette's backgrounds; null keeps the style's own. */
+  color: string | null;
   /** One of the images' widths (`1/2`…). */
   width: string | null;
   align: string | null;
@@ -186,12 +188,14 @@ export interface CardOptions {
 export type CardComment = { kind: "open"; options: CardOptions } | { kind: "close" };
 
 export const CARD_STYLES = ["plain", "bristol", "deck"] as const;
+/** The card backgrounds (snippets.ts holds their colours): ten light ones, then two dark ones. */
+export const CARD_COLORS = ["white", "cream", "lemon", "peach", "rose", "lavender", "sky", "mint", "sage", "slate", "navy", "forest"] as const;
 
 /** The width's class suffix (`half` for `1/2`), as for images; null for none. */
 export const widthClassOf = (width: string | null): string | null => (width === null ? null : (WIDTH_SUFFIX[width] ?? null));
 
 /**
- * What a comment means to a card: `card: Title | style: deck | width: 1/2 | align: right` opens one (with a colon, the
+ * What a comment means to a card: `card: Title | style: deck | color: sky | width: 1/2 | align: right` opens one (with a colon, the
  * first part is the title, colons and all; without one, every part is an option), `/card` closes it. Invalid options
  * are ignored.
  */
@@ -200,7 +204,7 @@ export function parseCardComment(comment: string): CardComment | null {
   const open = /^\s*card(?![\w-])\s*(:?)([\s\S]*)$/i.exec(comment);
   if (!open) return null;
   const parts = open[2]!.split("|");
-  const options: CardOptions = { title: null, style: null, width: null, align: null };
+  const options: CardOptions = { title: null, style: null, color: null, width: null, align: null };
   if (open[1] === ":") options.title = parts.shift()!.trim() || null;
   for (const part of parts) {
     const pair = /^\s*([\w-]+)\s*:\s*(.+?)\s*$/.exec(part);
@@ -208,6 +212,7 @@ export function parseCardComment(comment: string): CardComment | null {
     const key = pair[1]!.toLowerCase();
     const value = pair[2]!.toLowerCase();
     if (key === "style") options.style = oneOf(CARD_STYLES, value) ?? options.style;
+    else if (key === "color") options.color = oneOf(CARD_COLORS, value) ?? options.color;
     else if (key === "width") options.width = oneOf(WIDTHS, value) ?? options.width;
     else if (key === "align") options.align = oneOf(ALIGNS, value) ?? options.align;
   }

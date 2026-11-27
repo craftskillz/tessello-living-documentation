@@ -106,6 +106,32 @@ img.ld-image-align-right { margin-left: auto; margin-right: 0; }
 .ld-card-deck::before { left: 0.8rem; }
 .ld-card-deck::after { right: 0.8rem; }
 .ld-card-deck > .ld-card-title { text-align: center; font: 700 1.35rem Georgia, serif; color: var(--suit); margin-bottom: 0.6rem; }
+/* A coloured card (the card's color option): its background from the palette, the ink of its text and of its title chosen with it
+   (snippets.ts holds the same palette). It keeps its colours in a dark Document, like the paper cards. */
+.ld-card-color-white { --card-bg: #ffffff; --card-ink: #374151; --card-title: #111827; }
+.ld-card-color-cream { --card-bg: #fdf8e7; --card-ink: #3f3a2e; --card-title: #8a5a00; }
+.ld-card-color-lemon { --card-bg: #fef9c3; --card-ink: #422006; --card-title: #854d0e; }
+.ld-card-color-peach { --card-bg: #ffedd5; --card-ink: #431407; --card-title: #c2410c; }
+.ld-card-color-rose { --card-bg: #ffe4e6; --card-ink: #4c0519; --card-title: #be123c; }
+.ld-card-color-lavender { --card-bg: #ede9fe; --card-ink: #2e1065; --card-title: #6d28d9; }
+.ld-card-color-sky { --card-bg: #e0f2fe; --card-ink: #082f49; --card-title: #0369a1; }
+.ld-card-color-mint { --card-bg: #dcfce7; --card-ink: #052e16; --card-title: #15803d; }
+.ld-card-color-sage { --card-bg: #e7efe3; --card-ink: #1f2d1a; --card-title: #3f6212; }
+.ld-card-color-slate { --card-bg: #e2e8f0; --card-ink: #1e293b; --card-title: #334155; }
+.ld-card-color-navy { --card-bg: #1e293b; --card-ink: #e2e8f0; --card-title: #fde68a; }
+.ld-card-color-forest { --card-bg: #14532d; --card-ink: #ecfdf5; --card-title: #bbf7d0; }
+.ld-card[class*="ld-card-color-"] {
+  --doc-body: var(--card-ink); --doc-bold: var(--card-ink); --doc-headings: var(--card-title); --doc-quotes: var(--card-ink); --doc-code: var(--card-ink);
+  --doc-counters: color-mix(in srgb, var(--card-ink) 70%, var(--card-bg)); --doc-captions: color-mix(in srgb, var(--card-ink) 70%, var(--card-bg));
+  --doc-bullets: color-mix(in srgb, var(--card-ink) 35%, var(--card-bg)); --doc-th-borders: color-mix(in srgb, var(--card-ink) 25%, var(--card-bg));
+  --doc-hr: color-mix(in srgb, var(--card-ink) 15%, var(--card-bg)); --doc-td-borders: color-mix(in srgb, var(--card-ink) 15%, var(--card-bg));
+  --doc-quote-borders: color-mix(in srgb, var(--card-ink) 20%, var(--card-bg));
+  --card-frame: color-mix(in srgb, var(--card-ink) 22%, var(--card-bg));
+  --suit: var(--card-title);
+  color: var(--doc-body);
+  background-color: var(--card-bg);
+}
+.ld-card[class*="ld-card-color-"] > .ld-card-title { color: var(--card-title); }
 @media (max-width: 640px) {
   .ld-card[class*="ld-card-width-"] { width: 100%; }
 }

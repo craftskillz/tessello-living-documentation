@@ -127,5 +127,5 @@ A Document stored directly in a Column's Folder, in that Folder manifest's order
 _Avoid_: Item, task, ticket
 
 **Card block**:
-A frame around free Markdown inside a Document, written between `<!-- card: Title | style: … | width: … | align: … -->` and `<!-- /card -->`: a title, a style (plain, bristol, deck), a width and an alignment. Labelled "Card" in the snippet picker; unrelated to a Kanban board's Cards.
+A frame around free Markdown inside a Document, written between `<!-- card: Title | style: … | color: … | width: … | align: … -->` and `<!-- /card -->`: a title, a style (plain, bristol, deck), a background from a palette of twelve, a width and an alignment. Labelled "Card" in the snippet picker; unrelated to a Kanban board's Cards.
 _Avoid_: Card (alone, in the code and the docs), box, panel, callout

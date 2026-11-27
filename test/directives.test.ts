@@ -356,14 +356,24 @@ describe("raw HTML and comments", () => {
 
 describe("cards", () => {
   test("the comment: a title first, then its options; the close; anything else is no card comment", () => {
-    assert.deepEqual(parseCardComment(" card: My title | style: deck | width: 1/2 | align: right "), { kind: "open", options: { title: "My title", style: "deck", width: "1/2", align: "right" } });
-    assert.deepEqual(parseCardComment("card"), { kind: "open", options: { title: null, style: null, width: null, align: null } });
-    assert.deepEqual(parseCardComment("card | style: bristol"), { kind: "open", options: { title: null, style: "bristol", width: null, align: null } });
-    assert.deepEqual(parseCardComment("card: Note: read me | align: center"), { kind: "open", options: { title: "Note: read me", style: null, width: null, align: "center" } });
-    assert.deepEqual(parseCardComment("card: T | style: neon | width: 40% | align: top"), { kind: "open", options: { title: "T", style: null, width: null, align: null } });
+    assert.deepEqual(parseCardComment(" card: My title | style: deck | width: 1/2 | align: right "), { kind: "open", options: { title: "My title", style: "deck", color: null, width: "1/2", align: "right" } });
+    assert.deepEqual(parseCardComment("card"), { kind: "open", options: { title: null, style: null, color: null, width: null, align: null } });
+    assert.deepEqual(parseCardComment("card | style: bristol"), { kind: "open", options: { title: null, style: "bristol", color: null, width: null, align: null } });
+    assert.deepEqual(parseCardComment("card: Note: read me | align: center"), { kind: "open", options: { title: "Note: read me", style: null, color: null, width: null, align: "center" } });
+    assert.deepEqual(parseCardComment("card: T | style: neon | width: 40% | align: top"), { kind: "open", options: { title: "T", style: null, color: null, width: null, align: null } });
     assert.deepEqual(parseCardComment(" /card "), { kind: "close" });
     assert.equal(parseCardComment("cards"), null);
     assert.equal(parseCardComment("table-style: compact"), null);
+  });
+
+  test("a colour from the palette is read, any other is ignored", () => {
+    assert.equal((parseCardComment("card: T | color: sky") as { options: { color: string | null } }).options.color, "sky");
+    assert.equal((parseCardComment("card: T | color: Navy") as { options: { color: string | null } }).options.color, "navy");
+    assert.equal((parseCardComment("card: T | color: #ff0000") as { options: { color: string | null } }).options.color, null);
+  });
+
+  test("a coloured card carries its colour as a class, after its style", () => {
+    assert.match(render("<!-- card: T | style: bristol | color: mint | width: 1/2 -->\nX\n<!-- /card -->\n"), /^<div class="ld-card ld-card-bristol ld-card-color-mint ld-card-width-half" data-src=/);
   });
 
   test("a card wraps its blocks under its title, with its style, width and alignment as classes", () => {

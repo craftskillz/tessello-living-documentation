@@ -353,12 +353,38 @@
 .document .ld-card-deck::before { left: 0.8rem; }
 .document .ld-card-deck::after { right: 0.8rem; }
 .document .ld-card-deck > .ld-card-title { text-align: center; font: 700 1.35rem Georgia, serif; color: var(--suit); margin-bottom: 0.6rem; }
+/* A coloured card (the card's color option): its background from the palette, the ink of its text and of its title chosen with it
+   (snippets.ts holds the same palette). It keeps its colours in a dark Document, like the paper cards. */
+.document .ld-card-color-white { --card-bg: #ffffff; --card-ink: #374151; --card-title: #111827; }
+.document .ld-card-color-cream { --card-bg: #fdf8e7; --card-ink: #3f3a2e; --card-title: #8a5a00; }
+.document .ld-card-color-lemon { --card-bg: #fef9c3; --card-ink: #422006; --card-title: #854d0e; }
+.document .ld-card-color-peach { --card-bg: #ffedd5; --card-ink: #431407; --card-title: #c2410c; }
+.document .ld-card-color-rose { --card-bg: #ffe4e6; --card-ink: #4c0519; --card-title: #be123c; }
+.document .ld-card-color-lavender { --card-bg: #ede9fe; --card-ink: #2e1065; --card-title: #6d28d9; }
+.document .ld-card-color-sky { --card-bg: #e0f2fe; --card-ink: #082f49; --card-title: #0369a1; }
+.document .ld-card-color-mint { --card-bg: #dcfce7; --card-ink: #052e16; --card-title: #15803d; }
+.document .ld-card-color-sage { --card-bg: #e7efe3; --card-ink: #1f2d1a; --card-title: #3f6212; }
+.document .ld-card-color-slate { --card-bg: #e2e8f0; --card-ink: #1e293b; --card-title: #334155; }
+.document .ld-card-color-navy { --card-bg: #1e293b; --card-ink: #e2e8f0; --card-title: #fde68a; }
+.document .ld-card-color-forest { --card-bg: #14532d; --card-ink: #ecfdf5; --card-title: #bbf7d0; }
+.document .ld-card[class*="ld-card-color-"] {
+  --doc-body: var(--card-ink); --doc-bold: var(--card-ink); --doc-headings: var(--card-title); --doc-quotes: var(--card-ink); --doc-code: var(--card-ink);
+  --doc-counters: color-mix(in srgb, var(--card-ink) 70%, var(--card-bg)); --doc-captions: color-mix(in srgb, var(--card-ink) 70%, var(--card-bg));
+  --doc-bullets: color-mix(in srgb, var(--card-ink) 35%, var(--card-bg)); --doc-th-borders: color-mix(in srgb, var(--card-ink) 25%, var(--card-bg));
+  --doc-hr: color-mix(in srgb, var(--card-ink) 15%, var(--card-bg)); --doc-td-borders: color-mix(in srgb, var(--card-ink) 15%, var(--card-bg));
+  --doc-quote-borders: color-mix(in srgb, var(--card-ink) 20%, var(--card-bg));
+  --card-frame: color-mix(in srgb, var(--card-ink) 22%, var(--card-bg));
+  --suit: var(--card-title);
+  color: var(--doc-body);
+  background-color: var(--card-bg);
+}
+.document .ld-card[class*="ld-card-color-"] > .ld-card-title { color: var(--card-title); }
 @media (max-width: 640px) {
   .document .ld-card[class*="ld-card-width-"] { width: 100%; }
 }
-/* In a dark Document the plain card's frame follows the theme; the paper cards stay paper. */
-:root[data-mode="dark"]:not(.ld-white-background) .document .ld-card-plain { --card-frame: #4b5563; }
-:root[data-mode="dark"]:not(.ld-white-background) .document .ld-card-bristol { background-color: #ece2c3; }
+/* In a dark Document the plain card's frame follows the theme; the paper cards stay paper; a coloured card keeps its colours. */
+:root[data-mode="dark"]:not(.ld-white-background) .document .ld-card-plain:not([class*="ld-card-color-"]) { --card-frame: #4b5563; }
+:root[data-mode="dark"]:not(.ld-white-background) .document .ld-card-bristol:not([class*="ld-card-color-"]) { background-color: #ece2c3; }
 :root[data-mode="dark"]:not(.ld-white-background) .document .ld-card-deck { box-shadow: 0 10px 25px rgb(0 0 0 / 0.6); }
 
 /* ── Code blocks: width and alignment presets, and the collapsed look of long ones ── */

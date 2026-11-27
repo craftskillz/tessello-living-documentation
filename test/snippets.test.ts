@@ -6,6 +6,8 @@ import { EMOJI_GROUPS, searchEmojis } from "../src/lib/emojis.ts";
 import { pastedLink } from "../src/lib/pasted.ts";
 import {
   buildSnippet,
+  CARD_COLORS,
+  CARD_PALETTE,
   detectSnippet,
   documentHeadings,
   MAX_TREE_LEVEL,
@@ -749,12 +751,12 @@ describe("cards", () => {
   const cardOf = (changes: Partial<CardData>): CardData => ({ ...(newSnippet("card", texts) as CardData), ...changes });
 
   test("a new card is plain, full width, without a title, around a placeholder", () => {
-    assert.deepEqual(newSnippet("card", texts), { kind: "card", title: "", style: "", width: "", align: "", body: null });
+    assert.deepEqual(newSnippet("card", texts), { kind: "card", title: "", style: "", color: "", width: "", align: "", body: null });
     assert.equal(build(newSnippet("card", texts)), "<!-- card -->\n\nCard content\n\n<!-- /card -->");
   });
 
   test("the title, then the options that are set, in order", () => {
-    assert.equal(build(cardOf({ title: " My  recipe ", style: "bristol", width: "1/2", align: "right" })).split("\n")[0], "<!-- card: My recipe | style: bristol | width: 1/2 | align: right -->");
+    assert.equal(build(cardOf({ title: " My  recipe ", style: "bristol", color: "sky", width: "1/2", align: "right" })).split("\n")[0], "<!-- card: My recipe | style: bristol | color: sky | width: 1/2 | align: right -->");
     assert.equal(build(cardOf({ style: "deck" })).split("\n")[0], "<!-- card | style: deck -->");
     assert.equal(build(cardOf({ title: "T", style: "plain", width: "full", align: "left" })).split("\n")[0], "<!-- card: T -->");
   });
@@ -766,8 +768,14 @@ describe("cards", () => {
   test("a reopened card keeps its content byte for byte while its options change", () => {
     const source = "<!-- card: Old | width: 1/3 -->\n\n**Body**   text\n\n- a\n\n<!-- /card -->";
     const data = parseSnippet("card", source) as CardData;
-    assert.deepEqual(data, { kind: "card", title: "Old", style: "", width: "1/3", align: "", body: "\n\n**Body**   text\n\n- a\n\n" });
+    assert.deepEqual(data, { kind: "card", title: "Old", style: "", color: "", width: "1/3", align: "", body: "\n\n**Body**   text\n\n- a\n\n" });
     assert.equal(build({ ...data, title: "New", style: "deck" }), "<!-- card: New | style: deck | width: 1/3 -->\n\n**Body**   text\n\n- a\n\n<!-- /card -->");
+  });
+
+  test("a colour is read back; the palette has a dozen backgrounds, each with its own ink and title", () => {
+    assert.equal((parseSnippet("card", "<!-- card | color: rose -->\nx\n<!-- /card -->") as CardData).color, "rose");
+    assert.equal(CARD_COLORS.length, 12);
+    for (const color of CARD_COLORS) assert.match(CARD_PALETTE[color].bg + CARD_PALETTE[color].ink + CARD_PALETTE[color].title, /^(#[0-9a-f]{6}){3}$/);
   });
 
   test("a card is recognized, with or without options, around anything", () => {
