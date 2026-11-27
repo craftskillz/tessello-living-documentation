@@ -332,23 +332,21 @@
   --doc-pre-code: #24292e; --doc-pre-bg: #f6f8fa; --doc-pre-bg-solid: #f6f8fa; --doc-th-borders: #d1d5db; --doc-td-borders: #e5e7eb;
   color: var(--doc-body);
 }
-/* A bristol index card: cream paper, a red title, punched holes across the top, two in every four places (● · · ●),
+/* A bristol index card: cream paper, a red title, punched holes across the top, one in every three places (● · · ● · · ●),
    cut out so they show what is behind. */
 .document .ld-card-bristol {
   /* Light squares, and a red rule under the title from edge to edge. */
   --bristol-grid: rgb(59 130 246 / 0.13);
   --bristol-rule: rgb(220 38 38 / 0.55);
-  background: radial-gradient(circle at 0.8rem 0.85rem, transparent 0.3rem, rgb(0 0 0 / 0.22) 0.31rem 0.4rem, transparent 0.42rem) 0 0 / 6.4rem 100% repeat-x, radial-gradient(circle at 5.6rem 0.85rem, transparent 0.3rem, rgb(0 0 0 / 0.22) 0.31rem 0.4rem, transparent 0.42rem) 0 0 / 6.4rem 100% repeat-x,
+  background: radial-gradient(circle at 0.8rem 0.85rem, transparent 0.3rem, rgb(0 0 0 / 0.22) 0.31rem 0.4rem, transparent 0.42rem) 0 0 / 4.8rem 100% repeat-x,
     linear-gradient(var(--bristol-grid) 1px, transparent 1px) 0 0 / 100% 1.25rem,
     linear-gradient(90deg, var(--bristol-grid) 1px, transparent 1px) 0 0 / 1.25rem 100% #f8efd4;
   border: 1px solid #e6dab5;
   border-radius: 3px;
   padding: 1.7rem 1.4rem 1.1rem;
-  /* Each tile is four places wide with a hole in the first and the last: the two layers intersect, so both holes are cut. */
-  -webkit-mask: radial-gradient(circle at 0.8rem 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 6.4rem 100% repeat-x, radial-gradient(circle at 5.6rem 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 6.4rem 100% repeat-x;
-  -webkit-mask-composite: source-in;
-  mask: radial-gradient(circle at 0.8rem 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 6.4rem 100% repeat-x, radial-gradient(circle at 5.6rem 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 6.4rem 100% repeat-x;
-  mask-composite: intersect;
+  /* Each tile is three places wide with a hole in the first. */
+  -webkit-mask: radial-gradient(circle at 0.8rem 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 4.8rem 100% repeat-x;
+  mask: radial-gradient(circle at 0.8rem 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 4.8rem 100% repeat-x;
 }
 .document .ld-card-bristol > .ld-card-title { color: #9b2c2c; margin: 0 -1.4rem 0.7rem; padding: 0 1.4rem 0.35rem; border-bottom: 2px solid var(--bristol-rule); }
 .document .ld-card-bristol[class*="ld-card-color-"] { --bristol-grid: color-mix(in srgb, var(--card-ink) 12%, transparent); --bristol-rule: color-mix(in srgb, var(--card-title) 60%, transparent); }
