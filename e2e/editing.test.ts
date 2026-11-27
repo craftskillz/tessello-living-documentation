@@ -327,7 +327,28 @@ describe("the section dialog's layout", () => {
     assert.ok((await row.boundingBox())!.height <= lineHeight * 1.5, "the table's header stays on one line");
     await dialog.getByRole("button", { name: "Show both" }).click();
     await preview.waitFor();
-    assert.ok((await row.boundingBox())!.height > lineHeight * 1.5, "side by side, the Markdown wraps again");
+    // Side by side the prose wraps again, but a table row stays whole (it scrolls): see "long lines in the editor".
+    assert.ok((await row.boundingBox())!.height <= lineHeight * 1.5, "side by side, the table row stays whole");
+    assert.equal(page.url(), address);
+  });
+});
+
+describe("long lines in the editor", () => {
+  test("a table row and a code line stay whole and scroll horizontally; a paragraph wraps", async () => {
+    const row = "| " + Array.from({ length: 30 }, (_, i) => `Column${i}`).join(" | ") + " |";
+    const code = "const line = " + JSON.stringify("x".repeat(300)) + ";";
+    const prose = Array.from({ length: 60 }, () => "word").join(" ");
+    const { page } = await withProject({ "a.md": `# A\n\n${prose}\n\n${row}\n|${" --- |".repeat(30)}\n\n\`\`\`js\n${code}\n\`\`\`\n` });
+    const address = page.url();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    const editor = page.locator(".cm-editor").first();
+    await editor.waitFor();
+    const height = (text: string) => editor.locator(".cm-line", { hasText: text }).first().evaluate((each) => each.getBoundingClientRect().height);
+    const single = await height("# A");
+    assert.ok((await height("Column29")) < single * 1.5, "the table row stays on one line");
+    assert.ok((await height("const line")) < single * 1.5, "the code line stays on one line");
+    assert.ok((await height("word word")) > single * 1.5, "the paragraph wraps");
+    assert.ok(await editor.locator(".cm-scroller").evaluate((each) => each.scrollWidth > each.clientWidth + 50), "the editor scrolls horizontally");
     assert.equal(page.url(), address);
   });
 });

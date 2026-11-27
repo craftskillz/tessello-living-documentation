@@ -1,7 +1,9 @@
 <script lang="ts">
   // The Markdown editor (CodeMirror 6). `text` is set from outside only when it differs from what the editor holds.
   import { markdown } from "@codemirror/lang-markdown";
-  import { Compartment } from "@codemirror/state";
+  import { syntaxTree } from "@codemirror/language";
+  import { Compartment, RangeSetBuilder } from "@codemirror/state";
+  import { Decoration, type DecorationSet, ViewPlugin, type ViewUpdate } from "@codemirror/view";
   import { EditorView, basicSetup } from "codemirror";
   import { onDestroy, onMount } from "svelte";
   import { blankLines } from "./snippetDialog.ts";
@@ -21,6 +23,52 @@
     /** Files pasted or dropped: resolves to the Markdown to insert where they came in, or null to insert nothing. */
     onfiles?: (files: File[]) => Promise<string | null>;
   } = $props();
+
+  /** A table row (in a quote too) or a line of a fenced code block: wrapped, it no longer reads as one row. */
+  const TABLE_ROW = /^\s*(?:>\s*)*\|/;
+  const whole = Decoration.line({ class: "cm-whole-line" });
+
+  /** The visible lines that stay whole while the others wrap: they overflow, and the editor scrolls horizontally. */
+  function wholeLines(view: EditorView): DecorationSet {
+    const { doc } = view.state;
+    const starts = new Set<number>();
+    for (const { from, to } of view.visibleRanges) {
+      for (let at = from; at <= to; ) {
+        const line = doc.lineAt(at);
+        if (TABLE_ROW.test(line.text)) starts.add(line.from);
+        at = line.to + 1;
+      }
+      syntaxTree(view.state).iterate({
+        from,
+        to,
+        enter: (node) => {
+          if (node.name !== "FencedCode") return;
+          for (let at = node.from; at <= node.to; ) {
+            const line = doc.lineAt(at);
+            starts.add(line.from);
+            at = line.to + 1;
+          }
+          return false;
+        },
+      });
+    }
+    const builder = new RangeSetBuilder<Decoration>();
+    for (const start of [...starts].sort((a, b) => a - b)) builder.add(start, start, whole);
+    return builder.finish();
+  }
+
+  const keepWhole = ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = wholeLines(view);
+      }
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged || syntaxTree(update.startState) !== syntaxTree(update.state)) this.decorations = wholeLines(update.view);
+      }
+    },
+    { decorations: (plugin) => plugin.decorations },
+  );
 
   let element: HTMLDivElement;
   let view: EditorView | null = null;
@@ -93,6 +141,7 @@
         basicSetup,
         markdown(),
         wrapping.of(wrap ? EditorView.lineWrapping : []),
+        keepWhole,
         EditorView.contentAttributes.of({ "aria-label": label }),
         EditorView.domEventHandlers({
           paste(event, editor) {
@@ -150,5 +199,15 @@
   }
   .editor :global(.cm-editor) {
     min-height: 60vh;
+  }
+  /* Tables and code stay whole while the prose wraps: the editor scrolls horizontally to show them. The content keeps
+     the editor's width (a flex item would otherwise grow to its widest line, and the prose would wrap at that width). */
+  .editor :global(.cm-content.cm-lineWrapping) {
+    min-width: 0;
+  }
+  .editor :global(.cm-lineWrapping .cm-line.cm-whole-line) {
+    white-space: pre;
+    overflow-wrap: normal;
+    word-break: normal;
   }
 </style>
