@@ -11,7 +11,7 @@
 - [x] Reading rule 7 of `docs/spec/documents-reading-and-editing.md`
 - [x] Typecheck, unit and browser suites green
 - [ ] Tried in the local Host
-- [ ] The skill `living-documentation` drops its warning ("write `code-width` before a Mermaid block")
+- [x] The skill `living-documentation` drops its warning and documents `mermaid-width` / `mermaid-align` (skill repository, cddca03)
 
 ## Comments
 
