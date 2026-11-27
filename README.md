@@ -1,0 +1,53 @@
+# Living Documentation
+
+Raw Markdown documentation next to your code, readable by your agents: read, edit and organize it in Tessello.
+
+Living Documentation is a Module of [Tessello](https://github.com/craftskillz/tessello), a composable web app where you build your space from Modules: each one a View, and a Widget on the Home. Its Identifier is `@craftskillz/living-documentation`. Your documents stay plain Markdown files in the folders you connect, on your computer.
+
+What it does is in its User guide: [guide/guide.md](guide/guide.md), also shown inside Tessello (ⓘ, then **User guide**).
+
+## With your coding agents
+
+The [living-documentation skill](https://github.com/craftskillz/skill-living-documentation) teaches coding agents to process your annotations as tasks and to write the block directives this Module reads. From the root of your project:
+
+```sh
+npx skills@latest add craftskillz/skill-living-documentation --skill living-documentation --agent claude-code
+```
+
+## Install
+
+- From the Marketplace of Tessello, once Living Documentation is listed there: https://tessello-marketplace.pages.dev/
+- Or drop a package onto Tessello: every version is published at `https://craftskillz.github.io/tessello-living-documentation/<version>.zip`.
+
+## Develop
+
+Node 24 or later. Written in Svelte 5, bundled with esbuild.
+
+```sh
+npm ci
+npm test               # unit tests
+npm run test:browser   # browser tests against the SDK's Test Host (builds dist/ first)
+npm run typecheck
+npm run build          # writes the package to dist/
+npx tessello validate dist
+```
+
+With [just](https://github.com/casey/just): `just test`, `just e2e`, `just typecheck`, `just build` (builds and validates).
+
+`src/lib/` holds what the View and the Widget share, `src/view/` and `src/widget/` their pages. `dist/` can be zipped and dropped onto Tessello, or copied into your Modules folder. The Module talks to the Host through [`@tessello/sdk`](https://www.npmjs.com/package/@tessello/sdk) and follows the [Convention](https://github.com/craftskillz/tessello/blob/main/convention/CONVENTION.md). The domain words are in [GLOSSARY.md](GLOSSARY.md), the decisions in [docs/adr/](docs/adr/).
+
+## Release
+
+From an up-to-date `main` with nothing to commit:
+
+```sh
+just publish minor    # or major, patch, fix
+```
+
+It checks types and tests, builds and validates the package, raises the version in `package.json`, `package-lock.json` and `manifest.json`, commits, tags `v<version>` and pushes. The Release workflow then publishes the package on GitHub Pages as `<version>.zip`; `just publish` waits for it, then offers to list that version on the [Marketplace](https://tessello-marketplace.pages.dev/). Answering yes means you accept the Marketplace's [PUBLISHING.md](https://github.com/craftskillz/tessello-marketplace/blob/main/PUBLISHING.md): it downloads the published `.zip` and runs `tessello publish`, which checks it as the Marketplace CI will and opens the pull request with the [GitHub CLI](https://cli.github.com/) (`gh auth login` first). A new Module waits for the Maintainer's Approval; a new version is merged once the CI passes.
+
+To list the current version later, or again after a failure: `just marketplace` (`just marketplace --dry-run` only checks). A published version is never overwritten: a listing in the Marketplace is pinned to the fingerprint of its bytes.
+
+## License
+
+MIT
