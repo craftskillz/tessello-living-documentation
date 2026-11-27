@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 (Editing, complete), 25 (HTML view I: template, view and Download HTML)
 
-**Status:** ready-for-human (built in COMMIT; awaiting the trial in the local Host)
+**Status:** ready-for-human (built in fe8f17e; awaiting the trial in the local Host)
 
 - [x] In-place editing per element kind, version-checked, scroll kept
 - [x] Right-click to the section editor, lead alone for the lead
