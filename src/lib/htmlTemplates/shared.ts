@@ -85,22 +85,26 @@ img.ld-image-align-right { margin-left: auto; margin-right: 0; }
   --doc-pre-code: #24292e; --doc-pre-bg: #f6f8fa; --doc-pre-bg-solid: #f6f8fa; --doc-th-borders: #d1d5db; --doc-td-borders: #e5e7eb;
   color: var(--doc-body);
 }
-/* A bristol index card: cream paper, a red title, a row of punched holes across the top (cut out, so they show what is behind). */
+/* A bristol index card: cream paper, a red title, punched holes across the top, two in every four places (● · · ●),
+   cut out so they show what is behind. */
 .ld-card-bristol {
-  background: radial-gradient(circle at 50% 0.85rem, transparent 0.3rem, rgb(0 0 0 / 0.22) 0.31rem 0.4rem, transparent 0.42rem) 0 0 / 1.6rem 100% repeat-x #fffdf6;
-  border: 1px solid #ebe4cf;
+  background: radial-gradient(circle at 0.8rem 0.85rem, transparent 0.3rem, rgb(0 0 0 / 0.22) 0.31rem 0.4rem, transparent 0.42rem) 0 0 / 6.4rem 100% repeat-x, radial-gradient(circle at 5.6rem 0.85rem, transparent 0.3rem, rgb(0 0 0 / 0.22) 0.31rem 0.4rem, transparent 0.42rem) 0 0 / 6.4rem 100% repeat-x #f8efd4;
+  border: 1px solid #e6dab5;
   border-radius: 3px;
   padding: 1.7rem 1.4rem 1.1rem;
-  -webkit-mask: radial-gradient(circle at 50% 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 1.6rem 100% repeat-x;
-  mask: radial-gradient(circle at 50% 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 1.6rem 100% repeat-x;
+  /* Each tile is four places wide with a hole in the first and the last: the two layers intersect, so both holes are cut. */
+  -webkit-mask: radial-gradient(circle at 0.8rem 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 6.4rem 100% repeat-x, radial-gradient(circle at 5.6rem 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 6.4rem 100% repeat-x;
+  -webkit-mask-composite: source-in;
+  mask: radial-gradient(circle at 0.8rem 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 6.4rem 100% repeat-x, radial-gradient(circle at 5.6rem 0.85rem, transparent 0.3rem, #000 0.32rem) 0 0 / 6.4rem 100% repeat-x;
+  mask-composite: intersect;
 }
 .ld-card-bristol > .ld-card-title { color: #9b2c2c; margin-bottom: 0.4rem; }
-/* A playing card: white face, rounded corners, a shadow, the ace of hearts in two corners, a centred serif title. */
+/* A playing card: white face, rounded corners, a shadow, a double lozenge in both top corners, a centred serif title. */
 .ld-card-deck { --suit: #b91c1c; position: relative; background: #fff; border: 1px solid #d6d3d1; border-radius: 16px; box-shadow: 0 10px 25px rgb(0 0 0 / 0.18); padding: 2.4rem 3rem; }
 .ld-card-deck::before,
-.ld-card-deck::after { content: "A\A\2665"; white-space: pre; position: absolute; color: var(--suit); font: 700 1.05rem/1.05 Georgia, serif; text-align: center; }
-.ld-card-deck::before { top: 0.7rem; left: 0.8rem; }
-.ld-card-deck::after { bottom: 0.7rem; right: 0.8rem; transform: rotate(180deg); }
+.ld-card-deck::after { content: "\25C8"; position: absolute; top: 0.6rem; color: var(--suit); font: 1.3rem/1 Georgia, serif; }
+.ld-card-deck::before { left: 0.8rem; }
+.ld-card-deck::after { right: 0.8rem; }
 .ld-card-deck > .ld-card-title { text-align: center; font: 700 1.35rem Georgia, serif; color: var(--suit); margin-bottom: 0.6rem; }
 @media (max-width: 640px) {
   .ld-card[class*="ld-card-width-"] { width: 100%; }
