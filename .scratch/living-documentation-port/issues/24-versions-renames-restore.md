@@ -4,7 +4,7 @@
 
 **Blocked by:** 23 (Versions I: commits and compare)
 
-**Status:** ready-for-human (built in 07f7efd; awaiting the trial in the local Host)
+**Status:** done (07f7efd)
 
 - [x] Rename following at 50% similarity
 - [x] Restore one block, version-checked, with Undo for the session
@@ -12,7 +12,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
