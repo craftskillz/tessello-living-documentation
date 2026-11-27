@@ -4,6 +4,7 @@
   import { onDestroy, onMount, tick, untrack } from "svelte";
   import { createAutosave, type Autosave } from "../lib/autosave.ts";
   import { sideBySide } from "../lib/diff.ts";
+  import { formatMarkdown } from "../lib/format.ts";
   import { applyEdits, type TextEdit, type TextRange } from "../lib/edits.ts";
   import { replaceSection, sectionAt } from "../lib/sections.ts";
   import { parseDocument, setField, setType } from "../lib/document.ts";
@@ -1177,9 +1178,12 @@
   /** The open snippets dialog of an editor (the whole Document's or the section's): where it starts, and the editor it writes into. */
   let snippets = $state<{ editor: Editor | undefined; start: { kind: "picker" } | { kind: "form"; data: SnippetData } } | null>(null);
 
+  /** The editor of the editing session: the section dialog's, or the whole Document's. */
+  const activeEditor = (): Editor | undefined => (session?.kind === "section" ? sectionEditor : mainEditor);
+
   /** Opens the snippets dialog on the editor's selection: straight on its form when the selection is a snippet, else the picker. */
   function openSnippets() {
-    const editor = session?.kind === "section" ? sectionEditor : mainEditor;
+    const editor = activeEditor();
     const selected = editor?.selection() ?? "";
     const kind = selected.trim() === "" ? null : detectSnippet(selected);
     snippets = { editor, start: kind ? { kind: "form", data: parseSnippet(kind, selected, snippetTexts()) } : { kind: "picker" } };
@@ -1378,8 +1382,19 @@
     }
   }
 
+  /** Formats the open editor's text (the button, and Done); never while a conflict is shown. A section keeps the line breaks that end it, before the next heading. */
+  function formatDraft() {
+    const editor = activeEditor();
+    if (!editor || conflict) return;
+    const formatted = formatMarkdown(draft);
+    editor.replaceText(
+      session?.kind === "section" && formatted !== "" ? formatted.trimEnd() + draft.match(/[\r\n]*$/)![0] : formatted,
+    );
+  }
+
   async function done() {
     if (!autosave) return;
+    formatDraft();
     if (await autosave.flush()) stopEditing();
   }
 
@@ -2244,6 +2259,7 @@
           ondone={() => void done()}
           onrevert={() => void revert()}
           onsnippets={openSnippets}
+          onformat={formatDraft}
           onversions={repository && current ? () => (versionsOpen = true) : undefined}
         >
           {#snippet listen()}
@@ -2365,6 +2381,7 @@
       <p class="muted hint">{t("sectionHint")}</p>
       {#if saving}<span class="muted" role="status">{t("saving")}</span>{/if}
       <button title={t("snippetsHint")} onclick={openSnippets}>{t("snippets")}</button>
+      <button title={t("formatHint")} onclick={formatDraft}>{t("format")}</button>
       <button onclick={() => void revert()}>{t("revert")}</button>
       <button class="primary" onclick={() => void done()}>{t("done")}</button>
     </header>

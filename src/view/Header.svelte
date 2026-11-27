@@ -39,6 +39,7 @@
     ondone,
     onrevert,
     onsnippets,
+    onformat,
     onversions,
     listen,
   }: {
@@ -78,6 +79,8 @@
     onrevert: () => void;
     /** Opens the snippets dialog on the editor's selection. */
     onsnippets: () => void;
+    /** Formats the editor's text (aligns tables, tidies the Markdown). */
+    onformat: () => void;
     /** Opens the Versions dialog; undefined when the Project has no Repository grant (no button). */
     onversions?: () => void;
     /** Listen (read aloud), shown on an ordinary Document while reading. */
@@ -89,6 +92,7 @@
   {#if editing}
     {#if saving}<span class="muted" role="status">{t("saving")}</span>{/if}
     <button title={t("snippetsHint")} onclick={onsnippets}>{t("snippets")}</button>
+    <button title={t("formatHint")} onclick={onformat}>{t("format")}</button>
     <button onclick={onrevert}>{t("revert")}</button>
     <button class="primary" onclick={ondone}>{t("done")}</button>
   {:else}

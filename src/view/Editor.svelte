@@ -63,6 +63,23 @@
     view.focus();
   }
 
+  /** Replaces the text with `text` as one undoable change of only the span that differs, so the caret follows; focuses the editor. */
+  export function replaceText(text: string) {
+    if (!view) return;
+    const old = view.state.doc.toString();
+    if (old === text) return;
+    let from = 0;
+    while (from < old.length && from < text.length && old[from] === text[from]) from++;
+    let oldEnd = old.length;
+    let newEnd = text.length;
+    while (oldEnd > from && newEnd > from && old[oldEnd - 1] === text[newEnd - 1]) {
+      oldEnd--;
+      newEnd--;
+    }
+    view.dispatch({ changes: { from, to: oldEnd, insert: text.slice(from, newEnd) } });
+    view.focus();
+  }
+
   onMount(() => {
     view = new EditorView({
       doc: text,

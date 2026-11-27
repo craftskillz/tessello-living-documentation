@@ -216,3 +216,64 @@ describe("the section editor's preview", () => {
     assert.equal(page.url(), address);
   });
 });
+
+describe("Format", () => {
+  const messy = "# A\n\n| Name | Qty |\n|--|--|\n| Apple | 1 |\n| Fig | 22 |\n";
+  const aligned = "# A\n\n| Name  | Qty |\n| ----- | --- |\n| Apple | 1   |\n| Fig   | 22  |\n";
+
+  test("aligns a table in the editor, and the autosave then writes it", async () => {
+    const { page, host, disk } = await withProject({ "a.md": messy });
+    const address = page.url();
+    await page.getByRole("button", { name: "Edit" }).click();
+    await page.getByRole("textbox", { name: "Markdown" }).waitFor();
+    await page.getByRole("button", { name: "Format" }).click();
+
+    await until(async () => (await page.getByRole("textbox", { name: "Markdown" }).innerText()).includes("| Apple | 1   |"), "the aligned table in the editor");
+    await until(() => host.folders.read(disk, "a.md") === aligned, "the aligned table on disk");
+    assert.equal(page.url(), address);
+  });
+
+  test("the autosave never formats; Done does, then closes", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "# A\n" });
+    const address = page.url();
+    await page.getByRole("button", { name: "Edit" }).click();
+    await typeAtEnd(page, "\n| a | b |\n|-|-|\n| long cell | 1 |");
+    await until(() => host.folders.read(disk, "a.md")?.includes("| long cell | 1 |"), "the text on disk");
+    assert.ok(host.folders.read(disk, "a.md")!.includes("|-|-|"));
+
+    await page.getByRole("button", { name: "Done" }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).waitFor();
+    assert.equal(host.folders.read(disk, "a.md"), "# A\n\n| a         | b   |\n| --------- | --- |\n| long cell | 1   |\n");
+    assert.equal(page.url(), address);
+  });
+
+  test("Done in the section editor formats the section and keeps the blank line before the next heading", async () => {
+    const file = "# One\n\n## Two\n\n| a | b |\n|-|-|\n| xx | 1 |\n\n## Three\n\nThird.\n";
+    const { page, host, disk } = await withProject({ "a.md": file });
+    const address = page.url();
+    await page.getByText("Third.").waitFor();
+    await page.getByRole("heading", { name: "Two" }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit section" }).click();
+    const dialog = page.getByRole("dialog", { name: "Edit section" });
+    await dialog.getByRole("textbox", { name: "Markdown" }).waitFor();
+
+    await dialog.getByRole("button", { name: "Done" }).click();
+    await dialog.waitFor({ state: "detached" });
+    assert.equal(host.folders.read(disk, "a.md"), "# One\n\n## Two\n\n| a   | b   |\n| --- | --- |\n| xx  | 1   |\n\n## Three\n\nThird.\n");
+    assert.equal(page.url(), address);
+  });
+
+  test("Undo restores the unformatted text in one step", async () => {
+    const { page } = await withProject({ "a.md": messy });
+    await page.getByRole("button", { name: "Edit" }).click();
+    const editor = page.getByRole("textbox", { name: "Markdown" });
+    await editor.waitFor();
+    await page.getByRole("button", { name: "Format" }).click();
+    await until(async () => (await editor.innerText()).includes("| Apple | 1   |"), "formatted");
+
+    await page.keyboard.press("ControlOrMeta+z");
+
+    await until(async () => (await editor.innerText()).includes("|--|--|"), "the unformatted text back");
+    assert.ok(!(await editor.innerText()).includes("| Apple | 1   |"));
+  });
+});

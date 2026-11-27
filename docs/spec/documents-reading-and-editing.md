@@ -7,9 +7,9 @@ Atlas page: `features/documents/reading-and-editing.md` (business rules R1–R10
 1. **Autosave** about 1 second after typing stops, and immediately when the User opens another Document or Project. No overlap between saves; text typed during a save is saved next (R3). No leave warning.
 2. **Revert** (was Cancel) restores the file as it was when **Edit** was clicked, after a confirmation if anything changed, and closes the editor. **Done** closes after the final save.
 3. **Conflict** (file changed on disk since editing started): "This document changed on disk since you started editing", with **Compare** (side-by-side diff, your text vs the disk), **Keep mine** (overwrite) and **Take theirs** (reload, your text copied to the clipboard first). The text stays in the editor and autosave pauses until the User chooses. Same behavior in the section editor.
-4. **Editor**: CodeMirror 6 with Markdown highlighting, line numbers, undo and in-editor find, for both the full-document and the section editor. Section rules R5 kept.
+4. **Editor**: CodeMirror 6 with Markdown highlighting, line numbers, undo and in-editor find, for both the full-document and the section editor. Section rules R5 kept. **Format** (a button next to Snippets, and **Done**) aligns the tables and tidies the Markdown as one undoable change; the autosave never formats, so the text does not move while the User types.
 5. **Pasted or dropped image**: a name prompt proposing a timestamp; the name is used as typed with the Tree's refused characters; if it exists in `images/`, the prompt says so and proposes `<name>-2`. Never overwrites. **Dropped other files** go to `files/`. The link is inserted at the paste or drop point.
-6. After a save the Document is read back; nothing is normalized ([frontmatter](frontmatter.md) rule 2).
+6. After a save the Document is read back; a save normalizes nothing ([frontmatter](frontmatter.md) rule 2); only Format, at the User's request, does.
 
 ## Reading
 
