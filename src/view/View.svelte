@@ -19,7 +19,7 @@
   import { loadImages } from "../lib/images.ts";
   import { pastedLink, cleanFileName, freeName, imageExtension, isImage, splitName, timestampName } from "../lib/pasted.ts";
   import { t, tn, type MessageKey } from "../lib/i18n.ts";
-  import { previewOf, type FilePreview } from "../lib/otherFiles.ts";
+  import { hasVersions, previewOf, type FilePreview } from "../lib/otherFiles.ts";
   import { Conflict, documentFile, FOLDER_MANIFEST, isInsideReserved, isReservedFolder, NotFound, Refused, refusalOf, type Deletion, type DocumentText, type Project, type RefusalReason, type TreeDocument, type TreeEntry, type TreeFolder, type TreeVisibility } from "../lib/project.ts";
   import { entryMapper } from "../lib/links.ts";
   import { compileLabelFilter, NO_LABEL_FILTER, type LabelFilter } from "../lib/labels.ts";
@@ -1903,11 +1903,14 @@
   }
 
   // The panel of an other file, in place of the Document, which stays loaded behind it.
-  let openFile = $state.raw<{ name: string; path: string; preview: FilePreview; url: string | null; bytes: Uint8Array | null } | null>(null);
+  let openFile = $state.raw<{ name: string; path: string; preview: FilePreview; url: string | null; bytes: Uint8Array | null; versioned: boolean } | null>(null);
   let fileRead = 0;
+  /** The other file the Versions dialog compares, as read when it opened. */
+  let fileVersions = $state.raw<{ path: string; current: DocumentText } | null>(null);
 
   function closeFile() {
     fileRead++;
+    fileVersions = null;
     if (openFile?.url) URL.revokeObjectURL(openFile.url);
     openFile = null;
   }
@@ -1925,9 +1928,36 @@
       const url = preview.kind === "image" || preview.kind === "video" ? URL.createObjectURL(new Blob([bytes as BlobPart], { type: preview.mime })) : null;
       closeFile();
       fileRead = reading;
-      openFile = { name, path: file, preview, url, bytes: preview.kind === "binary" ? bytes : null };
+      openFile = { name, path: file, preview, url, bytes: preview.kind === "binary" ? bytes : null, versioned: hasVersions(preview, bytes.length) };
     } catch (reason) {
       if (reading === fileRead) report(t("openFileFailed", { name }), reason);
+    }
+  }
+
+  /** Opens the Versions dialog of the open other file, from its text as it is on disk now. */
+  async function openFileVersions() {
+    if (!project || !openFile) return;
+    const asked = openFile.path;
+    try {
+      const current = await project.read(asked);
+      if (openFile?.path === asked) fileVersions = { path: asked, current };
+    } catch (reason) {
+      report(t("openFileFailed", { name: nameOf(asked) }), reason);
+    }
+  }
+
+  /** Saves a restore of the other file's Versions dialog; the panel then shows the text on disk. */
+  async function writeFileRestore(asked: string, text: string, version: string): Promise<DocumentText> {
+    const shows = (shown: string) => {
+      if (openFile?.path === asked) openFile = { ...openFile, preview: { kind: "text", text: shown, truncated: false } };
+    };
+    try {
+      const saved = { text, version: await project!.save(asked, text, version) };
+      shows(text);
+      return saved;
+    } catch (reason) {
+      if (reason instanceof Conflict && reason.theirs) shows(reason.theirs.text);
+      throw reason;
     }
   }
 
@@ -2082,6 +2112,9 @@
 {#snippet filePanel(file: NonNullable<typeof openFile>)}
   <section class="file" aria-labelledby="file-title">
     <h2 id="file-title">{file.name}</h2>
+    {#if file.versioned && repository}
+      <p class="file-tools"><button type="button" title={t("versionsFileHint")} onclick={() => void openFileVersions()}>{t("versions")}</button></p>
+    {/if}
     {#if file.preview.kind === "image"}
       <img src={file.url} alt={file.name} />
     {:else if file.preview.kind === "video"}
@@ -2750,6 +2783,9 @@
   </dialog>
 {/if}
 
+{#if fileVersions && repository && active}
+  <Versions files={host.files} repository={repository} project={active} path={fileVersions.path} current={fileVersions.current} title={t("versionsFileTitle")} write={(text, version) => writeFileRestore(fileVersions!.path, text, version)} period={active.versionsPeriod ?? DEFAULT_PERIOD} onprojectpath={(found) => void projects.foundProjectPath(active!, found).catch(() => {})} onclose={() => (fileVersions = null)} />
+{/if}
 {#if versionsOpen && repository && active && path && current}
   <Versions files={host.files} repository={repository} project={active} {path} current={current} write={(text, version) => writeRestore(path!, text, version)} period={active.versionsPeriod ?? DEFAULT_PERIOD} onprojectpath={(found) => void projects.foundProjectPath(active!, found).catch(() => {})} onclose={() => (versionsOpen = false)} />
 {/if}
@@ -3178,6 +3214,9 @@
   .file h2 {
     margin-top: 0;
     overflow-wrap: anywhere;
+  }
+  .file-tools {
+    margin: 0 0 0.75rem;
   }
   .file img,
   .file video {

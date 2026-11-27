@@ -433,6 +433,41 @@ describe("the Versions dialog", () => {
     assert.equal(page.url(), address);
   });
 
+  test("a hidden text file opened in its panel has Versions: compared and restored; a large one has none", async () => {
+    const big = `{"data": "${"x".repeat(300 * 1024)}"}\n`;
+    const { files, short } = repository([
+      { days: 10, message: "Add the config", files: { "docs/a.md": "# A\n", "docs/config.json": '{\n  "a": 1,\n  "b": 2\n}\n', "docs/big.json": big } },
+      { days: 5, message: "Change b", files: { "docs/config.json": '{\n  "a": 1,\n  "b": 3\n}\n' } },
+    ]);
+    files["docs/config.json"] = new TextEncoder().encode('{\n  "a": 1,\n  "b": 4\n}\n');
+    const { page, host, repo, address } = await inRepository(files);
+    const docs = host.folders.inside(repo, "docs");
+    await page.getByRole("button", { name: "Show hidden items" }).click();
+
+    await page.getByRole("link", { name: "big.json" }).click();
+    await page.getByRole("heading", { level: 2, name: "big.json" }).waitFor();
+    assert.equal(await versionsButton(page).count(), 0);
+
+    await page.getByRole("link", { name: "config.json" }).click();
+    await page.getByRole("heading", { level: 2, name: "config.json" }).waitFor();
+    await versionsButton(page).click();
+    const dialog = page.getByRole("dialog", { name: "File versions" });
+    await dialog.getByText("config.json").first().waitFor();
+    await cards(page).first().waitFor();
+    const texts = await cards(page).allInnerTexts();
+    assert.equal(texts.length, 2);
+    assert.ok(texts[0]!.includes(short[1]!) && texts[0]!.includes("Change b"), texts[0]);
+    await dialog.locator('.cell[data-side="mine"][data-state="only"]').filter({ hasText: '"b": 4' }).waitFor();
+
+    await dialog.getByRole("button", { name: `Restore this block from commit ${short[1]}` }).click();
+    await dialog.getByText("Block restored.").waitFor();
+    await until(() => host.folders.read(docs, "config.json") === '{\n  "a": 1,\n  "b": 3\n}\n', "the commit's line written to disk");
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await dialog.waitFor({ state: "detached" });
+    await page.locator("section.file pre").filter({ hasText: '"b": 3' }).waitFor();
+    assert.equal(page.url(), address);
+  });
+
   test("in French, the dialog and its labels are in French", async () => {
     const { files, short } = usual(guide({ 5: "five edited", 15: "disk edit" }));
     const { page, address } = await inRepository(files, { locale: "fr" });

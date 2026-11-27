@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { isImageName, MAX_TEXT_BYTES, previewOf } from "../src/lib/otherFiles.ts";
+import { hasVersions, isImageName, MAX_TEXT_BYTES, MAX_VERSIONED_BYTES, previewOf } from "../src/lib/otherFiles.ts";
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 
@@ -64,5 +64,19 @@ describe("previewOf", () => {
     assert.ok(preview.kind === "text" && preview.truncated);
     assert.equal(preview.text.length, 1048575);
     assert.ok(!preview.text.includes("�"));
+  });
+});
+
+describe("hasVersions", () => {
+  test("a text file up to 256 KiB offers Versions; a larger one, an image, a video or a binary file does not", () => {
+    assert.equal(MAX_VERSIONED_BYTES, 262144);
+    const text = (size: number) => previewOf("a.json", new Uint8Array(size).fill(97));
+    assert.equal(hasVersions(previewOf("a.yaml", bytes("a: 1\n")), 5), true);
+    assert.equal(hasVersions(text(262144), 262144), true);
+    assert.equal(hasVersions(text(262145), 262145), false);
+    assert.equal(hasVersions(previewOf("a.png", new Uint8Array([1])), 1), false);
+    assert.equal(hasVersions(previewOf("a.mp4", new Uint8Array([1])), 1), false);
+    assert.equal(hasVersions(previewOf("a.pdf", bytes("plain")), 5), false);
+    assert.equal(hasVersions(previewOf("a.dat", new Uint8Array([65, 0])), 2), false);
   });
 });

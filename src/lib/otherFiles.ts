@@ -4,6 +4,9 @@
 /** A text longer than this is shown cut here (1 MB). */
 export const MAX_TEXT_BYTES = 1024 * 1024;
 
+/** A text file up to this size (256 KiB) offers Versions; a larger one would be slow to compare. */
+export const MAX_VERSIONED_BYTES = 256 * 1024;
+
 export type FilePreview =
   | { kind: "image"; mime: string }
   | { kind: "video"; mime: string }
@@ -52,3 +55,6 @@ export function previewOf(name: string, bytes: Uint8Array): FilePreview {
   const text = new TextDecoder().decode(truncated ? bytes.subarray(0, MAX_TEXT_BYTES) : bytes);
   return { kind: "text", text: truncated ? text.replace(/�$/, "") : text, truncated };
 }
+
+/** Whether an other file of `size` bytes shown as `preview` offers Versions: a text file, not too large. */
+export const hasVersions = (preview: FilePreview, size: number) => preview.kind === "text" && size <= MAX_VERSIONED_BYTES;

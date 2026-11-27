@@ -19,6 +19,7 @@
     period: initialPeriod,
     onprojectpath,
     onclose,
+    title = t("versionsTitle"),
   }: {
     files: Pick<Files, "list" | "read">;
     /** The Project's Repository grant. */
@@ -36,6 +37,8 @@
     /** Where the Project folder lies in the repository, called when the list is read and the Project is tracked. */
     onprojectpath?: (path: string) => void;
     onclose: () => void;
+    /** The dialog's title: "Document versions" unless given (an other file's). */
+    title?: string;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -230,7 +233,7 @@
 >
   <header>
     <div class="titles">
-      <h2 id="versions-title">{t("versionsTitle")}</h2>
+      <h2 id="versions-title">{title}</h2>
       <p class="hint muted path">{asked.path}</p>
     </div>
     <button type="button" onclick={onclose}>{t("close")}</button>
