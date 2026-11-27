@@ -4,7 +4,7 @@
   // a Folder manifest, the editor, the section preview or the HTML view: the View mounts it for an ordinary Document's
   // reading only.
   import { untrack } from "svelte";
-  import { type Annotation, type AnnotationDraft, type MarkerState, excerpt, normalizeSpaces, type Placement, placeAnnotations } from "../lib/annotations.ts";
+  import { type Annotation, type AnnotationDraft, type AnnotationStatus, isDone, type MarkerState, excerpt, normalizeSpaces, type Placement, placeAnnotations, type Reply } from "../lib/annotations.ts";
   import { currentLocale, type MessageKey, t } from "../lib/i18n.ts";
   import { Conflict, Refused } from "../lib/project.ts";
   import { applyHighlights, articleText, clearHighlights, draftOfRange } from "./highlights.ts";
@@ -20,6 +20,8 @@
     add,
     edit,
     remove,
+    reply,
+    setStatus,
     fail,
   }: {
     article: HTMLElement | undefined;
@@ -35,6 +37,8 @@
     add: (draft: AnnotationDraft) => Promise<Annotation>;
     edit: (id: string, note: string) => Promise<Annotation>;
     remove: (id: string) => Promise<void>;
+    reply: (id: string, text: string) => Promise<Annotation>;
+    setStatus: (id: string, status: AnnotationStatus) => Promise<Annotation>;
     fail: (message: string, reason?: unknown) => void;
   } = $props();
 
@@ -83,9 +87,11 @@
   let readingHeight = $state(0);
   let closing: ReturnType<typeof setTimeout> | undefined;
 
-  /** The popup reads; or it holds the edit form or the delete confirmation, which nothing closes but their own buttons and Escape. */
-  let mode = $state<"read" | "edit" | "delete">("read");
+  /** The popup reads; or it holds the edit or reply form or the delete confirmation, which nothing closes but their own buttons and Escape. */
+  let mode = $state<"read" | "edit" | "reply" | "delete">("read");
   let editNote = $state("");
+  let replyText = $state("");
+  let replyField = $state<HTMLTextAreaElement>();
   let busy = $state(false);
   let editField = $state<HTMLTextAreaElement>();
   let confirmCancel = $state<HTMLButtonElement>();
@@ -141,7 +147,52 @@
   }
   $effect(() => {
     if (mode === "edit") editField?.focus();
+    if (mode === "reply") replyField?.focus();
   });
+
+  function startReply() {
+    cancelClose();
+    replyText = "";
+    mode = "reply";
+  }
+
+  /** "Agent · Mar 6, 2026" or "You · …": who wrote the Reply, and when. */
+  const replyHeading = (each: Reply) => {
+    const author = t(each.author === "agent" ? "annotationAuthorAgent" : "annotationAuthorUser");
+    const date = formatDate(each.createdAt);
+    return date ? `${author} · ${date}` : author;
+  };
+
+  async function saveReply() {
+    if (!reading || !replyText.trim() || busy) return;
+    busy = true;
+    try {
+      await reply(reading.id, replyText);
+      await reload();
+      closeReading();
+    } catch (reason) {
+      const missing = reason instanceof Refused && reason.reason === "missing";
+      fail(failureOf(reason, "annotationReplyFailed"), reason);
+      if (missing) await reload();
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Mark as done or Reopen: the popup stays open, showing the new status. */
+  async function toggleStatus(annotation: Annotation) {
+    if (busy) return;
+    busy = true;
+    try {
+      await setStatus(annotation.id, isDone(annotation) ? "todo" : "done");
+      await reload();
+    } catch (reason) {
+      fail(failureOf(reason, "annotationStatusFailed"), reason);
+      if (reason instanceof Refused && reason.reason === "missing") await reload();
+    } finally {
+      busy = false;
+    }
+  }
   $effect(() => {
     if (mode === "delete") confirmCancel?.focus();
   });
@@ -226,7 +277,8 @@
     const note = normalizeSpaces(placement.annotation.note);
     const cut = note.length > 60 ? `${note.slice(0, 60)}…` : note;
     const warning = placement.state === "orphan" ? t("annotationOrphan") : placement.state === "surroundingChanged" ? t("annotationChanged") : "";
-    return warning ? `${warning} ${cut}` : cut;
+    const done = isDone(placement.annotation) ? `${t("annotationDoneLabel")} ` : "";
+    return warning ? `${warning} ${done}${cut}` : `${done}${cut}`;
   };
 
   /** Scrolls the mark of an annotation to the middle of the window, opening the folded sections around it first. */
@@ -306,6 +358,7 @@
         type="button"
         class="chip"
         data-state={placement.state}
+        data-status={isDone(placement.annotation) ? "done" : "todo"}
         data-open={reading?.id === placement.annotation.id}
         aria-label={label(placement)}
         onmouseenter={(event) => show(placement.annotation.id, event.currentTarget, "button")}
@@ -313,7 +366,7 @@
         onfocus={(event) => { if (event.currentTarget.matches(":focus-visible")) show(placement.annotation.id, event.currentTarget, "button"); }}
         onblur={scheduleClose}
         onclick={(event) => reveal(placement, event.currentTarget)}
-      >{placement.state === "orphan" ? "⚠" : "✎"}</button>
+      >{placement.state === "orphan" ? "⚠" : isDone(placement.annotation) ? "✓" : "✎"}</button>
     {/each}
   </div>
 {/if}
@@ -333,7 +386,19 @@
       {#if shown.state === "surroundingChanged"}<p class="changed">{t("annotationChanged")}</p>{/if}
       {#if shown.state === "orphan"}<p class="orphan">{t("annotationOrphan")}</p>{/if}
       <p class="note">{shown.annotation.note}</p>
+      {#if shown.annotation.replies?.length}
+        <ol class="replies">
+          {#each shown.annotation.replies as each, index (index)}
+            <li data-author={each.author}>
+              <p class="date">{replyHeading(each)}</p>
+              <p class="note">{each.text}</p>
+            </li>
+          {/each}
+        </ol>
+      {/if}
       <div class="actions">
+        <button type="button" onclick={startReply}>{t("annotationReply")}</button>
+        <button type="button" class:done={!isDone(shown.annotation)} disabled={busy} onclick={() => void toggleStatus(shown.annotation)}>{t(isDone(shown.annotation) ? "annotationReopen" : "annotationMarkDone")}</button>
         <button type="button" onclick={() => startEdit(shown.annotation)}>{t("annotationEdit")}</button>
         <button type="button" class="danger" onclick={() => { cancelClose(); mode = "delete"; }}>{t("annotationDelete")}</button>
       </div>
@@ -358,6 +423,28 @@
       <div class="actions">
         <button type="button" onclick={closeReading}>{t("cancel")}</button>
         <button type="button" class="primary" disabled={!editNote.trim() || busy} onclick={() => void saveEdit()}>{t("annotationSave")}</button>
+      </div>
+    </div>
+  {:else if mode === "reply"}
+    <div
+      class="ld-form popup form"
+      role="dialog"
+      aria-label={t("annotationReplyTitle")}
+      tabindex="-1"
+      style={readingStyle}
+      bind:this={readingElement}
+      bind:offsetHeight={readingHeight}
+      onkeydown={(event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void saveReply();
+      }}
+    >
+      <strong>{t("annotationReplyTitle")}</strong>
+      <label class="field">
+        <textarea rows="4" aria-label={t("annotationReplyTitle")} placeholder={t("annotationReplyPlaceholder")} bind:value={replyText} bind:this={replyField}></textarea>
+      </label>
+      <div class="actions">
+        <button type="button" onclick={closeReading}>{t("cancel")}</button>
+        <button type="button" class="primary" disabled={!replyText.trim() || busy} onclick={() => void saveReply()}>{t("annotationSave")}</button>
       </div>
     </div>
   {:else if mode === "delete"}
@@ -413,6 +500,9 @@
     cursor: pointer;
     padding: 0 1px;
   }
+  :global(mark.ld-annotation[data-status="done"]) {
+    background: rgba(34, 197, 94, 0.35);
+  }
   .column {
     position: fixed;
     right: 14px;
@@ -434,6 +524,13 @@
     cursor: pointer;
     color: #1f1300;
     background: #facc15;
+  }
+  .chip[data-status="done"] {
+    color: #052e16;
+    background: #22c55e;
+  }
+  .chip[data-status="done"][data-open="true"] {
+    background: #16a34a;
   }
   .chip[data-state="surroundingChanged"] {
     background: #fb923c;
@@ -500,7 +597,26 @@
   }
   .actions {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
     gap: 0.5rem;
+  }
+  .replies {
+    list-style: none;
+    margin: 0 0 0.4rem;
+    padding: 0 0 0 0.6rem;
+    border-left: 2px solid var(--line);
+    max-height: 14em;
+    overflow-y: auto;
+  }
+  .replies li + li {
+    margin-top: 0.4rem;
+  }
+  .replies .note {
+    max-height: none;
+  }
+  .done {
+    color: light-dark(#15803d, #4ade80);
+    border-color: light-dark(#15803d, #4ade80);
   }
 </style>

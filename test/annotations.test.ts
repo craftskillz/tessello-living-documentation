@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import { connect } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
 import { Conflict, openProject, Refused } from "../src/lib/project.ts";
-import { ANNOTATIONS_FILE, type Annotation, addAnnotation, annotationKey, editAnnotation, excerpt, normalizeSpaces, placeAnnotations, readAnnotations, removeAnnotation } from "../src/lib/annotations.ts";
+import { ANNOTATIONS_FILE, type Annotation, addAnnotation, annotationKey, editAnnotation, excerpt, isDone, normalizeSpaces, placeAnnotations, readAnnotations, removeAnnotation, replyToAnnotation, setAnnotationStatus } from "../src/lib/annotations.ts";
 
 describe("text helpers", () => {
   test("a Document's key is its path without .md", () => {
@@ -370,6 +370,109 @@ describe("removing an annotation", () => {
     const { project } = await projectOf(file());
     await project.check();
     await removeAnnotation(project, "a.md", "u1");
+    assert.deepEqual(await project.check(), { tree: false, documents: [] });
+  });
+});
+
+describe("annotations as tasks (ADR 0012)", () => {
+  const later = { now: () => new Date("2026-03-04T05:06:07.000Z") };
+  const agentReply = { author: "agent", text: "Example added under the heading.", createdAt: "2026-02-01T00:00:00.000Z" };
+  const file = (entry: object = stored) => ({ [ANNOTATIONS_FILE]: JSON.stringify({ a: [entry, { ...stored, id: "u2" }], other: [{ ...stored, id: "x" }] }, null, 2) });
+
+  test("an annotation without a status is to do; its status and replies are read as written", async () => {
+    const done = { ...stored, id: "u2", status: "done", replies: [agentReply] };
+    const { project } = await projectOf({ [ANNOTATIONS_FILE]: JSON.stringify({ a: [stored, done] }) });
+    const [first, second] = await readAnnotations(project, "a.md");
+    assert.equal(isDone(first!), false);
+    assert.deepEqual(second, done);
+    assert.equal(isDone(second!), true);
+  });
+
+  test("an unknown status reads as to do, and malformed replies are dropped", async () => {
+    const replies = [agentReply, { author: "user", text: "Thanks", createdAt: 3 }, { author: "robot", text: "x" }, { author: "user" }, "text", null];
+    const { project } = await projectOf({ [ANNOTATIONS_FILE]: JSON.stringify({ a: [{ ...stored, status: "closed", replies }, { ...stored, id: "u2", replies: "none" }] }) });
+    const [first, second] = await readAnnotations(project, "a.md");
+    assert.equal(first!.status, undefined);
+    assert.deepEqual(first!.replies, [agentReply, { author: "user", text: "Thanks", createdAt: "" }]);
+    assert.equal(second!.replies, undefined);
+  });
+
+  test("a reply is appended with author user, trimmed, keeping the status and every other key as written", async () => {
+    const { host, disk, project } = await projectOf(file({ ...stored, status: "done", replies: [agentReply], extra: { deep: 1 } }));
+    const replied = await replyToAnnotation(project, "a.md", "u1", "  Not quite:\n\n  shorter please \n", later);
+    const reply = { author: "user", text: "Not quite:\n\n  shorter please", createdAt: "2026-03-04T05:06:07.000Z" };
+    assert.deepEqual(replied.replies, [agentReply, reply]);
+    assert.equal(replied.status, "done");
+    const after = JSON.parse(host.folders.read(disk, ANNOTATIONS_FILE) as string);
+    assert.deepEqual(after.a[0], { ...stored, status: "done", replies: [agentReply, reply], extra: { deep: 1 } });
+    assert.deepEqual(after.a.slice(1), [{ ...stored, id: "u2" }]);
+    assert.deepEqual(after.other, [{ ...stored, id: "x" }]);
+  });
+
+  test("a first reply creates the list, after the existing keys", async () => {
+    const { host, disk, project } = await projectOf(file());
+    await replyToAnnotation(project, "a.md", "u1", "First", later);
+    const entry = JSON.parse(host.folders.read(disk, ANNOTATIONS_FILE) as string).a[0];
+    assert.deepEqual(Object.keys(entry), ["id", "selectedText", "contextBefore", "contextAfter", "note", "createdAt", "replies"]);
+  });
+
+  test("a blank reply is refused, a missing annotation too, and malformed replies are never overwritten", async () => {
+    const { host, disk, project } = await projectOf(file({ ...stored, replies: "keep me" }));
+    const before = host.folders.read(disk, ANNOTATIONS_FILE);
+    await assert.rejects(replyToAnnotation(project, "a.md", "u2", " \n "), (error) => error instanceof Refused && error.reason === "empty");
+    await assert.rejects(replyToAnnotation(project, "a.md", "nope", "x"), (error) => error instanceof Refused && error.reason === "missing");
+    await assert.rejects(replyToAnnotation(project, "a.md", "u1", "x"), (error) => error instanceof Refused && error.reason === "invalidAnnotations");
+    assert.equal(host.folders.read(disk, ANNOTATIONS_FILE), before);
+  });
+
+  test("marking done writes the status, in place when it exists; reopening writes todo", async () => {
+    const { host, disk, project } = await projectOf(file({ ...stored, replies: [agentReply] }));
+    const done = await setAnnotationStatus(project, "a.md", "u1", "done");
+    assert.equal(done.status, "done");
+    const read = () => JSON.parse(host.folders.read(disk, ANNOTATIONS_FILE) as string).a[0];
+    assert.deepEqual(Object.keys(read()), ["id", "selectedText", "contextBefore", "contextAfter", "note", "createdAt", "replies", "status"]);
+    await setAnnotationStatus(project, "a.md", "u1", "todo");
+    assert.deepEqual(read(), { ...stored, replies: [agentReply], status: "todo" });
+    assert.deepEqual(Object.keys(read()), ["id", "selectedText", "contextBefore", "contextAfter", "note", "createdAt", "replies", "status"]);
+  });
+
+  test("a status that is already the wanted one writes nothing", async () => {
+    const { host, disk, project } = await projectOf(file({ ...stored, status: "done" }));
+    const before = host.folders.read(disk, ANNOTATIONS_FILE);
+    assert.equal((await setAnnotationStatus(project, "a.md", "u1", "done")).status, "done");
+    assert.equal(host.folders.read(disk, ANNOTATIONS_FILE), before);
+  });
+
+  test("a missing annotation is refused when setting its status", async () => {
+    const { project } = await projectOf(file());
+    await assert.rejects(setAnnotationStatus(project, "a.md", "nope", "done"), (error) => error instanceof Refused && error.reason === "missing");
+  });
+
+  test("editing the note keeps the status and the replies", async () => {
+    const { project } = await projectOf(file({ ...stored, status: "done", replies: [agentReply] }));
+    const edited = await editAnnotation(project, "a.md", "u1", "New", later);
+    assert.deepEqual([edited.status, edited.replies], ["done", [agentReply]]);
+  });
+
+  test("replying and setting the status survive an agent's concurrent write and give up after 3 attempts", async () => {
+    const { host, disk, project } = await projectOf(file());
+    interrupted(host, disk, project, 1, "a");
+    await replyToAnnotation(project, "a.md", "u1", "Mine", later);
+    await setAnnotationStatus(project, "a.md", "u2", "done");
+    const after = JSON.parse(host.folders.read(disk, ANNOTATIONS_FILE) as string);
+    assert.deepEqual(after.a.map((each: Annotation) => each.id), ["u1", "u2", "agent1"]);
+    assert.equal(after.a[0].replies[0].text, "Mine");
+    assert.equal(after.a[1].status, "done");
+    const failing = await projectOf(file());
+    interrupted(failing.host, failing.disk, failing.project, 3);
+    await assert.rejects(setAnnotationStatus(failing.project, "a.md", "u1", "done"), Conflict);
+  });
+
+  test("the Module's own writes are not reported as outside changes", async () => {
+    const { project } = await projectOf(file());
+    await project.check();
+    await replyToAnnotation(project, "a.md", "u1", "x");
+    await setAnnotationStatus(project, "a.md", "u1", "done");
     assert.deepEqual(await project.check(), { tree: false, documents: [] });
   });
 });

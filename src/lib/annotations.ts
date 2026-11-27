@@ -19,7 +19,24 @@ export interface Annotation {
   createdAt: string;
   /** ISO date of the last edit; absent until the annotation is edited. */
   updated?: string;
+  /** The task's status (ADR 0012); absent, like any unknown value, means to do. */
+  status?: AnnotationStatus;
+  /** The thread under the note, in the order written; absent until the first Reply. */
+  replies?: Reply[];
 }
+
+export type AnnotationStatus = "todo" | "done";
+
+/** A message under an annotation's note: an agent reporting what it did, or the User answering. */
+export interface Reply {
+  author: "agent" | "user";
+  text: string;
+  /** ISO date. */
+  createdAt: string;
+}
+
+/** Whether the annotation's task is done (docs/spec/annotations.md rule 11). */
+export const isDone = (annotation: Annotation): boolean => annotation.status === "done";
 
 /** The Marker: Normal shows the annotations, Active also creates them, Hidden shows none (docs/spec/annotations.md rule 5). */
 export type MarkerState = "normal" | "active" | "hidden";
@@ -112,7 +129,15 @@ function toAnnotation(entry: Json): Annotation | null {
   const text = (value: Json | undefined) => (typeof value === "string" ? value : "");
   const annotation: Annotation = { id: entry.id, selectedText: entry.selectedText, contextBefore: text(entry.contextBefore), contextAfter: text(entry.contextAfter), note: entry.note, createdAt: text(entry.createdAt) };
   if (typeof entry.updated === "string") annotation.updated = entry.updated;
+  if (entry.status === "todo" || entry.status === "done") annotation.status = entry.status;
+  if (Array.isArray(entry.replies)) annotation.replies = entry.replies.flatMap((each) => toReply(each) ?? []);
   return annotation;
+}
+
+/** An entry of `replies` as a Reply; null when its author is neither agent nor user, or its text is not a string. */
+function toReply(entry: Json): Reply | null {
+  if (!isObject(entry) || (entry.author !== "agent" && entry.author !== "user") || typeof entry.text !== "string") return null;
+  return { author: entry.author, text: entry.text, createdAt: typeof entry.createdAt === "string" ? entry.createdAt : "" };
 }
 
 /**
@@ -185,15 +210,48 @@ export async function editAnnotation(project: Project, path: string, id: string,
   const text = note.trim();
   if (!text) throw new Refused("empty");
   const updated = (options.now ?? (() => new Date()))().toISOString();
+  return changeEntry(project, path, id, (entry) => {
+    const { updated: _old, ...rest } = entry;
+    return { ...rest, note: text, updated };
+  });
+}
+
+/**
+ * Appends a Reply of the User (text trimmed, inner line breaks kept) to the annotation's thread, creating it after the
+ * existing keys; the status stays as it is (rule 13). Refused("empty") for a blank text, Refused("missing") and
+ * Refused("invalidAnnotations") as `editAnnotation`, also when the entry's `replies` is not a list (never overwritten).
+ */
+export async function replyToAnnotation(project: Project, path: string, id: string, text: string, options: { now?: () => Date } = {}): Promise<Annotation> {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Refused("empty");
+  const reply: Reply = { author: "user", text: trimmed, createdAt: (options.now ?? (() => new Date()))().toISOString() };
+  return changeEntry(project, path, id, (entry) => {
+    if (entry.replies !== undefined && !Array.isArray(entry.replies)) throw new Refused("invalidAnnotations");
+    return { ...entry, replies: [...((entry.replies as Json[] | undefined) ?? []), reply as unknown as Json] };
+  });
+}
+
+/** Sets the task's status, in place when the key exists, else last (rule 13: Mark as done, Reopen). No write when it already is. */
+export async function setAnnotationStatus(project: Project, path: string, id: string, status: AnnotationStatus): Promise<Annotation> {
+  return changeEntry(project, path, id, (entry) => (entry.status === status ? null : { ...entry, status }));
+}
+
+/**
+ * Rewrites one annotation of the Document with `apply` (given its entry as written, returning the new entry, or null for
+ * no write) and resolves with it as read. Refused("missing") when it is not there (deleted meanwhile, or no file),
+ * Refused("invalidAnnotations") for a malformed file or entry. Version-checked and retried as `change` does: others'
+ * adds, edits and deletes are kept.
+ */
+async function changeEntry(project: Project, path: string, id: string, apply: (entry: Record<string, Json>) => Record<string, Json> | null): Promise<Annotation> {
   let written: Annotation | null = null;
   await change(project, path, (list) => {
     const at = list.findIndex((entry) => isObject(entry) && entry.id === id);
     if (at === -1) throw new Refused("missing");
-    const { updated: _old, ...entry } = list[at] as Record<string, Json>;
-    const next = { ...entry, note: text, updated };
-    written = toAnnotation(next);
+    const current = list[at] as Record<string, Json>;
+    const next = apply(current);
+    written = toAnnotation(next ?? current);
     if (!written) throw new Refused("invalidAnnotations");
-    return list.map((each, i) => (i === at ? next : each));
+    return next === null ? null : list.map((each, i) => (i === at ? next : each));
   });
   return written!;
 }

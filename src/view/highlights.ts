@@ -2,7 +2,7 @@
 // passage and its surrounding text, and the highlights drawn over the placed passages. All offsets are into the text
 // of `textNodes(root)`, so the placement, the selection and the marks always agree.
 
-import { normalizeSpaces, type AnnotationDraft, type Placement } from "../lib/annotations.ts";
+import { isDone, normalizeSpaces, type AnnotationDraft, type Placement } from "../lib/annotations.ts";
 
 /** Characters kept before and after a passage to find it again. */
 export const CONTEXT_LENGTH = 30;
@@ -87,6 +87,7 @@ export function applyHighlights(root: HTMLElement, placements: Placement[]): voi
       const mark = document.createElement("mark");
       mark.className = "ld-annotation";
       mark.dataset.annotationId = placement.annotation.id;
+      mark.dataset.status = isDone(placement.annotation) ? "done" : "todo";
       target.replaceWith(mark);
       mark.append(target);
     }

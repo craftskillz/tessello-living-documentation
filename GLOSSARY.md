@@ -63,8 +63,12 @@ A lone opening tag written inside a Document's text (`<add-footnote>`, `<rewrite
 _Avoid_: Tag (alone), annotation, instruction tag
 
 **Annotation**:
-A note a User attaches to a passage of a Document in its reading view, kept in the Project's `.annotations.json` with the passage and the text around it, never in the Document's text. Placed where passage and surroundings match; marked "surrounding text changed" when only the passage, occurring once, matches; else an orphan.
+A note a User attaches to a passage of a Document in its reading view, kept in the Project's `.annotations.json` with the passage and the text around it, never in the Document's text. Placed where passage and surroundings match; marked "surrounding text changed" when only the passage, occurring once, matches; else an orphan. Every annotation is also a task for agents, to do or done (ADR 0012).
 _Avoid_: Comment, highlight, Tag marker
+
+**Reply**:
+A message added under an Annotation's note, by an agent reporting what it did or by the User answering; Replies form the annotation's thread and are only ever appended.
+_Avoid_: Comment, answer, response
 
 **Marker**:
 The reading-view button that cycles the annotations through Normal (shown), Active (shown, and a selection opens the creation popup) and Hidden (not shown). Normal and Hidden are remembered.

@@ -458,3 +458,109 @@ describe("annotations follow the Tree", () => {
     await until(() => Object.keys(read(host, disk) ?? {}).length === 0, "key removed");
   });
 });
+
+describe("annotations as tasks (ADR 0012)", () => {
+  const popup = (page: Page) => page.getByRole("tooltip");
+  const replyForm = (page: Page, name = "Reply to the annotation") => page.getByRole("dialog", { name });
+  const agentReply = { author: "agent", text: "Named the fox: the red one.", createdAt: "2026-03-06T09:00:00.000Z" };
+  const hoverMark = async (page: Page) => {
+    await marks(page).first().waitFor();
+    await marks(page).first().hover();
+    await popup(page).waitFor();
+  };
+  const GREEN_MARK = "rgba(34, 197, 94, 0.35)";
+  const YELLOW_MARK = "rgba(250, 204, 21, 0.5)";
+  const markColor = (page: Page) => marks(page).first().evaluate((el) => getComputedStyle(el).backgroundColor);
+
+  test("a done annotation is green with a check, its replies show under the note with their author and date, and it offers Reopen", async () => {
+    const { page } = await withProject({ "a.md": doc, [FILE]: stored(note({ status: "done", replies: [agentReply] })) });
+    await marks(page).first().waitFor();
+    assert.equal(await markColor(page), GREEN_MARK);
+    const button = columnButtons(page).first();
+    assert.equal(await button.getAttribute("data-status"), "done");
+    assert.equal(await button.innerText(), "✓");
+    assert.equal(await button.evaluate((el) => getComputedStyle(el).backgroundColor), "rgb(34, 197, 94)");
+    assert.ok((await button.getAttribute("aria-label"))?.startsWith("Done: Which fox?"));
+
+    await hoverMark(page);
+    await popup(page).getByText("Named the fox: the red one.").waitFor();
+    await popup(page).getByText("Agent · Mar 6, 2026").waitFor();
+    await popup(page).getByRole("button", { name: "Reopen" }).waitFor();
+    assert.equal(await popup(page).getByRole("button", { name: "Mark as done" }).count(), 0);
+  });
+
+  test("Mark as done writes the status and turns the annotation green; Reopen writes todo and makes it yellow again", async () => {
+    const { page, host, disk } = await withProject({ "a.md": doc, [FILE]: stored(note()) });
+    await marks(page).first().waitFor();
+    assert.equal(await markColor(page), YELLOW_MARK);
+    await hoverMark(page);
+    await popup(page).getByRole("button", { name: "Mark as done" }).click();
+    await until(async () => read(host, disk).a[0].status === "done");
+    await until(async () => (await markColor(page)) === GREEN_MARK);
+
+    await page.mouse.move(5, 5);
+    await hoverMark(page);
+    await popup(page).getByRole("button", { name: "Reopen" }).click();
+    await until(async () => read(host, disk).a[0].status === "todo");
+    await until(async () => (await markColor(page)) === YELLOW_MARK);
+  });
+
+  test("Reply: Save stays off while blank, appends the User's reply and leaves the status; Escape cancels", async () => {
+    const { page, host, disk } = await withProject({ "a.md": doc, [FILE]: stored(note({ status: "done", replies: [agentReply] })) });
+    await hoverMark(page);
+    await popup(page).getByRole("button", { name: "Reply" }).click();
+    const form = replyForm(page);
+    const text = form.getByRole("textbox");
+    await text.waitFor();
+    assert.equal(await text.evaluate((el) => el === document.activeElement), true);
+    await text.fill("  ");
+    assert.equal(await form.getByRole("button", { name: "Save" }).isDisabled(), true);
+    await page.keyboard.press("Escape");
+    await form.waitFor({ state: "detached" });
+    assert.equal(read(host, disk).a[0].replies.length, 1);
+
+    await hoverMark(page);
+    await popup(page).getByRole("button", { name: "Reply" }).click();
+    await text.fill("Thanks, but shorter please.");
+    await form.getByRole("button", { name: "Save" }).click();
+    await form.waitFor({ state: "detached" });
+    const [saved] = read(host, disk).a;
+    assert.equal(saved.status, "done");
+    assert.deepEqual(saved.replies.map((each: { author: string; text: string }) => [each.author, each.text]), [["agent", agentReply.text], ["user", "Thanks, but shorter please."]]);
+
+    await page.mouse.move(5, 5);
+    await hoverMark(page);
+    await popup(page).getByText("Thanks, but shorter please.").waitFor();
+    await popup(page).getByText(/^You · /).waitFor();
+  });
+
+  test("an agent closing the task in the file shows green with its reply, without reopening", async () => {
+    const { page, host, disk } = await withProject({ "a.md": doc, [FILE]: stored(note()) });
+    await marks(page).first().waitFor();
+    host.folders.write(disk, FILE, stored(note({ replies: [agentReply], status: "done" })));
+    await until(async () => (await markColor(page)) === GREEN_MARK);
+    await hoverMark(page);
+    await popup(page).getByText("Named the fox: the red one.").waitFor();
+  });
+
+  test("a done orphan keeps its red warning button", async () => {
+    const { page } = await withProject({ "a.md": doc, [FILE]: stored(note({ selectedText: "purple cat", contextBefore: "", contextAfter: "", status: "done" })) });
+    const button = columnButtons(page).first();
+    await button.waitFor();
+    assert.equal(await button.innerText(), "⚠");
+    assert.equal(await button.evaluate((el) => getComputedStyle(el).backgroundColor), "rgb(239, 68, 68)");
+  });
+
+  test("in French: Répondre, Marquer comme traitée, Rouvrir, and the authors", async () => {
+    const { page } = await withProject(
+      { "a.md": doc, [FILE]: stored(note({ replies: [agentReply, { author: "user", text: "Merci", createdAt: "2026-03-07T09:00:00.000Z" }] })) },
+      { locale: "fr" },
+    );
+    await hoverMark(page);
+    await popup(page).getByText("Agent · 6 mars 2026").waitFor();
+    await popup(page).getByText("Vous · 7 mars 2026").waitFor();
+    await popup(page).getByRole("button", { name: "Marquer comme traitée" }).waitFor();
+    await popup(page).getByRole("button", { name: "Répondre" }).click();
+    await replyForm(page, "Répondre à l’annotation").getByRole("button", { name: "Enregistrer" }).waitFor();
+  });
+});

@@ -14,7 +14,7 @@
   import { decorateCollapsible } from "./collapsible.ts";
   import { drawDiagrams } from "./mermaid.ts";
   import Annotations from "./Annotations.svelte";
-  import { addAnnotation, ANNOTATIONS_FILE, editAnnotation, removeAnnotation, type MarkerState, NEXT_MARKER, readAnnotations } from "../lib/annotations.ts";
+  import { addAnnotation, ANNOTATIONS_FILE, editAnnotation, removeAnnotation, replyToAnnotation, setAnnotationStatus, type MarkerState, NEXT_MARKER, readAnnotations } from "../lib/annotations.ts";
   import { loadImages } from "../lib/images.ts";
   import { pastedLink, cleanFileName, freeName, imageExtension, isImage, splitName, timestampName } from "../lib/pasted.ts";
   import { t, tn, type MessageKey } from "../lib/i18n.ts";
@@ -2339,6 +2339,8 @@
               add={(draft) => addAnnotation(project!, path!, draft)}
               edit={(id, note) => editAnnotation(project!, path!, id, note)}
               remove={(id) => removeAnnotation(project!, path!, id)}
+              reply={(id, text) => replyToAnnotation(project!, path!, id, text)}
+              setStatus={(id, status) => setAnnotationStatus(project!, path!, id, status)}
               fail={report}
             />
           {/if}
