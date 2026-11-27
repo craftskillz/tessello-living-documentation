@@ -490,7 +490,7 @@
             <label class="field">
               {t("snAnchor")} <span class="muted">{t("snAnchorPick")}</span>
               <select bind:value={link.anchor}>
-                <option value="">{t("snChoose")}</option>
+                <option value="">{t("snChooseSection")}</option>
                 {#each headings as heading, i (i)}<option value={heading.id}>{indented(heading)}</option>{/each}
               </select>
             </label>
@@ -516,7 +516,7 @@
               <label class="field">
                 {t("snAnchor")}
                 <select bind:value={link.anchor}>
-                  <option value="">{t("snChoose")}</option>
+                  <option value="">{t("snChooseSection")}</option>
                   {#each remote.headings as heading, i (i)}<option value={heading.id}>{indented(heading)}</option>{/each}
                 </select>
               </label>

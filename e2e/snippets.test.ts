@@ -238,6 +238,7 @@ describe("snippets in the section editor", () => {
     const dialog = picker(page);
     await dialog.getByRole("button", { name: "Link to anchor", exact: true }).click();
     const options = await dialog.getByLabel("Anchor").locator("option").allInnerTexts();
+    assert.equal(options[0], "Choose a section…");
     assert.ok(options.some((each) => each.includes("One")) && options.some((each) => each.includes("Two words")), options.join("|"));
     await dialog.getByLabel("Anchor").selectOption({ label: options.find((each) => each.includes("One"))! });
     await dialog.getByRole("button", { name: "Insert", exact: true }).click();
