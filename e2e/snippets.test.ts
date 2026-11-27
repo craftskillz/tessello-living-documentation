@@ -678,3 +678,21 @@ describe("Snippets II: Mermaid, Layout and File attachment", () => {
     assert.equal(page.url(), address);
   });
 });
+
+describe("the snippet dialog's width", () => {
+  test("a snippet's form takes 80% of the window's width", async () => {
+    const { page } = await withProject({ "a.md": "# A\n\nFirst.\n" });
+    const address = page.url();
+    await startEditing(page);
+    await page.getByRole("button", { name: "Snippets" }).click();
+    const dialog = picker(page);
+    await dialog.getByRole("searchbox", { name: "Search a snippet…" }).waitFor();
+    await page.keyboard.type("table");
+    await page.keyboard.press("Enter");
+    await dialog.getByRole("button", { name: "Insert", exact: true }).waitFor();
+    const box = (await dialog.boundingBox())!;
+    const { width } = page.viewportSize()!;
+    assert.ok(Math.abs(box.width - width * 0.8) <= 2, `${box.width} is 80% of ${width}`);
+    assert.equal(page.url(), address);
+  });
+});

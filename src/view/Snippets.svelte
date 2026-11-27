@@ -240,6 +240,7 @@
 <dialog
   use:modal
   class="ld-form"
+  class:wide={data !== null}
   aria-labelledby="snippets-title"
   oncancel={(event) => {
     event.preventDefault();
@@ -688,6 +689,7 @@
 <style>
   /* The form look comes from .ld-form (base.css, docs/ui.md); only the dialog's own layout is here. */
   dialog {
+    box-sizing: border-box;
     width: min(94vw, 40rem);
     max-height: 90vh;
     padding: 0;
@@ -696,6 +698,10 @@
     border: 1px solid var(--line);
     border-radius: 8px;
     box-shadow: 0 20px 50px rgb(0 0 0 / 0.25);
+  }
+  /* A snippet's form (a table, a list…) takes 80% of the window; the picker keeps its narrow width. */
+  dialog.wide {
+    width: 80vw;
   }
   dialog::backdrop {
     background: rgb(0 0 0 / 0.35);

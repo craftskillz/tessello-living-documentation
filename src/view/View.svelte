@@ -1320,9 +1320,14 @@
     });
   }
 
+  /** The pane of the section dialog that takes its whole width; null when both show side by side. */
+  let expandedPane = $state<"editor" | "preview" | null>(null);
+  const toggleExpanded = (pane: "editor" | "preview") => (expandedPane = expandedPane === pane ? null : pane);
+
   /** Ends the editing session without saving anything (the caller has flushed or stopped the autosave). */
   function stopEditing() {
     session = null;
+    expandedPane = null;
     autosave = null;
     conflict = null;
     comparing = false;
@@ -2398,12 +2403,23 @@
         {@render compareTable(composed(draft), compareWith.text)}
       {/if}
     {/if}
-    <div class="panes">
-      <Editor bind:this={sectionEditor} text={draft} label={t("markdown")} onchange={typed} onfiles={pasteFiles} />
-      <section class="preview" aria-label={t("preview")}>
-        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-        <article class="document" bind:this={preview} onclick={(event) => event.preventDefault()}>{@html previewHtml}</article>
-      </section>
+    <!-- Either pane can take the whole width; the other stays mounted, hidden, so the editor keeps its state. -->
+    <div class="panes" class:expanded={expandedPane !== null}>
+      <div class="pane" hidden={expandedPane === "preview"}>
+        <div class="pane-bar">
+          <button type="button" onclick={() => toggleExpanded("editor")}>{expandedPane === "editor" ? t("showBoth") : t("expandEditor")}</button>
+        </div>
+        <Editor bind:this={sectionEditor} text={draft} label={t("markdown")} onchange={typed} onfiles={pasteFiles} />
+      </div>
+      <div class="pane" hidden={expandedPane === "editor"}>
+        <div class="pane-bar">
+          <button type="button" onclick={() => toggleExpanded("preview")}>{expandedPane === "preview" ? t("showBoth") : t("expandPreview")}</button>
+        </div>
+        <section class="preview" aria-label={t("preview")}>
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+          <article class="document" bind:this={preview} onclick={(event) => event.preventDefault()}>{@html previewHtml}</article>
+        </section>
+      </div>
     </div>
   </dialog>
 {/if}
@@ -2901,7 +2917,8 @@
     border-radius: 8px;
   }
   dialog.section {
-    width: min(96vw, 90rem);
+    box-sizing: border-box;
+    width: 80vw;
     height: 90vh;
     padding: 0.75rem 1rem;
   }
@@ -2928,7 +2945,30 @@
     flex: 1;
     min-height: 0;
   }
-  .panes > :global(*) {
+  .panes.expanded {
+    grid-template-columns: 1fr;
+  }
+  .pane {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-height: 0;
+    min-width: 0;
+  }
+  .pane[hidden] {
+    display: none;
+  }
+  .pane-bar {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .pane-bar button {
+    font-size: 0.8rem;
+    padding: 0.1rem 0.5rem;
+  }
+  /* The pane's content scrolls both ways when it is wider or taller than the pane. */
+  .pane > :global(:last-child) {
+    flex: 1;
     min-height: 0;
     overflow: auto;
   }

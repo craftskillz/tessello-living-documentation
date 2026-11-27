@@ -277,3 +277,50 @@ describe("Format", () => {
     assert.ok(!(await editor.innerText()).includes("| Apple | 1   |"));
   });
 });
+
+describe("the section dialog's layout", () => {
+  const openSection = async (page: import("playwright").Page) => {
+    await page.getByText("See below.").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit section" }).click();
+    return page.getByRole("dialog", { name: "Edit section" });
+  };
+  const wide = "| " + Array.from({ length: 40 }, (_, i) => `Column${i}`).join(" | ") + " |\n|" + " --- |".repeat(40) + "\n";
+
+  test("takes 80% of the window's width", async () => {
+    const { page } = await withProject({ "a.md": "# One\n\nSee below.\n" });
+    const address = page.url();
+    const dialog = await openSection(page);
+    const box = (await dialog.boundingBox())!;
+    const { width } = page.viewportSize()!;
+    assert.ok(Math.abs(box.width - width * 0.8) <= 2, `${box.width} is 80% of ${width}`);
+    assert.equal(page.url(), address);
+  });
+
+  test("each pane expands to the full width and back; a wide table scrolls horizontally", async () => {
+    const { page } = await withProject({ "a.md": `# One\n\nSee below.\n\n${wide}` });
+    const address = page.url();
+    const dialog = await openSection(page);
+    const editor = dialog.getByRole("textbox", { name: "Markdown" });
+    const preview = dialog.getByRole("region", { name: "Preview" });
+    const half = (await preview.boundingBox())!.width;
+
+    await dialog.getByRole("button", { name: "Expand the preview" }).click();
+    await editor.waitFor({ state: "hidden" });
+    const full = (await preview.boundingBox())!.width;
+    assert.ok(full > half * 1.8, `${full} is the full width (half: ${half})`);
+    // A table scrolls in its own wrapper (render.ts); any other wide content scrolls the pane.
+    const scroller = preview.locator(".overflow-x-auto");
+    assert.ok(await scroller.evaluate((each) => each.scrollWidth > each.clientWidth), "the table scrolls horizontally");
+
+    await dialog.getByRole("button", { name: "Show both" }).click();
+    await editor.waitFor();
+    assert.ok(Math.abs((await preview.boundingBox())!.width - half) <= 2);
+
+    await dialog.getByRole("button", { name: "Expand the Markdown" }).click();
+    await preview.waitFor({ state: "hidden" });
+    assert.ok((await editor.boundingBox())!.width > half * 1.8);
+    await dialog.getByRole("button", { name: "Show both" }).click();
+    await preview.waitFor();
+    assert.equal(page.url(), address);
+  });
+});
