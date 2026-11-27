@@ -4,7 +4,7 @@
 
 **Blocked by:** 23 (Versions I: commits and compare)
 
-**Status:** ready-for-human (built; awaiting the trial in the local Host)
+**Status:** ready-for-human (built in 07f7efd; awaiting the trial in the local Host)
 
 - [x] Rename following at 50% similarity
 - [x] Restore one block, version-checked, with Undo for the session
