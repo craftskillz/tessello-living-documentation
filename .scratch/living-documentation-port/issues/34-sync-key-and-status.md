@@ -4,13 +4,13 @@
 
 **Blocked by:** none (the `tessello` side is `../tessello/.scratch/git-integration/issues/11-sync-living-documentation.md`, which needs this key)
 
-**Status:** ready-for-human (built in 8a1133d; awaiting the trial in the local Host with `tessello sync --living-documentation` running, which needs the `tessello` ticket 11)
+**Status:** done (8a1133d)
 
 - [x] Key `sync`: `{ "projects": [{ "id", "name", "repository": "<folder name>", "path"?: "<in the repository>", "location"?: "<typed>" }] }`, written, refreshed and removed as above; nothing else of the storage changes
 - [x] Project settings › Repository shows the `syncStatus` of the Project (last commit or problem) and the command to run when there is none
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host with `npx tessello sync --living-documentation <repository>` running; differences noted in the ticket
+- [x] Tried in the local Host with `npx tessello sync --living-documentation <repository>` running; differences noted in the ticket
 
 Decision: `docs/adr/0011-tessello-sync-commits-the-projects-of-a-repository.md`. Spec: `docs/spec/git-versioning.md`.
 
@@ -50,4 +50,4 @@ Decision: `docs/adr/0011-tessello-sync-commits-the-projects-of-a-repository.md`.
 - **Display**: Project settings reads `syncStatus` when it opens and every 15 s while open. Besides "not running", a third case: sync running with no entry for this Project → "running, but not for this repository" with the command. When running with a problem, only the problem shows (no command). `sync`'s own message is English; a translated lead precedes it. A failed read of `syncStatus` shows a translated message (not covered by e2e: the Test Host cannot fail a storage read).
 - **The command's path**: the path `sync` used, else the typed location minus `path`, else a placeholder `<path of <repository>>` to replace (also what Copy copies).
 - **"Not running"** uses three of the default 60 s intervals (180 s): the Module cannot read Git Integration's configured interval.
-- **Left**: the trial in the local Host, once `tessello sync --living-documentation` exists.
+- Tried by the User in the local Host with `tessello sync --living-documentation` (tessello 3e37cb3) running, 2026-11-27; no difference reported.
