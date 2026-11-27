@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import { until } from "@tessello/sdk/testing";
 import type { Page } from "playwright";
-import { useBrowser, withProject, type Opened } from "./living-documentation.ts";
+import { openView, useBrowser, withProject, type Opened } from "./living-documentation.ts";
 
 useBrowser();
 
@@ -16,12 +16,13 @@ let watched: { page: Opened["page"]; address: string } | null = null;
 function fakeSpeech(voices: { name: string; lang: string; default?: boolean }[]) {
   return async (page: Page): Promise<void> => {
     await page.addInitScript((list) => {
-      type Utterance = { text: string; lang: string; voice: unknown; onend: (() => void) | null; onerror: ((event: { error: string }) => void) | null };
-      const state = { spoken: [] as { text: string; lang: string }[], current: null as Utterance | null };
+      type Utterance = { text: string; lang: string; rate: number; voice: { name: string } | null; onend: (() => void) | null; onerror: ((event: { error: string }) => void) | null };
+      const state = { spoken: [] as { text: string; lang: string; rate: number; voice: string | null }[], current: null as Utterance | null };
       class FakeUtterance {
         text: string;
         lang = "";
-        voice: unknown = null;
+        rate = 1;
+        voice: { name: string } | null = null;
         onend: (() => void) | null = null;
         onerror: ((event: { error: string }) => void) | null = null;
         constructor(text: string) {
@@ -33,7 +34,7 @@ function fakeSpeech(voices: { name: string; lang: string; default?: boolean }[])
         getVoices: () => voiceObjects,
         speak(utterance: Utterance) {
           state.current = utterance;
-          state.spoken.push({ text: utterance.text, lang: utterance.lang });
+          state.spoken.push({ text: utterance.text, lang: utterance.lang, rate: utterance.rate, voice: utterance.voice?.name ?? null });
         },
         cancel() {
           const current = state.current;
@@ -74,7 +75,8 @@ afterEach(() => {
   watched = null;
 });
 
-const spoken = (page: Page) => page.evaluate(() => (window as unknown as { __speech: { spoken(): { text: string; lang: string }[] } }).__speech.spoken());
+type Spoken = { text: string; lang: string; rate: number; voice: string | null };
+const spoken = (page: Page) => page.evaluate(() => (window as unknown as { __speech: { spoken(): Spoken[] } }).__speech.spoken());
 const end = (page: Page) => page.evaluate(() => (window as unknown as { __speech: { end(): void } }).__speech.end());
 const highlighted = (page: Page) =>
   page.evaluate(() => {
@@ -82,6 +84,42 @@ const highlighted = (page: Page) =>
     const block = document.querySelector(".ld-reading-block");
     return highlight ? [...highlight].map((range) => range.toString()).join("|") : block ? `[block] ${block.textContent?.trim().slice(0, 20)}` : null;
   });
+/** The highlight inside the generated page's shadow root: the text, and whether it really sits in the shadow tree. */
+const highlightedInPage = (page: Page) =>
+  page.evaluate(() => {
+    const root = document.querySelector(".page")?.shadowRoot;
+    const highlight = CSS.highlights.get("ld-reading");
+    if (highlight) {
+      const ranges = [...highlight] as Range[];
+      return { text: ranges.map((range) => range.toString()).join("|"), inPage: ranges.every((range) => range.startContainer.getRootNode() === root) };
+    }
+    const block = root?.querySelector(".ld-reading-block");
+    return block ? { text: `[block] ${block.textContent?.trim().slice(0, 20)}`, inPage: true } : null;
+  });
+/** Selects `text` inside the first element matching `selector` (a Range over its text node), in the document or in the generated page's shadow root. */
+const select = async (page: Page, selector: string, text: string, inPage = false) => {
+  if (!inPage) await page.locator(selector).first().waitFor();
+  return page.evaluate(
+    ({ selector, text, inPage }) => {
+      const root: ParentNode = inPage ? document.querySelector(".page")!.shadowRoot! : document;
+      const element = root.querySelector(selector)!;
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const at = node.textContent!.indexOf(text);
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + text.length);
+        const selection = (inPage ? (root as unknown as ShadowRoot & { getSelection?: () => Selection }).getSelection?.() : null) ?? document.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return;
+      }
+      throw new Error(`no text ${text}`);
+    },
+    { selector, text, inPage },
+  );
+};
 async function waitSpoken(page: Page, count: number) {
   await until(async () => (await spoken(page)).length === count, `${count} utterances`);
   return (await spoken(page)).map((each) => each.text);
@@ -250,5 +288,169 @@ describe("Reading language", () => {
     assert.equal(await page.getByRole("dialog").count(), 0);
     assert.equal(host.folders.read(disk, "a.md"), text);
     assert.equal((await spoken(page)).length, 0);
+  });
+});
+
+describe("Listen starts where the selection begins", () => {
+  test("inside a sentence: from the selected word, the highlight covers only that part; then the next sentences", async () => {
+    const { page } = await project({ "essai.md": FRENCH });
+    await select(page, "article p", "conde phrase");
+    await page.getByRole("button", { name: "Listen" }).click();
+    assert.deepEqual(await waitSpoken(page, 1), ["seconde phrase utile."]);
+    await until(async () => (await highlighted(page)) === "seconde phrase utile.", "the part of the sentence highlighted");
+    await end(page);
+    assert.equal((await waitSpoken(page, 2))[1], "Bloc de code.");
+  });
+
+  test("inside the code block: from its announcement", async () => {
+    const { page } = await project({ "essai.md": FRENCH });
+    await select(page, "article pre", "const");
+    await page.getByRole("button", { name: "Listen" }).click();
+    assert.deepEqual(await waitSpoken(page, 1), ["Bloc de code."]);
+  });
+
+  test("a selection outside the body starts at the beginning", async () => {
+    const { page } = await project({ "essai.md": "---\ntitle: Essai\nlanguage: fr\ndescription: Un petit résumé\n---\n# Introduction\n\nLe début.\n" });
+    await page.getByText("Un petit résumé").waitFor();
+    await select(page, "body", "petit résumé");
+    await page.getByRole("button", { name: "Listen" }).click();
+    assert.deepEqual(await waitSpoken(page, 1), ["Introduction"]);
+  });
+
+  test("the start point is kept across the Reading language dialog", async () => {
+    const { page } = await project({ "a.md": "# A\n\nFirst one. Second one here.\n" });
+    await select(page, "article p", "ond one");
+    await page.getByRole("button", { name: "Listen" }).click();
+    await page.getByRole("dialog", { name: "Reading language" }).getByRole("button", { name: "English" }).click();
+    assert.deepEqual(await waitSpoken(page, 1), ["Second one here."]);
+    assert.equal((await spoken(page))[0]!.lang, "en");
+  });
+});
+
+describe("Voice and speed", () => {
+  const open = async (page: Page, name = "Reading voice and speed") => {
+    await page.getByRole("button", { name }).click();
+    return page.getByRole("dialog", { name });
+  };
+
+  test("a voice per language and a speed are kept; Browser default goes back to the browser's voice", async () => {
+    const voices = [...VOICES, { name: "Amelie", lang: "fr-CA", default: true }];
+    const files = { "essai.md": FRENCH };
+    const first = await project(files, { voices });
+    const panel = await open(first.page);
+    await panel.getByLabel("Language").selectOption("fr");
+    await panel.getByLabel("Voice", { exact: true }).selectOption("Thomas");
+    await panel.getByLabel("Speed").fill("1.5");
+    await until(async () => (await panel.getByText("1.5×").count()) === 1, "the speed shown");
+    await first.page.keyboard.press("Escape");
+    await first.page.getByRole("button", { name: "Listen" }).click();
+    await waitSpoken(first.page, 1);
+    assert.deepEqual([(await spoken(first.page))[0]!.voice, (await spoken(first.page))[0]!.rate], ["Thomas", 1.5]);
+
+    // Another View on the same Host: the choices are kept in the Module's storage.
+    const again = await openView({ host: first.host, init: fakeSpeech(voices) });
+    watched = { page: again.page, address: again.page.url() };
+    await again.page.getByRole("navigation", { name: "Documents" }).getByRole("link", { name: "essai.md", exact: true }).click();
+    const kept = await open(again.page);
+    await kept.getByLabel("Language").selectOption("fr");
+    assert.equal(await kept.getByLabel("Voice", { exact: true }).inputValue(), "Thomas");
+    await again.page.keyboard.press("Escape");
+    await again.page.getByRole("button", { name: "Listen" }).click();
+    await waitSpoken(again.page, 1);
+    assert.deepEqual([(await spoken(again.page))[0]!.voice, (await spoken(again.page))[0]!.rate], ["Thomas", 1.5]);
+
+    await again.page.getByRole("button", { name: "Stop reading" }).click();
+    const reopened = await open(again.page);
+    await reopened.getByLabel("Language").selectOption("fr");
+    await reopened.getByLabel("Voice", { exact: true }).selectOption({ label: "Browser default" });
+    await again.page.keyboard.press("Escape");
+    await again.page.getByRole("button", { name: "Listen" }).click();
+    await waitSpoken(again.page, 2);
+    assert.equal((await spoken(again.page))[1]!.voice, "Amelie", "the browser's default French voice");
+  });
+
+  test("the panel is hidden with no voice, closes on Escape, and speaks French in the French interface", async () => {
+    const { page } = await project({ "a.md": "# A\n\nText.\n" }, { voices: [] });
+    await page.getByRole("button", { name: "Edit" }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Reading voice and speed" }).count(), 0);
+
+    const french = await project({ "a.md": "# A\n\nText.\n" }, { locale: "fr" });
+    await french.page.getByRole("button", { name: "Voix et vitesse de lecture" }).click();
+    const panel = french.page.getByRole("dialog", { name: "Voix et vitesse de lecture" });
+    await panel.getByRole("group", { name: "Voix" }).waitFor();
+    await panel.getByRole("group", { name: "Vitesse" }).waitFor();
+    await panel.getByLabel("Langue").waitFor();
+    await panel.getByRole("option", { name: "Voix du navigateur" }).waitFor({ state: "attached" });
+    await french.page.keyboard.press("Escape");
+    await until(async () => (await panel.count()) === 0, "the panel closed");
+  });
+});
+
+describe("Listen in the HTML view", () => {
+  const DOC = "---\nhtml_template: article\nlanguage: fr\n---\n# Titre\n\nIntro un.\n\n## Partie\n\nTexte deux.\n";
+  const openHtml = async (files: Record<string, string>) => {
+    const opened = await project(files);
+    await opened.page.getByRole("button", { name: "View as HTML" }).click();
+    await opened.page.getByRole("region", { name: "HTML view of the document" }).locator(".article-header").waitFor();
+    return opened;
+  };
+
+  test("reads the main content only, highlights inside the page, Next section works and Stop clears", async () => {
+    const { page } = await openHtml({ "a.md": DOC });
+    await page.getByRole("button", { name: "Listen" }).click();
+    const first = await waitSpoken(page, 1);
+    assert.notEqual(first[0], "Titre", "the page title is not read");
+    await until(async () => (await highlightedInPage(page))?.inPage === true, "the highlight inside the page");
+    assert.equal((await highlightedInPage(page))!.text, first[0]);
+    const controls = page.getByRole("group", { name: "Read aloud" });
+    await controls.getByRole("button", { name: "Next section" }).click();
+    await until(async () => (await highlightedInPage(page))?.text === "Partie", "the next section highlighted");
+    await controls.getByRole("button", { name: "Stop reading" }).click();
+    await until(async () => (await highlightedInPage(page)) === null, "the highlight cleared");
+  });
+
+  test("starts from a selection in the page", async () => {
+    const { page } = await openHtml({ "a.md": DOC });
+    await select(page, "main", "xte deux", true);
+    await page.getByRole("button", { name: "Listen" }).click();
+    assert.deepEqual(await waitSpoken(page, 1), ["Texte deux."]);
+  });
+
+  test("an in-place edit or a template change stops the reading", async () => {
+    const { page } = await openHtml({ "a.md": DOC });
+    await page.getByRole("button", { name: "Listen" }).click();
+    await page.getByRole("group", { name: "Read aloud" }).waitFor();
+    await page.getByRole("button", { name: "Change the HTML template" }).click();
+    await page.getByRole("dialog", { name: "Choose an HTML template" }).getByRole("button", { name: /^Interview sheet/ }).click();
+    await page.getByRole("region", { name: "HTML view of the document" }).locator(".sheet-header").waitFor();
+    await page.getByRole("button", { name: "Listen" }).waitFor();
+    assert.equal(await highlightedInPage(page), null);
+  });
+
+  test("an in-place edit stops the reading", async () => {
+    const { page } = await openHtml({ "a.md": DOC });
+    await page.getByRole("button", { name: "Listen" }).click();
+    await page.getByRole("group", { name: "Read aloud" }).waitFor();
+    await page.getByRole("region", { name: "HTML view of the document" }).locator("p", { hasText: "Texte deux." }).dblclick({ position: { x: 4, y: 6 } });
+    await page.keyboard.type("Z");
+    await page.keyboard.press("Control+Enter");
+    await page.getByRole("button", { name: "Listen" }).waitFor();
+  });
+
+  test("Back to the Document stops the reading", async () => {
+    const { page } = await openHtml({ "a.md": DOC });
+    await page.getByRole("button", { name: "Listen" }).click();
+    await page.getByRole("group", { name: "Read aloud" }).waitFor();
+    await page.getByRole("button", { name: "← Document" }).click();
+    await page.getByRole("button", { name: "Listen" }).waitFor();
+    assert.equal(await highlighted(page), null);
+  });
+
+  test("a language to choose is written from the HTML view too", async () => {
+    const { page, host, disk } = await openHtml({ "a.md": "---\nhtml_template: article\n---\n# T\n\nHello.\n" });
+    await page.getByRole("button", { name: "Listen" }).click();
+    await page.getByRole("dialog", { name: "Reading language" }).getByRole("button", { name: "English" }).click();
+    await waitSpoken(page, 1);
+    assert.match(host.folders.read(disk, "a.md") ?? "", /language: en/);
   });
 });

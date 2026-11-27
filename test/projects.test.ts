@@ -736,3 +736,64 @@ describe("a Project's Repository grant", () => {
     assert.deepEqual(await projects.list(), [{ id: project.id, name: "docs", state: "available" }]);
   });
 });
+
+describe("reading voices and speed", () => {
+  test("are the browser's voices at 1× on a first visit", async () => {
+    const projects = await projectsOf(hostOf());
+
+    assert.deepEqual(await projects.readingPreferences(), { voices: {}, rate: 1 });
+  });
+
+  test("a voice is kept per primary language for the next visit", async () => {
+    const host = hostOf();
+    const kept = await (await projectsOf(host)).setReadingVoice("en-US", "Samantha");
+
+    assert.deepEqual(kept, { voices: { en: "Samantha" }, rate: 1 });
+    assert.deepEqual(await (await projectsOf(host)).readingPreferences(), { voices: { en: "Samantha" }, rate: 1 });
+    assert.deepEqual((await (await projectsOf(host)).setReadingVoice("EN_gb", "Daniel")).voices, { en: "Daniel" });
+  });
+
+  test("another language's voice is kept alongside, and null forgets only that language", async () => {
+    const host = hostOf();
+    const projects = await projectsOf(host);
+    await projects.setReadingVoice("en", "Samantha");
+
+    assert.deepEqual(await projects.setReadingVoice("fr-FR", "Thomas"), { voices: { en: "Samantha", fr: "Thomas" }, rate: 1 });
+    assert.deepEqual(await projects.setReadingVoice("fr", null), { voices: { en: "Samantha" }, rate: 1 });
+    assert.deepEqual(await (await projectsOf(host)).readingPreferences(), { voices: { en: "Samantha" }, rate: 1 });
+    assert.deepEqual(await projects.setReadingVoice("en", "   "), { voices: {}, rate: 1 });
+  });
+
+  test("the speed is kept for the next visit, clamped to 0.75–2 and rounded to two decimals; a non-finite one keeps the kept speed", async () => {
+    const host = hostOf();
+    const projects = await projectsOf(host);
+
+    assert.deepEqual(await projects.setReadingRate(1.5), { voices: {}, rate: 1.5 });
+    assert.equal((await (await projectsOf(host)).readingPreferences()).rate, 1.5);
+    assert.equal((await projects.setReadingRate(0.5)).rate, 0.75);
+    assert.equal((await projects.setReadingRate(3)).rate, 2);
+    assert.equal((await projects.setReadingRate(1.234)).rate, 1.23);
+    assert.equal((await projects.setReadingRate(Number.NaN)).rate, 1.23);
+    assert.equal((await projects.setReadingRate(Number.POSITIVE_INFINITY)).rate, 1.23);
+    assert.equal((await (await projectsOf(host)).readingPreferences()).rate, 1.23);
+  });
+
+  test("changing the speed keeps the voices, and changing a voice keeps the speed", async () => {
+    const projects = await projectsOf(hostOf());
+    await projects.setReadingVoice("de", "Anna");
+
+    assert.deepEqual(await projects.setReadingRate(1.25), { voices: { de: "Anna" }, rate: 1.25 });
+    assert.deepEqual(await projects.setReadingVoice("en", "Samantha"), { voices: { de: "Anna", en: "Samantha" }, rate: 1.25 });
+  });
+
+  test("a malformed kept value gives the defaults, dropping what is malformed", async () => {
+    const defaults = { voices: {}, rate: 1 };
+    assert.deepEqual(await (await projectsOf(hostOf({ storage: { reading: "loud" } }))).readingPreferences(), defaults);
+    assert.deepEqual(await (await projectsOf(hostOf({ storage: { reading: { voices: ["Anna"], rate: "fast" } } }))).readingPreferences(), defaults);
+    assert.deepEqual(
+      await (await projectsOf(hostOf({ storage: { reading: { voices: { en: "Samantha", fr: 3, de: "", es: "  " }, rate: 9 } } }))).readingPreferences(),
+      { voices: { en: "Samantha" }, rate: 2 },
+    );
+    assert.equal((await (await projectsOf(hostOf({ storage: { reading: { rate: 0.1 } } }))).readingPreferences()).rate, 0.75);
+  });
+});

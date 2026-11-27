@@ -21,10 +21,10 @@ export function watchVoices(onchange: (voices: SpeechSynthesisVoice[]) => void):
 export const voiceInfo = (voice: SpeechSynthesisVoice): VoiceInfo => ({ name: voice.name, lang: voice.lang, default: voice.default });
 
 /**
- * A Speaker reading in `lang` with `voice` (null: the browser's choice for the language). Each utterance is kept
+ * A Speaker reading in `lang` with `voice` (null: the browser's choice for the language) at the speed `rate()` gives when each utterance starts (1 = normal speed). Each utterance is kept
  * referenced until it ends (Chrome may otherwise drop its events), and a cancelled utterance's events are ignored.
  */
-export function browserSpeaker(lang: string, voice: SpeechSynthesisVoice | null): Speaker {
+export function browserSpeaker(lang: string, voice: SpeechSynthesisVoice | null, rate: () => number = () => 1): Speaker {
   let current: SpeechSynthesisUtterance | null = null;
   return {
     speak(text, handlers) {
@@ -32,6 +32,7 @@ export function browserSpeaker(lang: string, voice: SpeechSynthesisVoice | null)
       if (!speech) return handlers.onerror("speechSynthesis is not available");
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = lang;
+      utterance.rate = rate();
       if (voice) utterance.voice = voice;
       utterance.onend = () => {
         if (current !== utterance) return;

@@ -6,6 +6,7 @@ import { type ConnectedModule, type Folder, type Json, TesselloError } from "@te
 import { parseDocument } from "./document.ts";
 import { type LabelFilter, NO_LABEL_FILTER } from "./labels.ts";
 import { NotFound, openProject, type Project, type TreeEntry } from "./project.ts";
+import { primaryLanguage } from "./readingScript.ts";
 
 export interface ProjectInfo {
   /** Stable across visits: the id of its Folder grant. */
@@ -64,6 +65,19 @@ export interface ListedProject extends ProjectInfo {
 
 /** What the Tree shows for each Document: its file name or its displayed title. */
 export type TreeLabels = "name" | "title";
+
+/** The speed of read aloud: 0.75× to 2×, 1× by default. */
+export const READING_RATE = { min: 0.75, max: 2, default: 1 };
+
+export interface ReadingPreferences {
+  /** Primary language code (lower-case, e.g. "en", "fr", "de") → the name of the voice the User chose for it. A language absent here reads with the browser's default voice. */
+  voices: Record<string, string>;
+  /** 0.75–2. */
+  rate: number;
+}
+
+/** The browser's voices at 1×: what read aloud uses until the User chooses. */
+export const DEFAULT_READING: ReadingPreferences = { voices: {}, rate: READING_RATE.default };
 
 export interface DisplayPreferences {
   /** Source line numbers next to each block. */
@@ -143,11 +157,19 @@ export interface Projects {
   preferences(): Promise<DisplayPreferences>;
   /** Changes some preferences, keeps the others; resolves with all of them. A TOC width is clamped to 160–400 and a sidebar width to 200–600, both rounded; a non-finite width keeps the kept one. */
   setPreferences(changes: { lines?: boolean; whiteBackground?: boolean; showHidden?: boolean; markerHidden?: boolean; treeLabels?: TreeLabels; toc?: { open?: boolean; width?: number }; sidebar?: { width?: number } }): Promise<DisplayPreferences>;
+  /** The User's voices for read aloud, one per language, and its speed; defaults (the browser's voices, 1×) when none were kept or the kept value is malformed. */
+  readingPreferences(): Promise<ReadingPreferences>;
+  /** Keeps the voice chosen for a language, by its primary subtag in lower-case ("en-US" and "EN_gb" are "en"); `null` or a blank name forgets it, back to the browser's default voice. Keeps the other languages and the speed; resolves with all of them. */
+  setReadingVoice(language: string, voice: string | null): Promise<ReadingPreferences>;
+  /** Keeps the speed of read aloud, clamped to 0.75–2 and rounded to two decimals; a non-finite speed keeps the kept one. Keeps the voices; resolves with all preferences. */
+  setReadingRate(rate: number): Promise<ReadingPreferences>;
 }
 
 const KEY = "projects";
 // Apart from the Projects, so that writing one never races with writing the other.
 const DISPLAY_KEY = "display";
+// Apart from the display preferences, for the same reason.
+const READING_KEY = "reading";
 // Personal, per Project (ADR 0007): projectId → entries.
 const FAVORITES_KEY = "favorites";
 // Personal, per Project: projectId → label filter.
@@ -210,6 +232,19 @@ function readPreferences(value: Json): DisplayPreferences {
     },
     sidebar: { width: typeof sidebar.width === "number" && Number.isFinite(sidebar.width) ? clampSidebarWidth(sidebar.width) : SIDEBAR_WIDTH.default },
   };
+}
+
+function clampReadingRate(rate: number): number {
+  return Math.round(Math.min(READING_RATE.max, Math.max(READING_RATE.min, rate)) * 100) / 100;
+}
+
+function readReadingPreferences(value: Json): ReadingPreferences {
+  const raw = isObject(value) ? value : {};
+  const voices: Record<string, string> = {};
+  if (isObject(raw.voices)) {
+    for (const [language, name] of Object.entries(raw.voices)) if (language !== "" && typeof name === "string" && name.trim() !== "") voices[language] = name;
+  }
+  return { voices, rate: typeof raw.rate === "number" && Number.isFinite(raw.rate) ? clampReadingRate(raw.rate) : READING_RATE.default };
 }
 
 /** The kept label filters of every Project; what is malformed is dropped. */
@@ -417,7 +452,29 @@ export function createProjects(module: ConnectedModule): Projects {
     return all[project.id]!;
   }
 
+  const readReading = async () => readReadingPreferences(await module.storage.get(READING_KEY));
+  const writeReading = async (next: ReadingPreferences) => {
+    await module.storage.set(READING_KEY, { voices: { ...next.voices }, rate: next.rate });
+    return next;
+  };
+
   return {
+    async readingPreferences() {
+      return readReading();
+    },
+    async setReadingVoice(language, voice) {
+      const kept = await readReading();
+      const key = primaryLanguage(language);
+      if (key === "") return kept;
+      const voices = { ...kept.voices };
+      if (voice === null || voice.trim() === "") delete voices[key];
+      else voices[key] = voice;
+      return writeReading({ voices, rate: kept.rate });
+    },
+    async setReadingRate(rate) {
+      const kept = await readReading();
+      return writeReading({ voices: kept.voices, rate: Number.isFinite(rate) ? clampReadingRate(rate) : kept.rate });
+    },
     async preferences() {
       return readDisplay();
     },

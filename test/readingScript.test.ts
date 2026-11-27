@@ -6,11 +6,13 @@ import { parseDocument } from "../src/lib/document.ts";
 import { renderDocumentTree } from "../src/lib/render.ts";
 import {
   announcementLanguage,
+  chooseVoice,
   languagesWithVoice,
   piecesOf,
   readingCharacters,
   readingLanguage,
   readingScript,
+  readingStart,
   sentencesOf,
   voicesFor,
   type ReadingLabels,
@@ -261,5 +263,164 @@ describe("languages and voices", () => {
     assert.deepEqual(languagesWithVoice(voices, "fr"), ["fr", "de", "en"]);
     assert.deepEqual(languagesWithVoice(voices, "en"), ["en", "de", "fr"]);
     assert.deepEqual(languagesWithVoice(voices.slice(0, 2), "fr"), ["en"]);
+  });
+});
+
+/** The text node containing `needle`, and the offset of `needle` in it. */
+function find(root: ReadingNode, needle: string): { node: ReadingNode; offset: number } {
+  const visit = (node: ReadingNode): { node: ReadingNode; offset: number } | null => {
+    if (node.nodeType === 3) {
+      const offset = (node.data ?? "").indexOf(needle);
+      return offset >= 0 ? { node, offset } : null;
+    }
+    for (const child of Array.from(node.childNodes)) {
+      const found = visit(child);
+      if (found) return found;
+    }
+    return null;
+  };
+  const found = visit(root);
+  assert.ok(found, `no text node contains "${needle}"`);
+  return found;
+}
+
+describe("starting from a selection", () => {
+  const french = "Une première phrase. Une seconde phrase utile. Et la suite.";
+
+  test("a selection inside a word starts at the beginning of that word, the sentence keeps only its end", () => {
+    const root = rendered(french);
+    const original = readingScript(root, "fr", labels);
+    const start = readingStart(root, original, find(root, "conde"));
+    assert.ok(start);
+    assert.deepEqual(start.from, { segment: 0, sentence: 1 });
+    const sentences = start.script[0].sentences;
+    assert.equal(sentences[1].text, "seconde phrase utile.");
+    assert.deepEqual(sentences[1].pieces, ["seconde phrase utile."]);
+    assert.equal(sentences[1].start, 25);
+    assert.equal(sentences[1].end, 46);
+    assert.deepEqual(sentences[0], original[0].sentences[0]);
+    assert.deepEqual(sentences[2], original[0].sentences[2]);
+  });
+
+  test("a selection inside a code block starts with that block's announcement", () => {
+    const root = rendered("Avant.\n\n```js\nconst a = 1;\n```\n\nAprès.");
+    const original = readingScript(root, "fr", labels);
+    const start = readingStart(root, original, find(root, "const"));
+    assert.ok(start);
+    assert.deepEqual(start.from, { segment: 1, sentence: 0 });
+    assert.equal(start.script[1].sentences[0].text, "Code block.");
+    assert.deepEqual(start.script, original);
+  });
+
+  test("a selection on a footnote marker starts at the next readable text", () => {
+    const root = rendered("Un mot[^1] la suite.\n\n[^1]: La note.");
+    const original = readingScript(root, "fr", labels);
+    const start = readingStart(root, original, find(root, "1"));
+    assert.ok(start);
+    assert.equal(original[0].text, "Un mot la suite.");
+    const { segment, sentence } = start.from;
+    assert.equal(start.script[segment].sentences[sentence].text, "la suite.");
+  });
+
+  test("a selection on unread text just before an announced block starts with its announcement", () => {
+    const skipped = h("button", {}, "Copy");
+    const root = h("article", {}, h("p", {}, "Avant."), h("div", {}, skipped), h("pre", {}, "const a = 1;"), h("p", {}, "Après."));
+    const original = readingScript(root, "fr", labels);
+    const start = readingStart(root, original, find(skipped, "Copy"));
+    assert.ok(start);
+    assert.deepEqual(start.from, { segment: 1, sentence: 0 });
+    assert.equal(start.script[1].text, "Code block.");
+  });
+
+  test("a point on the whitespace between two sentences starts at the next sentence", () => {
+    const root = rendered(french);
+    const original = readingScript(root, "fr", labels);
+    const space = find(root, " Une seconde");
+    const start = readingStart(root, original, space);
+    assert.ok(start);
+    assert.deepEqual(start.from, { segment: 0, sentence: 1 });
+    assert.equal(start.script[0].sentences[1].text, "Une seconde phrase utile.");
+    assert.equal(start.script[0].sentences[1].start, 21);
+  });
+
+  test("an element boundary means just before that child", () => {
+    const paragraph = h("p", {}, "Un. ", h("em", {}, "Deux"), " trois.");
+    const root = h("article", {}, paragraph);
+    const original = readingScript(root, "en", labels);
+    const start = readingStart(root, original, { node: paragraph, offset: 1 });
+    assert.ok(start);
+    assert.deepEqual(start.from, { segment: 0, sentence: 1 });
+    assert.equal(start.script[0].sentences[1].text, "Deux trois.");
+    const end = readingStart(root, original, { node: paragraph, offset: 3 });
+    assert.equal(end, null);
+  });
+
+  test("an element boundary of the root itself starts at the first readable text", () => {
+    const root = h("article", {}, h("p", {}, "Un."), h("p", {}, "Deux."));
+    const start = readingStart(root, readingScript(root, "en", labels), { node: root, offset: 1 });
+    assert.ok(start);
+    assert.deepEqual(start.from, { segment: 1, sentence: 0 });
+  });
+
+  test("a node outside the root starts nowhere: the reading begins at the start", () => {
+    const root = h("article", {}, h("p", {}, "Un."));
+    const title = h("h1", {}, "Titre");
+    assert.equal(readingStart(root, readingScript(root, "en", labels), { node: title, offset: 0 }), null);
+  });
+
+  test("a point after the last readable text starts nowhere", () => {
+    const root = rendered("Un. Deux.");
+    const original = readingScript(root, "en", labels);
+    const found = find(root, "Deux.");
+    assert.equal(readingStart(root, original, { node: found.node, offset: "Un. Deux.".length }), null);
+  });
+
+  test("a word after an apostrophe starts after it", () => {
+    const root = h("article", {}, h("p", {}, "Voir l'arbre vert."));
+    const start = readingStart(root, readingScript(root, "fr", labels), find(root, "rbre"));
+    assert.ok(start);
+    assert.equal(start.script[0].sentences[0].text, "arbre vert.");
+  });
+
+  test("a trimmed overlong sentence gets its pieces recomputed", () => {
+    const long = Array.from({ length: 60 }, (_, i) => `Mot${String(i).padStart(2, "0")}`).join(" ") + ".";
+    const root = h("article", {}, h("p", {}, "Court. " + long));
+    const original = readingScript(root, "en", labels);
+    assert.ok(original[0].sentences[1].pieces.length > 1);
+    const start = readingStart(root, original, find(root, "ot50"));
+    assert.ok(start);
+    const trimmed = start.script[0].sentences[1];
+    assert.equal(trimmed.text, "Mot50 Mot51 Mot52 Mot53 Mot54 Mot55 Mot56 Mot57 Mot58 Mot59.");
+    assert.deepEqual(trimmed.pieces, [trimmed.text]);
+  });
+
+  test("the input script is not mutated", () => {
+    const root = rendered(french);
+    const original = readingScript(root, "fr", labels);
+    const copy = structuredClone(original.map(({ element: _e, ...rest }) => rest));
+    readingStart(root, original, find(root, "conde"));
+    assert.deepEqual(original.map(({ element: _e, ...rest }) => rest), copy);
+  });
+});
+
+describe("chooseVoice", () => {
+  const voices = [
+    { name: "Anglais", lang: "en-US", default: true },
+    { name: "Thomas", lang: "fr-FR", default: false },
+    { name: "Amelie", lang: "fr-CA", default: true },
+  ];
+
+  test("the kept voice is used when it reads the language", () => {
+    assert.equal(chooseVoice("fr", voices, "Thomas")?.name, "Thomas");
+  });
+
+  test("a kept voice that is missing or reads another language gives the default first voice", () => {
+    assert.equal(chooseVoice("fr", voices, "Disparue")?.name, "Amelie");
+    assert.equal(chooseVoice("fr", voices, "Anglais")?.name, "Amelie");
+    assert.equal(chooseVoice("fr", voices, undefined)?.name, "Amelie");
+  });
+
+  test("no voice reads the language: null", () => {
+    assert.equal(chooseVoice("de", voices, "Thomas"), null);
   });
 });

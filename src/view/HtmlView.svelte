@@ -9,12 +9,15 @@
   import { htmlSectionAt } from "../lib/sections.ts";
   import type { DocumentText } from "../lib/project.ts";
     import { htmlPage, standaloneHtml } from "../lib/htmlPage.ts";
+  import { readingLanguage } from "../lib/readingScript.ts";
   import { headingId } from "../lib/links.ts";
   import { htmlTemplateOf } from "../lib/htmlTemplates.ts";
   import { loadImages, mimeOf } from "../lib/images.ts";
   import { t } from "../lib/i18n.ts";
   import { editableBlockAt, hasSelectedText, rangeOf, selectionOf, startInlineEdit, startSourceEdit, type CommitResult } from "./htmlEditing.ts";
   import { drawDiagrams } from "./mermaid.ts";
+  import ReadAloud from "./ReadAloud.svelte";
+  import type { ReadingPreferences } from "../lib/projects.ts";
 
   let {
     model,
@@ -30,6 +33,10 @@
     onfail,
     onedit,
     onsection,
+    savelanguage,
+    readingPreferences,
+    onvoice,
+    onrate,
     trailBar,
   }: {
     model: DocumentModel;
@@ -53,6 +60,12 @@
     onedit: (base: DocumentText, edit: TextEdit) => Promise<"saved" | "conflict" | "failed">;
     /** Right-click, or a block that cannot be edited in place: the section editor on this range. */
     onsection: (range: TextRange) => void;
+    /** Read aloud: writes `language: <code>` (version-checked); resolves to a translated failure, or null when written. */
+    savelanguage: (code: string) => Promise<string | null>;
+    /** The voice kept per language and the speed. */
+    readingPreferences: ReadingPreferences;
+    onvoice: (language: string, voice: string | null) => void;
+    onrate: (rate: number) => void;
     /** The back trail, shown under the bar. */
     trailBar?: Snippet;
   } = $props();
@@ -62,6 +75,10 @@
   const page = $derived(template ? htmlPage(model, path, template, labels, { softBreaks }) : null);
   let host = $state<HTMLElement>();
   let inner: HTMLElement | null = null;
+  // Read aloud reads the page's main content; the key changes with every drawing, which stops the reading.
+  let readRoot = $state<HTMLElement>();
+  let drawKey = $state("0");
+  let draws = 0;
 
   // What the page is drawn from. It is not drawn again while an edit is open or the section editor is: the change
   // waits for the edit to close.
@@ -93,10 +110,12 @@
     // A caret in the old page would be moved, and scrolled to, when its text goes.
     (root.activeElement as HTMLElement | null)?.blur();
     selectionOf(root)?.removeAllRanges();
-    root.innerHTML = `<style>${drawing.css}</style><style>.ld-html-page [id] { scroll-margin-top: 4rem; }</style><div class="ld-html-page"${drawing.language ? ` lang="${escape(drawing.language).replace(/"/g, "&quot;")}"` : ""}>${drawing.html}</div>`;
+    root.innerHTML = `<style>${drawing.css}</style><style>.ld-html-page [id] { scroll-margin-top: 4rem; } ::highlight(ld-reading) { background-color: rgb(250 204 21 / 0.45); } .ld-reading-block { outline: 3px solid rgb(250 204 21 / 0.7); background-color: rgb(250 204 21 / 0.2); }</style><div class="ld-html-page"${drawing.language ? ` lang="${escape(drawing.language).replace(/"/g, "&quot;")}"` : ""}>${drawing.html}</div>`;
     if (scroller && scrolled !== undefined) scroller.scrollTop = scrolled;
     const element = root.querySelector<HTMLElement>(".ld-html-page")!;
     inner = element;
+    readRoot = element.querySelector<HTMLElement>("main") ?? element;
+    drawKey = String(++draws);
     const stopImages = loadImages(element, readBytes, (imagePath) => t("imageNotFound", { path: imagePath }));
     const stopDiagrams = drawDiagrams(element, { dark: false, failed: (reason) => t("diagramFailed", { reason }) });
     const click = (event: Event) => {
@@ -138,6 +157,7 @@
       stopImages();
       stopDiagrams();
       inner = null;
+      readRoot = undefined;
     };
   });
 
@@ -244,6 +264,19 @@
   <button type="button" onclick={onback}>{t("htmlBack")}</button>
   <strong class="title">{page?.title ?? model.title}</strong>
   {#if page}<span class="status" class:muted={!status} role="status">{status ?? t("htmlHint")}</span>{/if}
+  {#if page}
+    <ReadAloud
+      article={readRoot}
+      selection={() => (host?.shadowRoot ? selectionOf(host.shadowRoot) : null)}
+      preferences={readingPreferences}
+      {onvoice}
+      {onrate}
+      language={readingLanguage(model.frontmatter.fields)}
+      content={drawKey}
+      {savelanguage}
+      {onfail}
+    />
+  {/if}
   <button type="button" onclick={onchoose}>{t("htmlChange")}</button>
   <button type="button" class="primary" disabled={!page} onclick={() => void download()}>{t("htmlDownload")}</button>
 </div>

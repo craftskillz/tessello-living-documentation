@@ -4,18 +4,30 @@
   import { onDestroy, onMount, tick } from "svelte";
   import { currentLocale, readingLabels, t } from "../lib/i18n.ts";
   import { createReader, type ReaderState } from "../lib/reader.ts";
-  import { announcementLanguage, languagesWithVoice, readingCharacters, readingScript, voicesFor, type Segment } from "../lib/readingScript.ts";
+  import { READING_RATE, type ReadingPreferences } from "../lib/projects.ts";
+  import { announcementLanguage, chooseVoice, primaryLanguage as primary, languagesWithVoice, readingCharacters, readingScript, readingStart, voicesFor, type Segment } from "../lib/readingScript.ts";
   import { browserSpeaker, voiceInfo, watchVoices } from "./speech.ts";
 
   let {
     article,
+    selection,
     language,
     content,
+    preferences,
+    onvoice,
+    onrate,
     savelanguage,
     onfail,
   }: {
-    /** The rendered Document. */
+    /** What is read: the rendered Document, or the main content of the generated page. */
     article: HTMLElement | undefined;
+    /** The selection of the surface `article` is in (the document's, or its shadow root's). */
+    selection: () => Selection | null;
+    /** The voice kept per language and the speed. */
+    preferences: ReadingPreferences;
+    /** Keeps the voice for a language (primary code); null: the browser's default. */
+    onvoice: (language: string, voice: string | null) => void;
+    onrate: (rate: number) => void;
     /** The Document's reading language (readingLanguage), null when it has none. */
     language: string | null;
     /** Changes whenever another Document opens or the rendering changes: the reading stops. */
@@ -41,6 +53,31 @@
       return code;
     }
   };
+
+
+  // The voice and speed panel: the voice is chosen per language, the language shown first being the Document's.
+  let shown = $state(false);
+  let liveRate = $state<number | null>(null);
+  let panel = $state<HTMLElement>();
+  let cog = $state<HTMLButtonElement>();
+  let panelLanguage = $state<string | null>(null);
+  const forLanguage = $derived.by(() => {
+    const wanted = panelLanguage ?? (language ? primary(language) : null);
+    return wanted && offered.includes(wanted) ? wanted : (offered[0] ?? null);
+  });
+  const voiceNames = $derived(forLanguage ? voicesFor(forLanguage, voices.map(voiceInfo)) : []);
+  const keptVoice = $derived(forLanguage ? preferences.voices[forLanguage] : undefined);
+  const speed = (value: number) => `${Number(value.toFixed(2))}×`;
+
+  function onwindowkey(event: KeyboardEvent) {
+    if (shown && event.key === "Escape") {
+      shown = false;
+      cog?.focus();
+    }
+  }
+  function onwindowpointer(event: PointerEvent) {
+    if (shown && panel && !panel.contains(event.target as Node)) shown = false;
+  }
 
   const reader = createReader(
     { speak: (text, handlers) => speaker?.speak(text, handlers), cancel: () => speaker?.cancel() },
@@ -70,7 +107,33 @@
     seen = key;
   });
 
+  /** Where the selection begins, as child indexes from the root: the Document is rendered again when its language is written, so a node would not survive. */
+  let capturedStart: { path: number[]; offset: number } | null = null;
+
+  function capture() {
+    capturedStart = null;
+    const range = selection();
+    if (!article || !range || range.rangeCount === 0 || range.isCollapsed) return;
+    const { startContainer: node, startOffset: offset } = range.getRangeAt(0);
+    if (!article.contains(node)) return;
+    const path: number[] = [];
+    for (let at: Node = node; at !== article; at = at.parentNode!) path.unshift([...at.parentNode!.childNodes].indexOf(at as ChildNode));
+    capturedStart = { path, offset };
+  }
+
+  function resolve(root: HTMLElement): { node: Node; offset: number } | null {
+    if (!capturedStart) return null;
+    let node: Node = root;
+    for (const index of capturedStart.path) {
+      const next = node.childNodes[index];
+      if (!next) return null;
+      node = next;
+    }
+    return { node, offset: capturedStart.offset };
+  }
+
   function listen() {
+    capture();
     if (language === null) {
       asking = { saving: false, failure: null, chosen: null };
       return;
@@ -79,14 +142,17 @@
   }
 
   function read(code: string) {
-    const match = voicesFor(code, voices.map(voiceInfo))[0];
+    const match = chooseVoice(code, voices.map(voiceInfo), preferences.voices[primary(code)]);
     if (!match || !article) {
       if (!match) onfail(t("readingNoVoice", { language: code }));
       return;
     }
-    speaker = browserSpeaker(code, voices.find((voice) => voice.name === match.name && voice.lang === match.lang) ?? null);
+    speaker = browserSpeaker(code, voices.find((voice) => voice.name === match.name && voice.lang === match.lang) ?? null, () => preferences.rate);
     script = readingScript(article, code, readingLabels(announcementLanguage(code, interfaceLanguage())));
-    reader.start(script);
+    const point = resolve(article);
+    const from = point ? readingStart(article, script, point) : null;
+    if (from) script = from.script;
+    reader.start(script, from?.from);
   }
 
   async function choose(code: string) {
@@ -143,8 +209,10 @@
 
   /** Scrolls the nearest scrolling ancestor so that `target` sits in its middle. */
   function centre(target: Range | Element, from: Element) {
-    let scroller: Element | null = from.parentElement;
-    while (scroller && !(/(auto|scroll)/.test(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight)) scroller = scroller.parentElement;
+    // A generated page lives in a shadow root: its scroller is above the host.
+    const up = (element: Element): Element | null => element.parentElement ?? (element.getRootNode() instanceof ShadowRoot ? (element.getRootNode() as ShadowRoot).host : null);
+    let scroller: Element | null = up(from);
+    while (scroller && !(/(auto|scroll)/.test(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight)) scroller = up(scroller);
     const box = target.getBoundingClientRect();
     const frame = scroller ? scroller.getBoundingClientRect() : { top: 0, height: window.innerHeight };
     const delta = box.top + box.height / 2 - (frame.top + frame.height / 2);
@@ -158,6 +226,8 @@
     if (!asking?.saving) asking = null;
   };
 </script>
+
+<svelte:window onkeydown={onwindowkey} onpointerdown={onwindowpointer} />
 
 {#if voices.length > 0}
   {#if reading.status === "idle"}
@@ -184,6 +254,41 @@
       </button>
     </span>
   {/if}
+  <span class="settings" bind:this={panel}>
+    <button type="button" class="icon" bind:this={cog} aria-label={t("readingSettings")} title={t("readingSettings")} aria-haspopup="dialog" aria-expanded={shown} onclick={() => {
+        shown = !shown;
+        liveRate = null;
+      }}>
+      <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+        ><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg
+      >
+    </button>
+    {#if shown}
+      <div class="panel ld-form" role="dialog" aria-label={t("readingSettings")}>
+        <fieldset>
+          <legend>{t("readingVoice")}</legend>
+          <label class="field">
+            <span id="reading-language-label">{t("readingVoiceLanguage")}</span>
+            <select aria-labelledby="reading-language-label" value={forLanguage ?? ""} onchange={(event) => (panelLanguage = event.currentTarget.value)}>
+              {#each offered as code (code)}<option value={code}>{nameOf(code)}</option>{/each}
+            </select>
+          </label>
+          <label class="field">
+            <span id="reading-voice-label">{t("readingVoice")}</span>
+            <select aria-labelledby="reading-voice-label" value={keptVoice ?? ""} onchange={(event) => forLanguage && onvoice(forLanguage, event.currentTarget.value || null)}>
+              <option value="">{t("readingVoiceDefault")}</option>
+              {#each voiceNames as voice (voice.name)}<option value={voice.name}>{voice.name}</option>{/each}
+            </select>
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>{t("readingSpeed")}</legend>
+          <input type="range" aria-label={t("readingSpeed")} min={READING_RATE.min} max={READING_RATE.max} step="0.05" value={preferences.rate} onchange={(event) => onrate(Number(event.currentTarget.value))} oninput={(event) => (liveRate = Number(event.currentTarget.value))} />
+          <span class="muted" aria-live="polite">{speed(liveRate ?? preferences.rate)}</span>
+        </fieldset>
+      </div>
+    {/if}
+  </span>
 {/if}
 
 {#if asking}
@@ -227,6 +332,24 @@
   .controls {
     display: inline-flex;
     gap: 0.25rem;
+  }
+  .settings {
+    position: relative;
+    display: inline-block;
+  }
+  .panel {
+    position: absolute;
+    z-index: 20;
+    top: 100%;
+    right: 0;
+    width: min(18rem, 80vw);
+    margin-top: 0.3rem;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: 0 10px 30px rgb(0 0 0 / 0.2);
+    text-align: left;
   }
   .icon {
     display: inline-flex;

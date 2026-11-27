@@ -67,6 +67,11 @@ button.primary {
   border-radius: 6px;
   padding: 0.35em 0.5em;
 }
+.ld-form input[type="range"] {
+  accent-color: var(--accent);
+  width: 100%;
+  margin: 0;
+}
 .ld-form .mono {
   font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace;
 }

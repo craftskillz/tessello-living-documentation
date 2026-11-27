@@ -215,7 +215,9 @@ export function readingLanguage(fields: Record<string, unknown>): string | null 
   return null;
 }
 
-const primary = (lang: string) => lang.toLowerCase().split(/[-_]/)[0];
+/** The primary subtag of a language code, lower-case: "en-US" and "EN_gb" are "en". */
+export const primaryLanguage = (lang: string) => lang.trim().toLowerCase().split(/[-_]/)[0] ?? "";
+const primary = primaryLanguage;
 
 /** The Document's primary subtag if it is `en` or `fr`, else the interface language. */
 export function announcementLanguage(documentLang: string, interfaceLang: "en" | "fr"): "en" | "fr" {
@@ -244,4 +246,104 @@ export function languagesWithVoice(voices: VoiceInfo[], interfaceLang: string): 
   const codes = [...new Set(voices.map((v) => primary(v.lang)).filter(Boolean))].sort();
   const first = primary(interfaceLang);
   return codes.includes(first) ? [first, ...codes.filter((c) => c !== first)] : codes;
+}
+
+/** A selection's start as a DOM Range boundary: in a text node, a character offset; in an element, a child index. */
+export interface ReadingPoint {
+  node: ReadingNode;
+  offset: number;
+}
+
+export interface ReadingStart {
+  script: Segment[];
+  from: { segment: number; sentence: number };
+}
+
+const isWordChar = (char: string | undefined) => char !== undefined && /[\p{L}\p{M}\p{N}]/u.test(char);
+
+/** [text node order, offset]: document-order position, comparable. */
+type Position = [number, number];
+const before = (a: Position, b: Position) => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
+
+/**
+ * Where Listen starts for a selection beginning at `point` inside `root` (`script` is readingScript(root, ...)):
+ * - inside an announced segment's element: that segment, from its announcement (script unchanged);
+ * - on a readable character: the start of the word holding it (never before its sentence's start); the sentence holding it
+ *   is replaced, in the returned script, by the part from that word to its end (start moved, text and pieces recomputed with piecesOf),
+ *   so that the Reader speaks and the View highlights only that part;
+ * - on unread text (a footnote marker, whitespace between sentences, a skipped element): the next readable character, at its sentence's start, in document order;
+ * - outside `root`, or after the last readable text: null (the reading starts at the beginning).
+ * Returns a new script array (the input is not mutated) and the position to start from.
+ */
+export function readingStart(root: ReadingNode, script: Segment[], point: ReadingPoint): ReadingStart | null {
+  const orders = new Map<ReadingNode, number>();
+  const entries = new Map<ReadingNode, number>(); // text nodes met before each node's start: where an element starts
+  let count = 0;
+  let position: Position | null = null;
+  const open = new Set(script.filter((s) => s.announced).map((s) => s.element));
+  let insideAnnounced = false;
+  let depthOpen = 0;
+  const visit = (node: ReadingNode) => {
+    entries.set(node, count);
+    const opens = open.has(node);
+    if (opens) depthOpen++;
+    if (node === point.node) {
+      insideAnnounced = depthOpen > 0;
+      if (node.nodeType === 3) position = [count, point.offset];
+    }
+    if (node.nodeType === 3) {
+      orders.set(node, count++);
+      if (node === point.node) position = [count - 1, point.offset];
+    } else {
+      const kids = children(node);
+      kids.forEach((child, index) => {
+        if (node === point.node && index === point.offset) position = [count, 0];
+        visit(child);
+      });
+      if (node === point.node && point.offset >= kids.length) position = [count, 0];
+    }
+    if (opens) depthOpen--;
+  };
+  visit(root);
+  if (!position) return null;
+  const target: Position = position;
+
+  if (insideAnnounced) {
+    const index = script.findIndex((s) => s.announced && contains(s.element, point.node));
+    if (index >= 0) return { script: [...script], from: { segment: index, sentence: 0 } };
+  }
+
+  for (let s = 0; s < script.length; s++) {
+    const segment = script[s];
+    if (segment.announced) {
+      // Announced blocks have no characters: one starting at or after the point is the next readable thing.
+      if (!before([entries.get(segment.element) ?? -1, 0], target)) return { script: [...script], from: { segment: s, sentence: 0 } };
+      continue;
+    }
+    const characters = readingCharacters(segment.element);
+    const at = characters.findIndex((c) => !before([orders.get(c.node) ?? -1, c.offset], target));
+    if (at < 0) continue;
+    const holding = segment.sentences.findIndex((x) => x.start <= at && at < x.end);
+    const sentence = holding >= 0 ? holding : segment.sentences.findIndex((x) => x.start > at);
+    if (sentence < 0) continue;
+    const held = segment.sentences[sentence];
+    let begin = holding >= 0 ? at : held.start;
+    if (isWordChar(segment.text[begin])) while (begin > held.start && isWordChar(segment.text[begin - 1])) begin--;
+    else while (begin < held.end - 1 && segment.text[begin] === " ") begin++; // on a space: the next word
+    const text = segment.text.slice(begin, held.end);
+    const sentences = segment.sentences.map((x, i) => (i === sentence ? { text, start: begin, end: held.end, pieces: piecesOf(text) } : x));
+    const result = script.map((x, i) => (i === s ? { ...x, sentences } : x));
+    return { script: result, from: { segment: s, sentence } };
+  }
+  return null;
+}
+
+function contains(element: ReadingNode, node: ReadingNode): boolean {
+  return element === node || children(element).some((c) => contains(c, node));
+}
+
+/** The voice to read `lang` with: the kept voice (by name) when it is among voicesFor(lang, voices), else the first of voicesFor (the default voice first); null when no voice reads it. */
+export function chooseVoice(lang: string, voices: VoiceInfo[], kept: string | undefined): VoiceInfo | null {
+  const candidates = voicesFor(lang, voices);
+  return candidates.find((v) => v.name === kept) ?? candidates[0] ?? null;
 }

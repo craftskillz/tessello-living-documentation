@@ -24,7 +24,7 @@
   import { entryMapper } from "../lib/links.ts";
   import { compileLabelFilter, NO_LABEL_FILTER, type LabelFilter } from "../lib/labels.ts";
   import { DEFAULT_SETTINGS, readSettings, setExcluded, setShownExtensions, setSoftBreaks, setTagNames, SETTINGS_FILE, type ProjectSettings } from "../lib/projectSettings.ts";
-  import { createProjects, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject, type ProjectInfo, projectLabel, type SyncEntry } from "../lib/projects.ts";
+  import { createProjects, DEFAULT_READING, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject, type ProjectInfo, projectLabel, type ReadingPreferences, type SyncEntry } from "../lib/projects.ts";
   import ProjectSettingsPanel from "./ProjectSettings.svelte";
   import Versions from "./Versions.svelte";
   import { openHistory } from "../lib/history.ts";
@@ -83,6 +83,8 @@
   /** The Documents left through links, oldest first; the Tree clears it. `html`: the HTML view of that Document was open, so Back returns to it. */
   let trail = $state.raw<{ path: string; title: string; html: boolean }[]>([]);
   let article = $state<HTMLElement>();
+  /** Read aloud: the voice kept per language and the speed (the Module's storage). */
+  let readingPrefs = $state<ReadingPreferences>(DEFAULT_READING);
   /** The sticky header's height: the table of contents and scrolled-to headings sit below it. */
   let headerHeight = $state(0);
   /** The failure toast is red; a confirmation (`tone` "success") is not, and goes away by itself. */
@@ -479,6 +481,20 @@
     return writing;
   }
 
+  /** Voice and speed writes follow one another: each reads the kept choices and writes them back whole. */
+  let readingWrites: Promise<void> = Promise.resolve();
+  function keepReading(write: () => Promise<ReadingPreferences>) {
+    readingWrites = readingWrites.then(async () => {
+      try {
+        readingPrefs = await write();
+      } catch (reason) {
+        report(t("readingSettingsFailed"), reason);
+      }
+    });
+  }
+  const keepReadingVoice = (language: string, voice: string | null) => keepReading(() => projects.setReadingVoice(language, voice));
+  const keepReadingRate = (rate: number) => keepReading(() => projects.setReadingRate(rate));
+
   /** Normal → Active → Hidden → Normal; only Normal and Hidden are remembered (docs/spec/annotations.md rule 5). */
   function cycleMarker() {
     marker = NEXT_MARKER[marker];
@@ -504,6 +520,7 @@
 
   async function start() {
     display = await projects.preferences();
+    readingPrefs = await projects.readingPreferences();
     marker = display.markerHidden ? "hidden" : "normal";
     const list = await projects.list();
     const wanted = route(host.context.params);
@@ -2228,6 +2245,10 @@
             onfollow={(doc, anchor) => void follow(doc, anchor)}
             onfile={(file) => report(t("fileUnavailable", { path: file }))}
             onfail={report}
+            savelanguage={saveLanguage}
+            readingPreferences={readingPrefs}
+            onvoice={keepReadingVoice}
+            onrate={keepReadingRate}
             trailBar={trailButtons}
           />
         {:else}
@@ -2270,6 +2291,10 @@
           {#snippet listen()}
             <ReadAloud
               {article}
+              selection={() => document.getSelection()}
+              preferences={readingPrefs}
+              onvoice={keepReadingVoice}
+              onrate={keepReadingRate}
               language={readingLanguage(model.frontmatter.fields)}
               content={`${path}\n${html}`}
               savelanguage={saveLanguage}
