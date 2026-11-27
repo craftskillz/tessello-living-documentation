@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 (Editing, complete)
 
-**Status:** ready-for-human (built in 0727258, 9934946; awaiting the trial in the local Host)
+**Status:** done (0727258, 9934946)
 
 - [x] Picker, search, forms and the table grid editor; Escape closes
 - [x] Edit, Delete and Insert-after through source ranges, with the unchanged-source check
@@ -13,7 +13,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
