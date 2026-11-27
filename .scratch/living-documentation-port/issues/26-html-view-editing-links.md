@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 (Editing, complete), 25 (HTML view I: template, view and Download HTML)
 
-**Status:** ready-for-human (built in fe8f17e; awaiting the trial in the local Host)
+**Status:** done (fe8f17e)
 
 - [x] In-place editing per element kind, version-checked, scroll kept
 - [x] Right-click to the section editor, lead alone for the lead
@@ -12,7 +12,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -25,4 +25,4 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - Differs from the original: a link opens the target's HTML view when it has a known template, else its reading view, with a Back trail shown in the HTML view too (rule 10); a link to a heading of the open Document scrolls in the HTML view. A right-click in the lead opens the lead alone (rule 9; on the title, the browser menu). While an edit or the section editor is open, the page is not redrawn (an agent edit shows once it closes). Moving focus to a link inside the block being edited does not end the edit. A save failure other than a conflict shows as a toast, not in the bar. Emptying a block also removes the blank lines around it.
 - No R13 gate: in this port only the Folder manifest is read-only, and it has no HTML view.
 - Left over from the review (judgement calls, not changed): `HtmlView.svelte` now holds the editing orchestration (could move to `htmlEditing.ts`); the h2-h4 set is in both `htmlEdits.ts` and `htmlEditing.ts`; the render option types repeat in `render.ts`.
-- Still to do: the trial in the local Host (double-click and the selection in the shadow root inside the Host's srcdoc frame, right-click, links and Back).
+- Tried in the local Host by the User: done.
