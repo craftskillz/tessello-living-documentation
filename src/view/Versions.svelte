@@ -6,7 +6,7 @@
   import { foldRows, restorable, sideBySide, type DiffRow, type Segment } from "../lib/diff.ts";
   import { applyEdits, type TextEdit } from "../lib/edits.ts";
   import { Conflict, type DocumentText } from "../lib/project.ts";
-  import { clampPeriod, type Commit, type History, HistoryFailure, openHistory } from "../lib/history.ts";
+  import { clampPeriod, type Commit, type History, HistoryFailure, openHistory, suggestsGc } from "../lib/history.ts";
   import { currentLocale, t, tn } from "../lib/i18n.ts";
 
   let {
@@ -49,6 +49,9 @@
   let gone = $state(false);
   let loading = $state(true);
   let failure = $state<string | null>(null);
+  /** The loose objects of a repository that was slow to read: `git gc` would help. Shown until the dialog closes. */
+  let gcHint = $state<number | null>(null);
+  let gcCopied = $state<"copied" | "failed" | null>(null);
   let commits = $state.raw<Commit[]>([]);
   let history: History | null = null;
   let selected = $state<Commit | null>(null);
@@ -81,12 +84,14 @@
     failure = null;
     selected = null;
     opened = new Set();
+    const started = performance.now();
     try {
       const fresh = await openHistory(asked.files, asked.repository, asked.project);
       const list = await fresh.commits(asked.path, period);
       const first = await fresh.defaultCommit(asked.path, mine.text, list);
       const text = first ? await fresh.fileAt(first.id, first.path) : null;
       if (ticket !== turn) return;
+      if (suggestsGc({ looseObjects: fresh.looseObjects, elapsed: performance.now() - started })) gcHint ??= fresh.looseObjects;
       history = fresh;
       commits = list;
       theirs = text;
@@ -98,6 +103,15 @@
       failure = messageOf(reason);
     } finally {
       if (ticket === turn) loading = false;
+    }
+  }
+
+  async function copyGc() {
+    try {
+      await navigator.clipboard.writeText("git gc");
+      gcCopied = "copied";
+    } catch {
+      gcCopied = "failed";
     }
   }
 
@@ -248,6 +262,13 @@
   {#if failure}
     <p class="invalid" role="alert">{failure}</p>
   {/if}
+  {#if gcHint !== null}
+    <div class="gc" role="note">
+      <p>{t("versionsGcHint", { count: gcHint.toLocaleString(currentLocale()) })}</p>
+      <button type="button" onclick={() => void copyGc()}>{t("versionsGcCopy")}</button>
+      {#if gcCopied}<span class="muted" role="status">{t(gcCopied === "copied" ? "versionsGcCopied" : "versionsGcCopyFailed")}</span>{/if}
+    </div>
+  {/if}
   {#if loading}
     <p class="muted" role="status">{t("versionsLoading")}</p>
   {:else if !failure}
@@ -338,6 +359,20 @@
   }
   .toolbar input {
     width: 6rem;
+  }
+  .gc {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.5rem 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  .gc p {
+    flex: 1 1 20rem;
+    margin: 0;
   }
   .commits {
     display: flex;

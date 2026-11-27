@@ -46,7 +46,21 @@ export interface History {
   fileAt(commit: string, path: string): Promise<string | null>;
   /** The commit compared by default: the latest of `commits`, or the one before it when `current` (the file on disk) is identical to the latest; the latest when there is none before; null when `commits` is empty. */
   defaultCommit(path: string, current: string, commits: Commit[]): Promise<Commit | null>;
+  /** The objects of the repository stored one file each (`.git/objects/xx/…`), not in a packfile: each costs a request to the Host. */
+  looseObjects: number;
 }
+
+/** Reading longer than this, in milliseconds, is slow. */
+const SLOW_READ = 3000;
+/** Above this count of loose objects, `git gc` makes reading much faster. */
+const MANY_LOOSE_OBJECTS = 1000;
+
+/** Whether a slow read is likely due to loose objects, so that `git gc` would help: slower than 3 s and more than 1000 loose objects. */
+export function suggestsGc({ looseObjects, elapsed }: { looseObjects: number; elapsed: number }): boolean {
+  return elapsed > SLOW_READ && looseObjects > MANY_LOOSE_OBJECTS;
+}
+
+const LOOSE_OBJECT = /(?:^|\/)objects\/[0-9a-f]{2}\/[0-9a-f]{38,62}$/;
 
 type Listing = Awaited<ReturnType<Files["list"]>>;
 
@@ -322,6 +336,7 @@ export async function openHistory(files: Pick<Files, "list" | "read">, repositor
     return before && (await fileAt(latest.id, latest.path)) === current ? before : latest;
   };
 
-  return { commits, fileAt, defaultCommit };
+  const looseObjects = listing.filter((entry) => entry.kind === "file" && LOOSE_OBJECT.test(entry.path)).length;
+  return { commits, fileAt, defaultCommit, looseObjects };
 }
 

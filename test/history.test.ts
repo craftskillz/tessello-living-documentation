@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { after, describe, test } from "node:test";
 import { connect, type Files, type Folder, TesselloError } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
-import { clampPeriod, DEFAULT_PERIOD, HistoryFailure, openHistory } from "../src/lib/history.ts";
+import { clampPeriod, DEFAULT_PERIOD, HistoryFailure, openHistory, suggestsGc } from "../src/lib/history.ts";
 
 const MODULE = { id: "@craftskillz/living-documentation", version: "0.0.1" };
 const DAY = 86_400_000;
@@ -454,5 +454,25 @@ describe("the requests to the Host", () => {
     await history.defaultCommit("a.md", "one\n", commits);
 
     assert.deepEqual(forbidden, []);
+  });
+});
+
+describe("the git gc hint", () => {
+  test("counts the loose objects of the repository: one per object before git gc, none after", async () => {
+    const steps: Step[] = [
+      { date: "2026-11-01T10:00:00Z", message: "One", files: { "docs/a.md": "one\n" } },
+      { date: "2026-11-02T10:00:00Z", message: "Two", files: { "docs/a.md": "two\n" } },
+    ];
+    // Two commits of one file in one folder: per commit a commit, a root tree, a docs tree and a blob.
+    assert.equal((await opened(repository(steps).files)).history.looseObjects, 8);
+    assert.equal((await opened(repository(steps, { gc: true }).files)).history.looseObjects, 0);
+  });
+
+  test("suggests git gc only when reading took more than 3 seconds and the repository has more than 1000 loose objects", () => {
+    assert.equal(suggestsGc({ looseObjects: 6533, elapsed: 3001 }), true);
+    assert.equal(suggestsGc({ looseObjects: 6533, elapsed: 3000 }), false);
+    assert.equal(suggestsGc({ looseObjects: 1000, elapsed: 9000 }), false);
+    assert.equal(suggestsGc({ looseObjects: 1001, elapsed: 9000 }), true);
+    assert.equal(suggestsGc({ looseObjects: 0, elapsed: 60_000 }), false);
   });
 });
