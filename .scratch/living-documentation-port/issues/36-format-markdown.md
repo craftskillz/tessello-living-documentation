@@ -4,7 +4,7 @@
 
 **Blocked by:** none
 
-**Status:** built, awaiting the trial in the local Host
+**Status:** done (63f101c)
 
 - [x] `src/lib/format.ts`: `formatMarkdown(text): string`, pure and idempotent
   - GFM tables: every cell padded to its column's width, one space inside each pipe, leading and trailing pipes; the delimiter row is dashes filling the width, keeping its alignment colons (`:---`, `:---:`, `---:`); a cell of a centered or right-aligned column is padded on the side its alignment says; rows with fewer cells get empty cells; escaped pipes `\|` stay in their cell; width counts East Asian wide characters and emoji as two columns
@@ -17,7 +17,7 @@
 - [x] The autosave saves the text as typed
 - [x] Every text in English and French
 - [x] Typecheck, unit and browser suites green
-- [ ] Tried in the local Host
+- [x] Tried in the local Host
 
 ## Settled
 
@@ -31,4 +31,4 @@
 - The line ending is kept (CRLF if the text has any). The frontmatter is copied as is, one blank line after it kept.
 - A section is formatted on its own and keeps the line breaks that end it, so the blank line before the next heading stays.
 - The Format button also does nothing while a conflict is shown.
-- Typecheck, 1167 unit tests and 405 browser tests green. Not yet tried in the local Host.
+- Typecheck, 1167 unit tests and 405 browser tests green. Tried in the local Host by the User (2026-11-27): no difference from the spec.
