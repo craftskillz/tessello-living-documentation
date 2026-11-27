@@ -10,7 +10,7 @@ The original runs `git` after every save: one commit per save with a generic mes
 
 ## Consequences
 
-- No Git settings, toasts or "not configured" reminder. Automatic commits may return with the Tessello Bridge.
+- No Git settings, toasts or "not configured" reminder. Automatic commits may return with the Tessello Bridge. **Amended by ADR 0011 (2026-11-27):** `npx tessello sync --living-documentation <repository>` commits the Project folders of a repository, outside the Module; the Module itself still never commits.
 - Versions compares the current file on disk with a commit, follows renames with git's 50% similarity rule, uses a Myers diff, and writes each restored block at once with a version check.
 - Selection history (`git log -L` in the original) is not rebuilt in v1.
 - A prototype (2026-11-22) read 30 days of a file's history on a 1379-commit, 61 MB repository in 0.2 s cold, provided the fs shim lists `.git` once and caches every read; isomorphic-git's `follow` matches identical content only, so the 50% rename rule is the Module's own code.
