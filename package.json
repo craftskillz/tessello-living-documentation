@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@codemirror/lang-markdown": "^6.5.2",
-    "@tessello/sdk": "file:../tessello/packages/sdk",
+    "@tessello/sdk": "0.3.0",
     "buffer": "^6.0.3",
     "codemirror": "^6.0.2",
     "isomorphic-git": "^1.44.19",
@@ -35,7 +35,7 @@
     "esbuild-svelte": "^0.9.5",
     "playwright": "^1.65.0",
     "svelte": "^5.57.2",
-    "tessello": "file:../tessello/packages/cli",
+    "tessello": "0.5.0",
     "typescript": "~5.9.3"
   }
 }
