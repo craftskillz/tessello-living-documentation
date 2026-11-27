@@ -13,7 +13,7 @@ Atlas page: `features/documents/reading-and-editing.md` (business rules R1–R10
 
 ## Reading
 
-7. **Rendering is complete**: Mermaid, syntax highlighting, collapsible long code blocks, footnotes, callouts, column layouts, Card blocks, `:::compare`, table and image directives (ADR 0005), heading anchors and `#anchor` deep links. A bare `<br>` (`<br/>`, `<br />`) is a line break, in a paragraph or a table cell; any other raw HTML stays out, but for the snippets' own shapes.
+7. **Rendering is complete**: Mermaid, syntax highlighting, collapsible long code blocks, footnotes, callouts, column layouts, Card blocks, `:::compare`, table and image directives (ADR 0005; a Mermaid block takes the `mermaid-width` and `mermaid-align` its form writes, as well as `code-width` and `code-align`), heading anchors and `#anchor` deep links. A bare `<br>` (`<br/>`, `<br />`) is a line break, in a paragraph or a table cell; any other raw HTML stays out, but for the snippets' own shapes.
 8. **Links**: relative `.md` links and the original's `?doc=<id>` links are both followed; the Module writes only relative links. The back trail is kept.
 9. **Header actions**: **Copy path** (relative path in the Project, replaces Copy MCP id), **Lines**, **White background**, table of contents, **Edit**, **Delete**. Validate, Metadata and Export PDF are removed. Favorite, Listen, Marker, HTML actions and Versions: their own rounds.
 10. **Display preferences** remembered in the Module's storage: Lines, table of contents state and width, White background.

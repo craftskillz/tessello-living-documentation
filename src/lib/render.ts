@@ -860,7 +860,10 @@ function decorate(node: Nodes, found: Directive[]): void {
     };
   }
   if (node.type === "code") {
-    const { width, align, widthClass } = sizeAttrs("code", found);
+    // A Mermaid block also takes the `mermaid-width` and `mermaid-align` the code form writes for a diagram.
+    const mermaid = node.lang?.trim().toLowerCase() === "mermaid";
+    const sizes = mermaid ? found.map((each) => ({ ...each, name: each.name.replace(/^mermaid-/, "code-") })) : found;
+    const { width, align, widthClass } = sizeAttrs("code", sizes);
     if (!width && !align) return;
     // remark-rehype puts a code node's properties on the `code` element; `annotate` moves them to the `pre`.
     node.data = {

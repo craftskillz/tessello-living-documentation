@@ -134,10 +134,15 @@ describe("code directives", () => {
     assert.match(render("<!-- code-width: wide -->\n```\nx\n```\n"), /^<pre data-src="/);
   });
 
-  test("mermaid directives are consumed and not output", () => {
-    const html = render("<!-- mermaid-width: 1/2 -->\n```mermaid\ngraph TD\n```\n");
-    assert.match(html, /^<div class="ld-mermaid" data-mermaid="" data-src="\d+-\d+">/);
-    assert.doesNotMatch(html, /ld-code|<!--/);
+  test("a Mermaid block takes the mermaid-width and mermaid-align its form writes, as code-width and code-align", () => {
+    const html = render("<!-- mermaid-width: 1/2 -->\n<!-- mermaid-align: center -->\n```mermaid\ngraph TD\n```\n");
+    assert.match(html, /^<div class="ld-mermaid ld-code-width-half ld-code-align-center" data-mermaid="" data-code-block-width="1\/2" data-code-block-align="center" data-src="\d+-\d+">/);
+    assert.doesNotMatch(html, /<!--/);
+    assert.match(render("<!-- code-width: 1/3 -->\n```mermaid\ngraph TD\n```\n"), /^<div class="ld-mermaid ld-code-width-third"/);
+  });
+
+  test("mermaid directives before a block of other code are ignored", () => {
+    assert.match(render("<!-- mermaid-width: 1/2 -->\n```ts\nx\n```\n"), /^<pre data-src="/);
   });
 });
 
