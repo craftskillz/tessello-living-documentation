@@ -101,8 +101,8 @@ describe("the commits of a Document", () => {
     const commits = await history.commits("a.md", 30, NOW);
 
     assert.deepEqual(commits, [
-      { id: ids[1], shortId: ids[1]!.slice(0, 7), message: "Rewrite the guide", date: Date.parse("2026-11-10T10:00:00Z"), author: "Grace Hopper" },
-      { id: ids[0], shortId: ids[0]!.slice(0, 7), message: "Start the guide", date: Date.parse("2026-11-01T10:00:00Z"), author: "Ada Lovelace" },
+      { id: ids[1], shortId: ids[1]!.slice(0, 7), path: "a.md", message: "Rewrite the guide", date: Date.parse("2026-11-10T10:00:00Z"), author: "Grace Hopper" },
+      { id: ids[0], shortId: ids[0]!.slice(0, 7), path: "a.md", message: "Start the guide", date: Date.parse("2026-11-01T10:00:00Z"), author: "Ada Lovelace" },
     ]);
   });
 
@@ -154,6 +154,93 @@ describe("the commits of a Document", () => {
 
     assert.deepEqual((await history.commits("a.md", 30, NOW)).map((commit) => commit.id), [ids[1], ids[0]]);
     assert.equal(await history.fileAt(ids[0]!, "a.md"), "one\n");
+  });
+});
+
+describe("the history of a renamed Document", () => {
+  const lines = (...names: string[]) => names.map((name) => `${name}\n`).join("");
+  const text = lines("l1", "l2", "l3", "l4");
+
+  test("continues under the old name when the rename comes with an edit keeping half the lines", async () => {
+    const { files, ids } = repository([
+      { date: "2026-11-01T10:00:00Z", message: "Add", files: { "docs/old.md": text } },
+      { date: "2026-11-02T10:00:00Z", message: "Edit", files: { "docs/old.md": lines("l1", "l2", "l3", "l4", "l5") } },
+      { date: "2026-11-03T10:00:00Z", message: "Rename and edit", files: { "docs/old.md": null, "docs/new.md": lines("l1", "l2", "x", "y") } },
+    ]);
+    const { history } = await opened(files);
+
+    const commits = await history.commits("new.md", 30, NOW);
+
+    assert.deepEqual(commits.map((commit) => [commit.id, commit.path]), [[ids[2], "new.md"], [ids[1], "old.md"], [ids[0], "old.md"]]);
+    assert.equal(await history.fileAt(commits[1]!.id, commits[1]!.path), lines("l1", "l2", "l3", "l4", "l5"));
+    assert.equal(await history.fileAt(commits[2]!.id, commits[2]!.path), text);
+  });
+
+  test("follows a rename with identical content", async () => {
+    const { files, ids } = repository([
+      { date: "2026-11-01T10:00:00Z", message: "Add", files: { "docs/old.md": text } },
+      { date: "2026-11-02T10:00:00Z", message: "Rename", files: { "docs/old.md": null, "docs/new.md": text } },
+    ]);
+    const { history } = await opened(files);
+
+    assert.deepEqual((await history.commits("new.md", 30, NOW)).map((commit) => [commit.id, commit.path]), [[ids[1], "new.md"], [ids[0], "old.md"]]);
+  });
+
+  test("does not follow when less than half the lines are kept", async () => {
+    const { files, ids } = repository([
+      { date: "2026-11-01T10:00:00Z", message: "Add", files: { "docs/other.md": text } },
+      { date: "2026-11-02T10:00:00Z", message: "Swap", files: { "docs/other.md": null, "docs/new.md": lines("l1", "a", "b", "c") } },
+    ]);
+    const { history } = await opened(files);
+
+    assert.deepEqual((await history.commits("new.md", 30, NOW)).map((commit) => [commit.id, commit.path]), [[ids[1], "new.md"]]);
+  });
+
+  test("follows chained renames", async () => {
+    const { files, ids } = repository([
+      { date: "2026-11-01T10:00:00Z", message: "Add a", files: { "docs/a.md": text } },
+      { date: "2026-11-02T10:00:00Z", message: "a to b", files: { "docs/a.md": null, "docs/b.md": text } },
+      { date: "2026-11-03T10:00:00Z", message: "Edit b", files: { "docs/b.md": lines("l1", "l2", "l3", "l4", "l5") } },
+      { date: "2026-11-04T10:00:00Z", message: "b to c", files: { "docs/b.md": null, "docs/c.md": lines("l1", "l2", "l3", "l4", "l5") } },
+    ]);
+    const { history } = await opened(files);
+
+    assert.deepEqual(
+      (await history.commits("c.md", 30, NOW)).map((commit) => [commit.id, commit.path]),
+      [[ids[3], "c.md"], [ids[2], "b.md"], [ids[1], "b.md"], [ids[0], "a.md"]],
+    );
+  });
+
+  test("follows a rename out of a subfolder of the Project", async () => {
+    const { files, ids } = repository([
+      { date: "2026-11-01T10:00:00Z", message: "Add", files: { "docs/guide/a.md": text } },
+      { date: "2026-11-02T10:00:00Z", message: "Move", files: { "docs/guide/a.md": null, "docs/b.md": text } },
+    ]);
+    const { history } = await opened(files);
+
+    assert.deepEqual((await history.commits("b.md", 30, NOW)).map((commit) => [commit.id, commit.path]), [[ids[1], "b.md"], [ids[0], "guide/a.md"]]);
+  });
+
+  test("does not take a file that is not Markdown or that lies outside the Project", async () => {
+    const { files, ids } = repository([
+      { date: "2026-11-01T10:00:00Z", message: "Add", files: { "docs/old.txt": text, "other/old.md": text } },
+      { date: "2026-11-02T10:00:00Z", message: "Delete and create", files: { "docs/old.txt": null, "other/old.md": null, "docs/new.md": text } },
+    ]);
+    const { history } = await opened(files);
+
+    assert.deepEqual((await history.commits("new.md", 30, NOW)).map((commit) => [commit.id, commit.path]), [[ids[1], "new.md"]]);
+  });
+
+  test("compares by default with the latest commit read at its own path", async () => {
+    const { files, ids } = repository([
+      { date: "2026-11-01T10:00:00Z", message: "Add", files: { "docs/old.md": text } },
+      { date: "2026-11-02T10:00:00Z", message: "Rename", files: { "docs/old.md": null, "docs/new.md": text } },
+    ]);
+    const { history } = await opened(files);
+    const commits = await history.commits("new.md", 30, NOW);
+
+    assert.equal((await history.defaultCommit("new.md", text, commits))?.id, ids[0]);
+    assert.equal((await history.defaultCommit("new.md", "edited\n", commits))?.id, ids[1]);
   });
 });
 

@@ -341,6 +341,98 @@ describe("the Versions dialog", () => {
     assert.equal(page.url(), address);
   });
 
+  test("< restores one block into the file on disk, Undo puts it back, and the reading view shows the restored line", async () => {
+    const { files, short } = usual(guide({ 5: "five edited", 15: "disk edit" }));
+    const { page, host, repo, address } = await inRepository(files);
+    const docs = host.folders.inside(repo, "docs");
+    await openGuide(page);
+    await versionsButton(page).click();
+    const dialog = dialogOf(page);
+    await cards(page).first().waitFor();
+    await side(page, "mine", "only").filter({ hasText: "disk edit" }).waitFor();
+    const restore = dialog.getByRole("button", { name: `Restore this block from commit ${short[2]}` });
+    assert.equal(await restore.count(), 1);
+    assert.equal(await restore.getAttribute("title"), `Restore this block from commit ${short[2]}`);
+
+    await restore.click();
+    await dialog.getByText("Block restored.").waitFor();
+    assert.equal(await restore.count(), 0);
+    assert.equal(await side(page, "mine", "only").count(), 0);
+    await until(() => host.folders.read(docs, "a.md") === guide({ 5: "five edited" }), "the commit's line written to disk");
+
+    await dialog.getByRole("button", { name: "Undo" }).click();
+    await dialog.getByText("Restore undone.").waitFor();
+    await side(page, "mine", "only").filter({ hasText: "disk edit" }).waitFor();
+    assert.equal(host.folders.read(docs, "a.md"), guide({ 5: "five edited", 15: "disk edit" }));
+    assert.equal(await dialog.getByRole("button", { name: "Undo" }).count(), 0);
+
+    await restore.click();
+    await dialog.getByText("Block restored.").waitFor();
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await dialog.waitFor({ state: "detached" });
+    await page.getByText(/line 15/).waitFor();
+    assert.equal(await page.getByText(/disk edit/).count(), 0);
+    assert.equal(page.url(), address);
+  });
+
+  test("a restore that removes a line keeps the open folds open", async () => {
+    const { files, short } = usual(guide({ 5: "five edited", 10: "line 10\nextra line", 20: "disk twenty" }));
+    const { page, host, repo, address } = await inRepository(files);
+    const docs = host.folders.inside(repo, "docs");
+    await openGuide(page);
+    await versionsButton(page).click();
+    const dialog = dialogOf(page);
+    await side(page, "mine", "only").filter({ hasText: "extra line" }).waitFor();
+    // The last fold: lines 24 to 30 of the guide, after the change on line 20.
+    await dialog.getByRole("button", { name: "7 unchanged lines", exact: true }).click();
+    await dialog.getByRole("button", { name: "Collapse 7 unchanged lines", exact: true }).waitFor();
+
+    await dialog.getByRole("button", { name: `Restore this block from commit ${short[2]}` }).first().click();
+    await dialog.getByText("Block restored.").waitFor();
+    await until(() => host.folders.read(docs, "a.md") === guide({ 5: "five edited", 20: "disk twenty" }), "the extra line removed on disk");
+    assert.equal(await side(page, "mine", "only").filter({ hasText: "extra line" }).count(), 0);
+    assert.equal(await dialog.getByRole("button", { name: "Collapse 7 unchanged lines", exact: true }).count(), 1);
+    assert.equal(page.url(), address);
+  });
+
+  test("a restore on a file an agent changed reloads the comparison, writes nothing and offers no Undo", async () => {
+    const { files, short } = usual(guide({ 5: "five edited", 15: "disk edit" }));
+    const { page, host, repo, address } = await inRepository(files);
+    const docs = host.folders.inside(repo, "docs");
+    await openGuide(page);
+    await versionsButton(page).click();
+    const dialog = dialogOf(page);
+    await cards(page).first().waitFor();
+    await side(page, "mine", "only").filter({ hasText: "disk edit" }).waitFor();
+
+    const agent = guide({ 5: "five edited", 15: "disk edit", 20: "agent line" });
+    host.folders.write(docs, "a.md", agent);
+    await dialog.getByRole("button", { name: `Restore this block from commit ${short[2]}` }).first().click();
+    await dialog.getByRole("alert").getByText("The file changed on disk: the comparison was reloaded. Nothing was written.").waitFor();
+    await side(page, "mine", "only").filter({ hasText: "agent line" }).waitFor();
+    assert.equal(host.folders.read(docs, "a.md"), agent);
+    assert.equal(await dialog.getByRole("button", { name: "Undo" }).count(), 0);
+    assert.equal(page.url(), address);
+  });
+
+  test("the history follows a rename: the commit before it is listed and compared", async () => {
+    const { files, short } = repository([
+      { days: 10, message: "Write old", files: { "docs/old.md": guide({ 5: "old five" }) } },
+      { days: 6, message: "Rename it", files: { "docs/old.md": null, "docs/a.md": guide({ 5: "old five" }) } },
+      { days: 2, message: "Edit it", files: { "docs/a.md": guide({ 5: "new five" }) } },
+    ], guide({ 5: "new five", 9: "disk nine" }));
+    const { page, address } = await inRepository(files);
+    await openGuide(page);
+    await versionsButton(page).click();
+    const dialog = dialogOf(page);
+    await cards(page).first().waitFor();
+    await until(async () => (await cards(page).count()) === 3, "the commit before the rename listed");
+    await cards(page).last().click();
+    await dialog.getByText(`Commit ${short[0]} · old.md`, { exact: true }).waitFor();
+    await side(page, "theirs", "only").filter({ hasText: "old five" }).waitFor();
+    assert.equal(page.url(), address);
+  });
+
   test("in French, the dialog and its labels are in French", async () => {
     const { files, short } = usual(guide({ 5: "five edited", 15: "disk edit" }));
     const { page, address } = await inRepository(files, { locale: "fr" });
@@ -354,6 +446,9 @@ describe("the Versions dialog", () => {
     await dialog.getByText(`Commit ${short[2]}`, { exact: true }).waitFor();
     await dialog.getByRole("button", { name: "12 lignes inchangées", exact: true }).first().click();
     await dialog.getByRole("button", { name: "Replier 12 lignes inchangées" }).waitFor();
+    await dialog.getByRole("button", { name: `Restaurer ce bloc depuis le commit ${short[2]}` }).first().click();
+    await dialog.getByText("Bloc restauré.").waitFor();
+    await dialog.getByRole("button", { name: "Annuler" }).waitFor();
     const french = new Intl.DateTimeFormat("fr", { dateStyle: "medium" }).format(Date.now() - 5 * DAY);
     assert.ok((await cards(page).first().innerText()).includes(french), `the date ${french} is shown in French`);
     assert.equal(page.url(), address);

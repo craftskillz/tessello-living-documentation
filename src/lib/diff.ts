@@ -1,5 +1,7 @@
 // A minimal line diff (Myers, O(ND)) of two texts, laid out side by side.
 
+import type { TextEdit } from "./edits.ts";
+
 export interface DiffRow {
   /** same: identical line; changed: a line of mine replaced by a line of theirs; removed: only in mine; added: only in theirs. */
   kind: "same" | "changed" | "removed" | "added";
@@ -19,6 +21,24 @@ function toLines(text: string): string[] {
   const lines = text.split(/\r?\n/);
   if (lines[lines.length - 1] === "") lines.pop();
   return lines;
+}
+
+/** The number of lines two texts share, in order (the length of a longest common subsequence), by Myers' O(ND) walk. */
+export function sharedLines(a: string[], b: string[]): number {
+  const n = a.length;
+  const m = b.length;
+  const max = n + m;
+  const furthest = new Int32Array(2 * max + 2);
+  for (let d = 0; d <= max; d++) {
+    for (let k = -d; k <= d; k += 2) {
+      let x = k === -d || (k !== d && furthest[max + k - 1]! < furthest[max + k + 1]!) ? furthest[max + k + 1]! : furthest[max + k - 1]! + 1;
+      let y = x - k;
+      while (x < n && y < m && a[x] === b[y]) (x++, y++);
+      furthest[max + k] = x;
+      if (x >= n && y >= m) return (n + m - d) / 2;
+    }
+  }
+  return 0;
 }
 
 /** The edit script turning a into b with the fewest insertions and deletions. */
@@ -145,7 +165,62 @@ export function foldRows(rows: DiffRow[], context = 3, least = 3): Segment[] {
   return segments;
 }
 
-/** A fold of unchanged rows, keyed by the line numbers of its first row. */
+/** A fold of unchanged rows, keyed by the line number of its first row in theirs, which a restore into mine never moves (R12: open folds stay open). */
 function fold(rows: DiffRow[]): Segment {
-  return { kind: "fold", key: `fold-${rows[0].mineLine}-${rows[0].theirsLine}`, rows };
+  return { kind: "fold", key: `fold-${rows[0].theirsLine}`, rows };
+}
+
+/** One changed block of a comparison: `row` is the index in `rows` of its first row; applying `edit` to `mine` gives it the block as it is in `theirs`. */
+export interface Restorable {
+  row: number;
+  edit: TextEdit;
+}
+
+/** The lines of a text with their line endings, and the offset each starts at (one extra start: the text's end). */
+function withEndings(text: string): { lines: string[]; starts: number[] } {
+  const lines = text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  const starts: number[] = [];
+  let at = 0;
+  for (const line of lines) {
+    starts.push(at);
+    at += line.length;
+  }
+  starts.push(at);
+  return { lines, starts };
+}
+
+/** The changed blocks of a comparison (maximal runs of rows that are not "same"), each with the edit that restores it from `theirs` into `mine`. */
+export function restorable(mine: string, theirs: string, rows: DiffRow[] = sideBySide(mine, theirs)): Restorable[] {
+  const m = withEndings(mine);
+  const t = withEndings(theirs);
+  const eol = mine.includes("\r\n") ? "\r\n" : "\n";
+  const result: Restorable[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    if (rows[i].kind === "same") {
+      i++;
+      continue;
+    }
+    const row = i;
+    for (; i < rows.length && rows[i].kind !== "same"; i++);
+    const run = rows.slice(row, i);
+    const mineLines = run.flatMap((r) => (r.mineLine === null ? [] : [r.mineLine - 1]));
+    const theirsLines = run.flatMap((r) => (r.theirsLine === null ? [] : [r.theirsLine - 1]));
+    let text = theirsLines.map((n) => t.lines[n]).join("");
+    let from: number;
+    let to: number;
+    if (mineLines.length > 0) {
+      from = m.starts[mineLines[0]];
+      to = m.starts[mineLines[mineLines.length - 1] + 1];
+    } else {
+      // Only added rows: insert before the next mine line, or at the end.
+      const next = rows[i]?.mineLine;
+      from = to = next ? m.starts[next - 1] : mine.length;
+      if (next === undefined || next === null) {
+        if (mine !== "" && !mine.endsWith("\n") && text !== "") text = eol + text;
+      }
+    }
+    result.push({ row, edit: { range: { from, to }, text } });
+  }
+  return result;
 }

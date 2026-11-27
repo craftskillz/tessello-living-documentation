@@ -1,9 +1,11 @@
 <script lang="ts">
   // The Versions dialog (docs/spec/git-versioning.md): the commits that changed the open Document in a period, and the
-  // comparison of the file on disk with one of them. Read-only: it never writes to the repository.
+  // comparison of the file on disk with one of them. **<** and Undo write the file on disk (version-checked); the repository is only read.
   import type { Files, Folder } from "@tessello/sdk";
   import { onMount } from "svelte";
-  import { foldRows, sideBySide, type DiffRow, type Segment } from "../lib/diff.ts";
+  import { foldRows, restorable, sideBySide, type DiffRow, type Segment } from "../lib/diff.ts";
+  import { applyEdits, type TextEdit } from "../lib/edits.ts";
+  import { Conflict, type DocumentText } from "../lib/project.ts";
   import { clampPeriod, type Commit, type History, HistoryFailure, openHistory } from "../lib/history.ts";
   import { currentLocale, t, tn } from "../lib/i18n.ts";
 
@@ -13,6 +15,7 @@
     project,
     path,
     current,
+    write,
     period: initialPeriod,
     onclose,
   }: {
@@ -24,16 +27,26 @@
     /** The Document's path in the Project, as it is read. */
     path: string;
     /** The Document as the View last read it from disk. */
-    current: string;
+    current: DocumentText;
+    /** Writes the text over the Document if it is still at that version; rejects with a Conflict when it is not. */
+    write: (text: string, version: string) => Promise<DocumentText>;
     /** How many days back the list starts, from the Project settings. */
     period: number;
     onclose: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
-  const asked = { files, repository, project, path, current };
+  const asked = { files, repository, project, path };
   // svelte-ignore state_referenced_locally
   let period = $state(initialPeriod);
+  // svelte-ignore state_referenced_locally
+  let mine = $state<DocumentText>(current);
+  /** The texts before each restore of this dialog session, the last one on top. */
+  let undo = $state.raw<string[]>([]);
+  let writing = $state(false);
+  let status = $state<string | null>(null);
+  let alert = $state<string | null>(null);
+  let gone = $state(false);
   let loading = $state(true);
   let failure = $state<string | null>(null);
   let commits = $state.raw<Commit[]>([]);
@@ -48,7 +61,8 @@
 
   const dateFormat = $derived(new Intl.DateTimeFormat(currentLocale(), { dateStyle: "medium", timeStyle: "short" }));
 
-  const rows = $derived<DiffRow[]>(selected && !comparing ? sideBySide(asked.current, theirs ?? "") : []);
+  const rows = $derived<DiffRow[]>(selected && !comparing ? sideBySide(mine.text, theirs ?? "") : []);
+  const blocks = $derived(new Map<DiffRow, TextEdit>(selected && !comparing ? restorable(mine.text, theirs ?? "", rows).map((block) => [rows[block.row]!, block.edit] as const) : []));
   const segments = $derived<Segment[]>(foldRows(rows));
   const folds = $derived(segments.filter((segment) => segment.kind === "fold"));
 
@@ -61,7 +75,7 @@
 
   /** Reads the list for the period typed, on a History of its own so that new commits appear, and compares the default commit. */
   async function load() {
-    const mine = ++turn;
+    const ticket = ++turn;
     period = clampPeriod(period);
     loading = true;
     failure = null;
@@ -70,39 +84,81 @@
     try {
       const fresh = await openHistory(asked.files, asked.repository, asked.project);
       const list = await fresh.commits(asked.path, period);
-      const first = await fresh.defaultCommit(asked.path, asked.current, list);
-      const text = first ? await fresh.fileAt(first.id, asked.path) : null;
-      if (mine !== turn) return;
+      const first = await fresh.defaultCommit(asked.path, mine.text, list);
+      const text = first ? await fresh.fileAt(first.id, first.path) : null;
+      if (ticket !== turn) return;
       history = fresh;
       commits = list;
       theirs = text;
       selected = first;
     } catch (reason) {
-      if (mine !== turn) return;
+      if (ticket !== turn) return;
       history = null;
       commits = [];
       failure = messageOf(reason);
     } finally {
-      if (mine === turn) loading = false;
+      if (ticket === turn) loading = false;
     }
   }
 
   async function choose(commit: Commit) {
     if (!history || commit.id === selected?.id) return;
-    const mine = ++turn;
+    const ticket = ++turn;
     comparing = true;
     try {
-      const text = await history.fileAt(commit.id, asked.path);
-      if (mine !== turn) return;
+      const text = await history.fileAt(commit.id, commit.path);
+      if (ticket !== turn) return;
       theirs = text;
       selected = commit;
       opened = new Set();
       failure = null;
     } catch (reason) {
-      if (mine !== turn) return;
+      if (ticket !== turn) return;
       failure = messageOf(reason);
     } finally {
-      if (mine === turn) comparing = false;
+      if (ticket === turn) comparing = false;
+    }
+  }
+
+  /** Writes `text` over the file; on a Conflict reloads the comparison from the disk's text. Returns whether it was written. */
+  async function put(text: string, failed: string): Promise<boolean> {
+    writing = true;
+    status = null;
+    alert = null;
+    try {
+      mine = await write(text, mine.version);
+      return true;
+    } catch (reason) {
+      if (reason instanceof Conflict) {
+        undo = [];
+        if (reason.theirs) {
+          mine = reason.theirs;
+          alert = t("versionsReloaded");
+        } else {
+          gone = true;
+          alert = t("versionsGone");
+        }
+      } else alert = t(failed);
+      return false;
+    } finally {
+      writing = false;
+    }
+  }
+
+  async function restore(edit: TextEdit) {
+    const before = mine.text;
+    if (await put(applyEdits(before, [edit]), "versionsRestoreFailed")) {
+      undo = [...undo, before];
+      status = t("versionsRestored");
+    }
+  }
+
+  async function undoLast() {
+    const before = undo.at(-1);
+    if (before === undefined) return;
+    if (await put(before, "versionsUndoFailed")) {
+      undo = undo.slice(0, -1);
+      status = t("versionsUndone");
     }
   }
 
@@ -122,6 +178,15 @@
     node.showModal();
   }
 </script>
+
+{#snippet gutter(row: DiffRow)}
+  {@const edit = blocks.get(row)}
+  <span class="gutter">
+    {#if edit && selected}
+      <button type="button" class="restore" disabled={writing || gone} aria-label={t("versionsRestore", { id: selected.shortId })} title={t("versionsRestore", { id: selected.shortId })} onclick={() => void restore(edit)}>&lt;</button>
+    {/if}
+  </span>
+{/snippet}
 
 {#snippet cell(side: "mine" | "theirs", row: DiffRow)}
   {@const text = side === "mine" ? row.mine : row.theirs}
@@ -165,12 +230,21 @@
       <input type="number" min="1" max="3650" step="1" bind:value={period} />
     </label>
     <button type="submit">{t("versionsRefresh")}</button>
+    {#if undo.length > 0}
+      <button type="button" disabled={writing} onclick={() => void undoLast()}>{t("versionsUndo")}</button>
+    {/if}
     {#if folds.length > 0}
       <button type="button" onclick={expandAll}>{t("versionsExpandAll")}</button>
       <button type="button" onclick={collapseAll}>{t("versionsCollapseAll")}</button>
     {/if}
   </form>
 
+  {#if alert}
+    <p class="invalid" role="alert">{alert}</p>
+  {/if}
+  {#if status}
+    <p class="muted" role="status">{status}</p>
+  {/if}
   {#if failure}
     <p class="invalid" role="alert">{failure}</p>
   {/if}
@@ -199,7 +273,8 @@
         <span class="head"></span>
         <span class="head">{t("versionsCurrent")}</span>
         <span class="head"></span>
-        <span class="head">{t("versionsCommit", { id: selected.shortId })}</span>
+        <span class="head"></span>
+        <span class="head">{t("versionsCommit", { id: selected.shortId })}{selected.path !== asked.path ? ` · ${selected.path}` : ""}</span>
         {#each segments as segment, index (segment.kind === "fold" ? segment.key : `rows-${index}`)}
           {#if segment.kind === "fold" && !opened.has(segment.key)}
             <button type="button" class="bar" onclick={() => toggle(segment.key)}>{tn("versionsUnchanged", segment.rows.length)}</button>
@@ -209,6 +284,7 @@
             {/if}
             {#each segment.rows as row, at (at)}
               {@render cell("mine", row)}
+              {@render gutter(row)}
               {@render cell("theirs", row)}
             {/each}
           {/if}
@@ -297,7 +373,7 @@
   }
   .diff {
     display: grid;
-    grid-template-columns: 3rem minmax(0, 1fr) 3rem minmax(0, 1fr);
+    grid-template-columns: 3rem minmax(0, 1fr) 2.2rem 3rem minmax(0, 1fr);
     overflow: auto;
     min-height: 0;
     border: 1px solid var(--line);
@@ -334,6 +410,16 @@
   }
   [data-side="theirs"][data-state="only"] {
     background: light-dark(#fee2e2, #451a1a);
+  }
+  .gutter {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    border-left: 1px solid var(--line);
+  }
+  .restore {
+    padding: 0 0.4rem;
+    line-height: 1.3;
   }
   .bar {
     grid-column: 1 / -1;

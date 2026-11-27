@@ -6,6 +6,7 @@ import "./bufferGlobal.ts";
 import { Buffer } from "buffer";
 import { type Files, type Folder, TesselloError } from "@tessello/sdk";
 import git from "isomorphic-git";
+import { sharedLines } from "./diff.ts";
 import { clampPeriod } from "./period.ts";
 
 /** One commit of a Document's history. */
@@ -13,6 +14,8 @@ export interface Commit {
   id: string;
   /** The first 7 characters of `id`. */
   shortId: string;
+  /** The Document's path relative to the Project folder in this commit: the one asked for, until a rename is crossed, then the old one. */
+  path: string;
   /** The first line of the message, trimmed. */
   message: string;
   /** When it was authored, in milliseconds since the Unix epoch. */
@@ -46,6 +49,17 @@ export interface History {
 }
 
 type Listing = Awaited<ReturnType<Files["list"]>>;
+
+/** How alike two texts are, line based like git's score: the shared lines over the larger line count; 1 for identical texts. */
+function similarity(a: string, b: string): number {
+  const first = a === "" ? [] : a.split("\n");
+  const second = b === "" ? [] : b.split("\n");
+  const larger = Math.max(first.length, second.length);
+  return larger === 0 ? 1 : sharedLines(first, second) / larger;
+}
+
+/** The share of lines a file must keep for a commit to be taken as renaming it. */
+const SAME_FILE = 0.5;
 
 /** The failure a Host error means for History. */
 function failureOf(error: unknown): HistoryFailure {
@@ -216,25 +230,77 @@ export async function openHistory(files: Pick<Files, "list" | "read">, repositor
     return null;
   };
 
+  /** The entries of the tree `oid`, none for a tree that is not there. */
+  const entriesOf = async (oid: string | null) => {
+    if (oid === null) return [];
+    let entries = trees.get(oid);
+    if (!entries) trees.set(oid, (entries = git.readTree({ ...repo, oid }).then((result) => result.tree)));
+    return entries;
+  };
+
+  /** The `.md` files of `before` (a tree) that `after` (a tree, or null) no longer holds as files, inside the folder `base` and by repository path, skipping subtrees whose oids are equal. */
+  const disappeared = async (before: string, after: string | null, base: string[], prefix = ""): Promise<{ path: string; oid: string }[]> => {
+    const left = await entriesOf(before);
+    const right = await entriesOf(after);
+    const found: { path: string; oid: string }[] = [];
+    for (const entry of left) {
+      if (base.length && entry.path !== base[0]) continue;
+      const other = right.find((each) => each.path === entry.path);
+      const path = `${prefix}${entry.path}`;
+      if (entry.type === "tree") {
+        if (other?.type === "tree" && other.oid === entry.oid) continue;
+        found.push(...(await disappeared(entry.oid, other?.type === "tree" ? other.oid : null, base.slice(1), `${path}/`)));
+      } else if (!base.length && entry.type === "blob" && /\.md$/i.test(entry.path) && other?.type !== "blob") found.push({ path, oid: entry.oid });
+    }
+    return found;
+  };
+
+  const text = async (oid: string) => new TextDecoder().decode((await git.readBlob({ ...repo, oid })).blob);
+
+  /** The path, in the Project, of the `.md` file that `commit` renamed to `where` (similar to it at least by SAME_FILE), null when there is none. */
+  const renamedFrom = async (parentTree: string, tree: string, where: string, base: string): Promise<string | null> => {
+    const now = await oidIn(tree, where);
+    if (now === null) return null;
+    const lost = await disappeared(parentTree, tree, base ? base.split("/") : []);
+    if (!lost.length) return null;
+    const content = await text(now);
+    let best: { path: string; score: number } | null = null;
+    for (const candidate of lost.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
+      const score = similarity(await text(candidate.oid), content);
+      if (score >= SAME_FILE && (!best || score > best.score)) best = { path: candidate.path, score };
+    }
+    return best ? (base ? best.path.slice(base.length + 1) : best.path) : null;
+  };
+
   const commits = (path: string, days: number, now = Date.now()) =>
     guard(async () => {
-      const where = await inRepository(path);
+      let current = path;
+      let where = await inRepository(current);
       if (where === null) return [];
+      const base = (await projectPathInRepository())!;
       const log = await git.log({ ...repo, ref: "HEAD", since: new Date(now - clampPeriod(days) * DAY) });
       const found: Commit[] = [];
       for (const { oid, commit } of log) {
         const here = await oidIn(commit.tree, where);
-        const parents = await Promise.all(
-          commit.parent.map(async (parent) => oidIn((await git.readCommit({ ...repo, oid: parent })).commit.tree, where)),
-        );
+        const parentTrees = await Promise.all(commit.parent.map(async (parent) => (await git.readCommit({ ...repo, oid: parent })).commit.tree));
+        const parents = await Promise.all(parentTrees.map((tree) => oidIn(tree, where!)));
         if (parents.length ? parents.every((before) => before !== here) : here !== null) {
           found.push({
             id: oid,
             shortId: oid.slice(0, 7),
+            path: current,
             message: commit.message.split("\n")[0]!.trim(),
             date: commit.author.timestamp * 1000,
             author: commit.author.name,
           });
+          // The file appears here: another `.md` of the Project disappearing with alike content means it was renamed.
+          if (here !== null && parents[0] === null && parentTrees[0]) {
+            const old = await renamedFrom(parentTrees[0], commit.tree, where, base);
+            if (old !== null) {
+              current = old;
+              where = base ? `${base}/${old}` : old;
+            }
+          }
         }
       }
       return found;
@@ -253,7 +319,7 @@ export async function openHistory(files: Pick<Files, "list" | "read">, repositor
   const defaultCommit = async (path: string, current: string, list: Commit[]) => {
     const [latest, before] = list;
     if (!latest) return null;
-    return before && (await fileAt(latest.id, path)) === current ? before : latest;
+    return before && (await fileAt(latest.id, latest.path)) === current ? before : latest;
   };
 
   return { commits, fileAt, defaultCommit };

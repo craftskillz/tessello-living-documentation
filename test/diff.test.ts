@@ -2,7 +2,8 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { foldRows, sideBySide, type Segment } from "../src/lib/diff.ts";
+import { applyEdits } from "../src/lib/edits.ts";
+import { foldRows, restorable, sideBySide, type Segment } from "../src/lib/diff.ts";
 
 describe("side-by-side line diff", () => {
   test("identical texts give only same rows, numbered from 1", () => {
@@ -169,5 +170,85 @@ describe("folding unchanged lines", () => {
     assert.equal(keys.length, 4);
     assert.equal(new Set(keys).size, 4);
     assert.deepEqual(foldRows(sideBySide(text(60), text(60, [10, 20, 40]))).flatMap((s) => (s.kind === "fold" ? [s.key] : [])), keys);
+  });
+});
+
+/** Restores the first block, recomputing from the new text, until nothing differs. */
+function restoreAll(mine: string, theirs: string): string {
+  let current = mine;
+  for (let guard = 0; guard < 50; guard++) {
+    const [first] = restorable(current, theirs);
+    if (!first) return current;
+    current = applyEdits(current, [first.edit]);
+  }
+  throw new Error("restoring never converged");
+}
+
+describe("restoring a block of a comparison", () => {
+  test("identical texts have nothing to restore", () => {
+    assert.deepEqual(restorable("a\nb\n", "a\nb\n"), []);
+    assert.deepEqual(restorable("", ""), []);
+  });
+
+  test("one entry per run of changed rows, with the index of its first row", () => {
+    const mine = "a\nb\nc\nd\ne\n";
+    const theirs = "a\nB\nc\nd\ne\nf\n";
+    const rows = sideBySide(mine, theirs);
+    assert.deepEqual(restorable(mine, theirs, rows).map((r) => r.row), [1, 5]);
+  });
+
+  test("restoring one block leaves the other blocks untouched", () => {
+    const mine = "a\nb\nc\nd\ne\n";
+    const theirs = "a\nB\nc\nd\nE\n";
+    const [first, second] = restorable(mine, theirs);
+    assert.equal(applyEdits(mine, [first.edit]), "a\nB\nc\nd\ne\n");
+    assert.equal(applyEdits(mine, [second.edit]), "a\nb\nc\nd\nE\n");
+  });
+
+  test("restoring every block, one after another, gives theirs", () => {
+    const cases: [string, string][] = [
+      ["a\nb\nc\n", "X\nb\nc\n"],
+      ["a\nb\nc\n", "a\nb\nX\n"],
+      ["a\nb\nc\n", "a\nb\nX\nY\nc\n"],
+      ["a\nb\nc\nd\n", "a\nd\n"],
+      ["a\nb\nc\nd\ne\nf\n", "x\nb\nc\nY\nZ\ne\n"],
+      ["a\r\nb\r\nc\r\n", "a\r\nB\r\nc\r\nd\r\n"],
+      ["a\r\nb\r\nc", "a\r\nc"],
+      ["", "a\nb\n"],
+      ["a\nb\n", ""],
+      ["a\nb", "a\nb\nc"],
+    ];
+    for (const [mine, theirs] of cases) assert.equal(restoreAll(mine, theirs), theirs, JSON.stringify([mine, theirs]));
+  });
+
+  test("an edit covers the mine lines of the run with their endings, in offsets of mine", () => {
+    const mine = "a\r\nb\r\nc\r\n";
+    const [r] = restorable(mine, "a\nX\nc\n");
+    assert.deepEqual(r.edit, { range: { from: 3, to: 6 }, text: "X\n" });
+  });
+
+  test("lines only in theirs are inserted at the start of the next mine line", () => {
+    const [r] = restorable("a\nc\n", "a\nb\nc\n");
+    assert.deepEqual(r.edit, { range: { from: 2, to: 2 }, text: "b\n" });
+  });
+
+  test("inserting after a last line without a newline does not glue the lines", () => {
+    const [r] = restorable("a", "a\nb\n");
+    assert.equal(applyEdits("a", [r.edit]), "a\nb\n");
+  });
+
+  test("the missing newline follows the line endings of mine", () => {
+    const [r] = restorable("a\r\nb", "a\r\nb\r\nc\r\n");
+    assert.equal(applyEdits("a\r\nb", [r.edit]), "a\r\nb\r\nc\r\n");
+  });
+
+  test("removing the last lines", () => {
+    const [r] = restorable("a\nb\n", "a\n");
+    assert.equal(applyEdits("a\nb\n", [r.edit]), "a\n");
+  });
+
+  test("an empty mine takes all of theirs", () => {
+    const [r] = restorable("", "a\nb\n");
+    assert.deepEqual(r, { row: 0, edit: { range: { from: 0, to: 0 }, text: "a\nb\n" } });
   });
 });

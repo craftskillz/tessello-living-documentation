@@ -605,6 +605,19 @@
     }
   }
 
+  /** Saves a restore of the Versions dialog at the version it was made from; a Conflict goes back to the dialog. */
+  async function writeRestore(asked: string, text: string, version: string): Promise<DocumentText> {
+    try {
+      const saved = { text, version: await project!.save(asked, text, version) };
+      if (path === asked) current = saved;
+      return saved;
+    } catch (reason) {
+      // The reading view behind shows what is on disk too.
+      if (reason instanceof Conflict && reason.theirs && path === asked) current = reason.theirs;
+      throw reason;
+    }
+  }
+
   /** Writes a Tag marker edit to the open Document; the View then shows the text it saved. */
   async function writeMarker(message: string, write: (project: Project, file: string) => Promise<DocumentText>) {
     if (!project || !path) return;
@@ -2578,7 +2591,7 @@
 {/if}
 
 {#if versionsOpen && repository && active && path && current}
-  <Versions files={host.files} repository={repository} project={active} {path} current={current.text} period={active.versionsPeriod ?? DEFAULT_PERIOD} onclose={() => (versionsOpen = false)} />
+  <Versions files={host.files} repository={repository} project={active} {path} current={current} write={(text, version) => writeRestore(path!, text, version)} period={active.versionsPeriod ?? DEFAULT_PERIOD} onclose={() => (versionsOpen = false)} />
 {/if}
 
 {#if settingsOpen && active}
