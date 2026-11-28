@@ -60,8 +60,8 @@ export const INTERVIEW_SHEET_CSS = String.raw`
   input[type="checkbox"] { flex: none; width: 1rem; height: 1rem; margin: 0; accent-color: var(--accent); transform: translateY(.12rem); }
 
   table { width: 100%; margin: 1rem 0 1.25rem; border-collapse: collapse; font-size: .95rem; }
-  thead th { padding: 0 1rem .55rem 0; border-bottom: 2px solid var(--accent); color: var(--accent); font-size: .78rem; font-weight: 650; letter-spacing: .06em; text-align: left; text-transform: uppercase; }
-  tbody td { padding: .8rem 1rem .8rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  thead th { padding: .55rem 1rem; vertical-align: bottom; border-bottom: 2px solid var(--accent); color: var(--accent); font-size: .78rem; font-weight: 650; letter-spacing: .06em; text-align: left; text-transform: uppercase; }
+  tbody td { padding: .8rem 1rem; border-bottom: 1px solid var(--line); vertical-align: top; }
   tbody tr:last-child td { border-bottom: 0; }
   tbody td:first-child { width: 42%; font-weight: 500; }
   td strong { color: var(--highlight); }

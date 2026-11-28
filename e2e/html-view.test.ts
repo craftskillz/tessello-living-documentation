@@ -159,6 +159,23 @@ describe("the HTML view", () => {
     assert.equal(await page.getByRole("region", { name: "HTML view of the document" }).count(), 0);
   });
 
+  for (const template of ["article", "interview-sheet"]) {
+    test(`${template}: a table's cells keep space on every side, as in the reading view`, async () => {
+      const { page } = await project({ "t.md": `---\nhtml_template: ${template}\n---\n# T\n\n## Part\n\n<!-- table-color: info -->\n| Head | Other |\n| -- | -- |\n| a | b |\n` });
+      await page.getByRole("button", { name: "View as HTML" }).click();
+      const view = page.getByRole("region", { name: "HTML view of the document" });
+      for (const cell of [view.locator("thead th").first(), view.locator("tbody td").first()]) {
+        await cell.waitFor();
+        const padding = await cell.evaluate((element) => {
+          const style = getComputedStyle(element);
+          return { top: parseFloat(style.paddingTop), left: parseFloat(style.paddingLeft) };
+        });
+        assert.ok(padding.left >= 8, `left padding ${padding.left}`);
+        assert.ok(padding.top >= 6, `top padding ${padding.top}`);
+      }
+    });
+  }
+
   test("a table of contents link scrolls inside the page", async () => {
     const filler = Array.from({ length: 80 }, (_, i) => `Line ${i}.\n`).join("\n");
     const { page } = await project({ "g.md": `---\nhtml_template: article\n---\n# T\n\n## One\n\n${filler}\n## Two\n\n${filler}\n` });

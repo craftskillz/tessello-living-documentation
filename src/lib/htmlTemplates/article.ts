@@ -59,7 +59,7 @@ export const ARTICLE_CSS = String.raw`
   pre code { padding: 0; background: none; }
 
   table { display: block; overflow-x: auto; width: 100%; margin: 1.75rem 0; border-collapse: collapse; font: .9rem/1.5 var(--sans); }
-  th, td { padding: .65rem 1.1rem .65rem 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th, td { padding: .65rem 1.1rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
   th { border-bottom: 2px solid var(--ink); font-weight: 680; }
   tbody tr:last-child td { border-bottom: 0; }
 
