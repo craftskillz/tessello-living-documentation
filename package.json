@@ -1,6 +1,6 @@
 {
   "name": "@craftskillz/living-documentation",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Raw Markdown documentation next to your code, readable by your agents: read, edit and organize it in Tessello.",
   "license": "MIT",
