@@ -20,7 +20,7 @@ Asked by the User (2026-11-26), during the follow-up of ticket 14: "Dans project
 
 **Blocked by:** 14 (Snippets I: picker, forms and block actions)
 
-**Status:** ready-for-human (built and tested; to try in the local Host)
+**Status:** done (a457428)
 
 - [x] Scope above settled with the User and written here
 - [x] The setting in `.living-doc.json`, read and changed through `src/lib/projectSettings.ts` (only its key written, version-checked); unit-tested on the Test Host disk
@@ -31,7 +31,7 @@ Asked by the User (2026-11-26), during the follow-up of ticket 14: "Dans project
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder)
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder)
 
 ## Comments
 
@@ -39,4 +39,4 @@ Asked by the User (2026-11-26), during the follow-up of ticket 14: "Dans project
 - Differs from the scope: a colour picked back to its default is dropped from `colorPalette` (the file holds only real changes); a hand-written `#rgb`, upper-case or spaced value is read as its `#rrggbb` rather than refused.
 - The snippet form still labels the colours "Info (blue)" etc.; once recoloured the hue in brackets can be wrong. The dialog uses plain names (`tableColor_*`). Worth a follow-up if it bothers.
 - No e2e covers the dark theme or the derived soft/stripe/text shades (only `--tbl-accent`); the selectors' specificity was checked by hand.
-- Left: try it in the local Host.
+- Tried in the local Host by the User, 2026-11-28.
