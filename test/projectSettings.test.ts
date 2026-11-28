@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import { connect } from "@tessello/sdk";
 import { createTestHost } from "@tessello/sdk/testing";
 import { Conflict, openProject, Refused } from "../src/lib/project.ts";
-import { changeSetting, formatList, parseList, readSettings, setExcluded, setShownExtensions, setSoftBreaks, setTagNames, SETTINGS_FILE } from "../src/lib/projectSettings.ts";
+import { changeSetting, formatList, parseList, readSettings, setExcluded, setShownExtensions, setSoftBreaks, setTablePalette, setTagNames, SETTINGS_FILE } from "../src/lib/projectSettings.ts";
 
 async function projectOf(files: Record<string, string> = {}) {
   const host = createTestHost({ module: { id: "@craftskillz/living-documentation", version: "0.0.1" }, permissions: { folders: true } });
@@ -25,6 +25,7 @@ describe("reading the settings", () => {
         excluded: [".git", "node_modules", ".DS_Store"],
       },
       tagNames: [],
+      tablePalette: {},
     });
   });
 
@@ -234,5 +235,77 @@ describe("the Tag names setting", () => {
     const { project } = await projectOf({ [SETTINGS_FILE]: JSON.stringify({ markdownSoftBreaks: false }) });
     await setTagNames(project, ["<Todo>", "fix-me", "todo"]);
     assert.deepEqual(JSON.parse((await project.read(SETTINGS_FILE)).text), { markdownSoftBreaks: false, tagSuggestions: ["todo", "fix-me"] });
+  });
+});
+
+describe("the table colour palette setting", () => {
+  const palette = async (content: string | null) => (await readSettings((await projectOf(content === null ? {} : { [SETTINGS_FILE]: content })).project)).tablePalette;
+
+  test("reads colorPalette normalized, dropping unknown names and invalid colours", async () => {
+    assert.deepEqual(await palette(JSON.stringify({ colorPalette: { info: "#ABCDEF", danger: "#f00", purple: "#ffffff", note: "blue", success: 3 } })), { info: "#abcdef", danger: "#ff0000" });
+  });
+
+  test("no key, a value that is not an object, a malformed file or no file gives {}", async () => {
+    for (const content of ['{"colorPalette":["#fff"]}', '{"colorPalette":"#fff"}', '{"colorPalette":null}', "{}", "{not json", "[1]", "", null]) {
+      assert.deepEqual(await palette(content), {}, String(content));
+    }
+  });
+
+  test("setTablePalette writes only its key, in colour order, and keeps the other keys and their order", async () => {
+    const written = { favorites: [], markdownSoftBreaks: false, tagSuggestions: ["x"] };
+    const { host, disk, project } = await projectOf({ [SETTINGS_FILE]: `${JSON.stringify(written, null, 2)}\n` });
+    await setTablePalette(project, { note: "#ABCDEF", info: "#123456", danger: "red" as string });
+    const after = host.folders.read(disk, SETTINGS_FILE) as string;
+    assert.equal(after, `${JSON.stringify({ ...written, colorPalette: { info: "#123456", note: "#abcdef" } }, null, 2)}\n`);
+    assert.deepEqual((await readSettings(project)).tablePalette, { info: "#123456", note: "#abcdef" });
+  });
+
+  test("replaces the palette in place, the key keeps its position", async () => {
+    const { host, disk, project } = await projectOf({ [SETTINGS_FILE]: JSON.stringify({ a: 1, colorPalette: { info: "#111111" }, b: 2 }) });
+    await setTablePalette(project, { success: "#222222" });
+    assert.deepEqual(JSON.parse(host.folders.read(disk, SETTINGS_FILE) as string), { a: 1, colorPalette: { success: "#222222" }, b: 2 });
+    assert.deepEqual(Object.keys(JSON.parse(host.folders.read(disk, SETTINGS_FILE) as string)), ["a", "colorPalette", "b"]);
+  });
+
+  test("an empty palette removes the key and leaves the other keys, their order and indentation", async () => {
+    const { host, disk, project } = await projectOf({ [SETTINGS_FILE]: JSON.stringify({ a: 1, colorPalette: { info: "#111111" }, b: 2 }, null, "\t") });
+    await setTablePalette(project, {});
+    assert.equal(host.folders.read(disk, SETTINGS_FILE), `${JSON.stringify({ a: 1, b: 2 }, null, "\t")}\n`);
+    assert.deepEqual((await readSettings(project)).tablePalette, {});
+  });
+
+  test("an empty palette, or one with only invalid entries, creates no file", async () => {
+    const { host, disk, project } = await projectOf();
+    await setTablePalette(project, {});
+    await setTablePalette(project, { info: "red" });
+    assert.equal(host.folders.read(disk, SETTINGS_FILE), null);
+  });
+
+  test("a non-empty palette creates the file when it is missing", async () => {
+    const { host, disk, project } = await projectOf();
+    await setTablePalette(project, { info: "#123456" });
+    assert.equal(host.folders.read(disk, SETTINGS_FILE), '{\n  "colorPalette": {\n    "info": "#123456"\n  }\n}\n');
+  });
+
+  test("refuses a file that is not a JSON object and leaves it untouched, for a palette or an empty one", async () => {
+    for (const content of ["{not json", "[1]", "null", ""]) {
+      for (const value of [{ info: "#123456" }, {}]) {
+        const { host, disk, project } = await projectOf({ [SETTINGS_FILE]: content });
+        await assert.rejects(setTablePalette(project, value), (error) => error instanceof Refused && error.reason === "invalidSettings");
+        assert.equal(host.folders.read(disk, SETTINGS_FILE), content);
+      }
+    }
+  });
+
+  test("is a Conflict when the file changed between the read and the write", async () => {
+    const { host, disk, project } = await projectOf({ [SETTINGS_FILE]: '{"a":1}' });
+    const read = project.read.bind(project);
+    project.read = async (path) => {
+      const result = await read(path);
+      host.folders.write(disk, SETTINGS_FILE, '{"a":2}');
+      return result;
+    };
+    await assert.rejects(setTablePalette(project, { info: "#123456" }), Conflict);
+    assert.equal(host.folders.read(disk, SETTINGS_FILE), '{"a":2}');
   });
 });

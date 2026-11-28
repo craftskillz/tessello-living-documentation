@@ -23,8 +23,9 @@
   import { Conflict, documentFile, FOLDER_MANIFEST, isInsideReserved, isReservedFolder, NotFound, Refused, refusalOf, type Deletion, type DocumentText, type Project, type RefusalReason, type TreeDocument, type TreeEntry, type TreeFolder, type TreeVisibility } from "../lib/project.ts";
   import { entryMapper } from "../lib/links.ts";
   import { compileLabelFilter, NO_LABEL_FILTER, type LabelFilter } from "../lib/labels.ts";
-  import { DEFAULT_SETTINGS, readSettings, setExcluded, setShownExtensions, setSoftBreaks, setTagNames, SETTINGS_FILE, type ProjectSettings } from "../lib/projectSettings.ts";
+  import { DEFAULT_SETTINGS, readSettings, setExcluded, setShownExtensions, setSoftBreaks, setTablePalette, setTagNames, SETTINGS_FILE, type ProjectSettings } from "../lib/projectSettings.ts";
   import { createProjects, DEFAULT_READING, FolderRefused, MAX_FAVORITES, SIDEBAR_WIDTH, TOC_WIDTH, type DisplayPreferences, type Favorite, type ListedProject, type ProjectInfo, projectLabel, type ReadingPreferences, type SyncEntry } from "../lib/projects.ts";
+  import { tablePaletteCss, type TablePalette } from "../lib/tablePalette.ts";
   import ProjectSettingsPanel from "./ProjectSettings.svelte";
   import Versions from "./Versions.svelte";
   import { openHistory } from "../lib/history.ts";
@@ -672,6 +673,44 @@
       } else fail(reason);
     }
   }
+
+  /** Shows the table colours at once, then keeps them; if they cannot be kept, the disk's come back with a message. */
+  async function changeTablePalette(next: TablePalette) {
+    if (!project) return;
+    const asked = project;
+    const previous = settings;
+    const edit = ++settingEdits;
+    settings = { ...settings, tablePalette: next };
+    try {
+      await setTablePalette(asked, next);
+    } catch (reason) {
+      if (project !== asked) return;
+      if (edit === settingEdits) settings = previous;
+      if (reason instanceof Refused) report(refusalMessage(reason.reason));
+      else if (reason instanceof Conflict) {
+        report(t("settingsConflict"));
+        settingEdits++;
+        void loadSettings();
+      } else fail(reason);
+    }
+  }
+
+  // The Project's table colours reach the reading view and the snippet dialog's grid (both inside `.document`) through
+  // one style element of the page; it goes when the palette is empty, and so when the Project changes to one without.
+  $effect(() => {
+    const css = tablePaletteCss(settings.tablePalette, "document");
+    let element = document.head.querySelector<HTMLStyleElement>("style[data-ld-table-palette]");
+    if (!css) {
+      element?.remove();
+      return;
+    }
+    if (!element) {
+      element = document.createElement("style");
+      element.dataset.ldTablePalette = "";
+      document.head.append(element);
+    }
+    element.textContent = css;
+  });
 
   /** Shows `next` at once, then keeps it; if it cannot be kept, the previous list comes back with a message. */
   async function saveFavorites(next: Favorite[]) {
@@ -2322,6 +2361,7 @@
             {current}
             path={path!}
             softBreaks={settings.softBreaks}
+            tablePalette={settings.tablePalette}
             paused={session?.kind === "section"}
             onedit={saveHtmlEdit}
             onsection={startSection}
@@ -2863,6 +2903,8 @@
     onsoftbreaks={(on) => void changeSoftBreaks(on)}
     tagNames={settings.tagNames}
     ontagnames={(names) => void changeTagNames(names)}
+    tablePalette={settings.tablePalette}
+    ontablepalette={(palette) => void changeTablePalette(palette)}
     onshown={(list) => void changeVisibility({ ...settings.visibility, shownExtensions: list }, (asked) => setShownExtensions(asked, list))}
     onexcluded={(list) => void changeVisibility({ ...settings.visibility, excluded: list }, (asked) => setExcluded(asked, list))}
     onclose={() => (settingsOpen = false)}

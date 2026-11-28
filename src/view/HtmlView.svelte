@@ -17,6 +17,7 @@
   import { editableBlockAt, hasSelectedText, rangeOf, selectionOf, startInlineEdit, startSourceEdit, type CommitResult } from "./htmlEditing.ts";
   import { drawDiagrams } from "./mermaid.ts";
   import ReadAloud from "./ReadAloud.svelte";
+  import type { TablePalette } from "../lib/tablePalette.ts";
   import type { ReadingPreferences } from "../lib/projects.ts";
 
   let {
@@ -24,6 +25,7 @@
     current,
     path,
     softBreaks,
+    tablePalette,
     paused,
     readBytes,
     onback,
@@ -44,6 +46,8 @@
     current: DocumentText;
     path: string;
     softBreaks: boolean;
+    /** The Project's table colours. */
+    tablePalette: TablePalette;
     /** The page is not drawn again while true (the section editor is open over it). */
     paused: boolean;
     readBytes: (path: string) => Promise<Uint8Array>;
@@ -72,7 +76,7 @@
 
   const template = $derived(htmlTemplateOf(model.htmlTemplate));
   const labels = $derived({ footnotes: t("footnotes"), footnoteBack: t("footnoteBack"), compareSource: t("compareSource"), compareRender: t("compareRender") });
-  const page = $derived(template ? htmlPage(model, path, template, labels, { softBreaks }) : null);
+  const page = $derived(template ? htmlPage(model, path, template, labels, { softBreaks, tablePalette }) : null);
   let host = $state<HTMLElement>();
   let inner: HTMLElement | null = null;
   // Read aloud reads the page's main content; the key changes with every drawing, which stops the reading.
@@ -245,7 +249,7 @@
         const drawn = each.querySelector("svg");
         if (drawn) diagrams[index] = drawn.outerHTML;
       });
-      const text = standaloneHtml(htmlPage(model, path, template, labels, { softBreaks, standalone: { images, diagrams } }));
+      const text = standaloneHtml(htmlPage(model, path, template, labels, { softBreaks, tablePalette, standalone: { images, diagrams } }));
       const url = URL.createObjectURL(new Blob([text], { type: "text/html" }));
       const link = document.createElement("a");
       link.download = `${path.split("/").pop()!.replace(/\.md$/i, "")}.html`;

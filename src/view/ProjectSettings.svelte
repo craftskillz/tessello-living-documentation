@@ -8,6 +8,8 @@
   import { clampPeriod } from "../lib/period.ts";
   import { DEFAULT_VISIBILITY, type TreeVisibility } from "../lib/project.ts";
   import { formatList, parseList } from "../lib/projectSettings.ts";
+  import { DEFAULT_TABLE_ACCENTS, type TableColorName, type TablePalette } from "../lib/tablePalette.ts";
+  import { TABLE_COLORS } from "../lib/snippets.ts";
   import { normalizeTagNames, splitTagNames } from "../lib/tagMarkers.ts";
 
   let {
@@ -26,6 +28,8 @@
     visibility,
     tagNames,
     ontagnames,
+    tablePalette,
+    ontablepalette,
     onconnectrepository,
     ondisconnectrepository,
     onsoftbreaks,
@@ -62,6 +66,10 @@
     tagNames: string[];
     /** The User changed the Tag names (already valid and normalized). */
     ontagnames: (names: string[]) => void;
+    /** The accents the User changed for the five table colours. */
+    tablePalette: TablePalette;
+    /** The User picked a colour or restored the defaults (the palette holds only the colours that differ from the defaults). */
+    ontablepalette: (palette: TablePalette) => void;
     /** Opens the Host's folder prompt: called straight from the click. */
     onconnectrepository: () => void;
     ondisconnectrepository: () => void;
@@ -89,6 +97,14 @@
     if (invalid.length > 0) return;
     if (names.join(", ") === tagNames.join(", ")) input.value = tagNames.join(", ");
     else ontagnames(names);
+  }
+
+  /** Commits a picked colour (on `change`, not while the picker is dragged); the default accent is not kept in the palette. */
+  function commitColor(name: TableColorName, value: string) {
+    const next: TablePalette = { ...tablePalette };
+    if (value.toLowerCase() === DEFAULT_TABLE_ACCENTS[name]) delete next[name];
+    else next[name] = value.toLowerCase();
+    ontablepalette(next);
   }
 
   /** The command to start sync: the repository's path, or a placeholder to replace when it is not known. */
@@ -267,6 +283,22 @@
     </label>
     <p class="hint muted">{t("tagNamesHint")}</p>
     {#if invalidTags.length > 0}<p class="invalid" role="alert">{t("tagNamesInvalid", { list: invalidTags.join(", ") })}</p>{/if}
+    <fieldset>
+      <legend>{t("tableColors")}</legend>
+      <div class="swatches">
+        {#each TABLE_COLORS as name (name)}
+          <!-- Keyed on the colour kept, so the picker shows the previous colour again when a write fails. -->
+          {#key tablePalette[name] ?? ""}
+            <label>
+              <input type="color" value={tablePalette[name] ?? DEFAULT_TABLE_ACCENTS[name]} onchange={(event) => commitColor(name, event.currentTarget.value)} />
+              {t(`tableColor_${name}`)}
+            </label>
+          {/key}
+        {/each}
+      </div>
+      <p class="hint muted">{t("tableColorsHint")}</p>
+      <div class="restore"><button type="button" aria-label={t("restoreDefaultsOf", { field: t("tableColors") })} onclick={() => ontablepalette({})}>{t("restoreDefaults")}</button></div>
+    </fieldset>
     </div>
     </div>
   </fieldset>
@@ -336,6 +368,11 @@
     border-top: 1px solid var(--line);
     padding-top: 0.9rem;
     margin-top: 0.4rem;
+  }
+  .swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.2rem;
   }
   .restore {
     margin-bottom: 0.75rem;

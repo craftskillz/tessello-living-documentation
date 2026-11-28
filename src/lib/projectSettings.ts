@@ -3,6 +3,7 @@
 
 import type { Json } from "@tessello/sdk";
 import { normalizeTagNames } from "./tagMarkers.ts";
+import { normalizePalette, type TablePalette } from "./tablePalette.ts";
 import { DEFAULT_VISIBILITY, NotFound, type Project, Refused, type TreeVisibility } from "./project.ts";
 
 /** The Project's metadata file, shared with the original application. */
@@ -15,10 +16,12 @@ export interface ProjectSettings {
   visibility: TreeVisibility;
   /** The original's `tagSuggestions`: the Tag names offered when inserting a marker (normalized; invalid entries dropped). */
   tagNames: string[];
+  /** The `colorPalette` key: the accents the User chose for the five predefined table colours (`#rrggbb` by name; a colour missing from it keeps today's). */
+  tablePalette: TablePalette;
 }
 
 /** What a Project without the file, or with a malformed one, has: the original's defaults. */
-export const DEFAULT_SETTINGS: ProjectSettings = { softBreaks: true, visibility: DEFAULT_VISIBILITY, tagNames: [] };
+export const DEFAULT_SETTINGS: ProjectSettings = { softBreaks: true, visibility: DEFAULT_VISIBILITY, tagNames: [], tablePalette: {} };
 
 /** The settings file with its version; null when it does not exist. Other read failures propagate. */
 const readFile = (project: Project) =>
@@ -64,6 +67,7 @@ export async function readSettings(project: Project): Promise<ProjectSettings> {
       excluded: excluded ? normalizeNames(excluded) : DEFAULT_VISIBILITY.excluded,
     },
     tagNames: tags ? normalizeTagNames(tags).names : [],
+    tablePalette: normalizePalette(data?.colorPalette),
   };
 }
 
@@ -71,17 +75,27 @@ export async function readSettings(project: Project): Promise<ProjectSettings> {
 const indentOf = (text: string) => text.match(/^([ \t]+)\S/m)?.[1] ?? "  ";
 
 /**
+ * Rewrites the Project's settings file with `change` applied to its object, leaving the other keys, their order and the
+ * file's indentation as written. A change that returns null leaves a missing file missing. Written at the version read:
+ * rejects with Conflict when the file changed meanwhile, and with Refused("invalidSettings"), the file untouched, when
+ * it is not a JSON object.
+ */
+async function rewriteSettings(project: Project, change: (settings: Record<string, Json>) => Record<string, Json> | null): Promise<void> {
+  const file = await readFile(project);
+  const settings = file ? parseObject(file.text) : {};
+  if (!settings) throw new Refused("invalidSettings");
+  const changed = change(settings);
+  if (!changed) return;
+  const text = `${JSON.stringify(changed, null, file ? indentOf(file.text) : "  ")}\n`;
+  await project.save(SETTINGS_FILE, text, file?.version ?? null);
+}
+
+/**
  * Sets `key` to `value` in the Project's settings file, leaving every other key, their order and the file's indentation
  * as written. Creates the file when it is missing. Written at the version read: rejects with Conflict when the file
  * changed meanwhile, and with Refused("invalidSettings"), the file untouched, when it is not a JSON object.
  */
-export async function changeSetting(project: Project, key: string, value: Json): Promise<void> {
-  const file = await readFile(project);
-  const settings = file ? parseObject(file.text) : {};
-  if (!settings) throw new Refused("invalidSettings");
-  const text = `${JSON.stringify({ ...settings, [key]: value }, null, file ? indentOf(file.text) : "  ")}\n`;
-  await project.save(SETTINGS_FILE, text, file?.version ?? null);
-}
+export const changeSetting = (project: Project, key: string, value: Json): Promise<void> => rewriteSettings(project, (settings) => ({ ...settings, [key]: value }));
 
 /** Turns "every newline is a line break" on or off for the Project. */
 export const setSoftBreaks = (project: Project, on: boolean) => changeSetting(project, "markdownSoftBreaks", on);
@@ -94,6 +108,21 @@ export const setExcluded = (project: Project, list: string[]) => changeSetting(p
 
 /** Sets the Project's Tag names (normalized: brackets off, lower case, duplicates and invalid names out). */
 export const setTagNames = (project: Project, names: string[]) => changeSetting(project, "tagSuggestions", normalizeTagNames(names).names);
+
+/**
+ * Sets the accents of the five table colours, written in colour order with only the valid entries. An empty palette
+ * removes the `colorPalette` key (the defaults are back) and creates no file.
+ */
+export function setTablePalette(project: Project, palette: TablePalette): Promise<void> {
+  const normalized = normalizePalette(palette);
+  const entries = Object.entries(normalized);
+  return rewriteSettings(project, (settings) => {
+    if (entries.length) return { ...settings, colorPalette: Object.fromEntries(entries) };
+    if (!("colorPalette" in settings)) return null;
+    const { colorPalette: _removed, ...rest } = settings;
+    return rest;
+  });
+}
 
 /** The items of a comma-separated text, trimmed, empty ones dropped; otherwise as typed. */
 export const parseList = (text: string): string[] =>

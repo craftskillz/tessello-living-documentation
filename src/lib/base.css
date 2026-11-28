@@ -89,6 +89,22 @@ button.primary {
   gap: 0.4rem;
   cursor: pointer;
 }
+.ld-form label:has(> input[type="color"]) {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+/* A colour picker: a small swatch with the panel's border. */
+.ld-form input[type="color"] {
+  width: 2rem;
+  height: 1.5rem;
+  padding: 0 2px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  cursor: pointer;
+}
 .ld-form input[type="radio"],
 .ld-form input[type="checkbox"] {
   accent-color: var(--accent);

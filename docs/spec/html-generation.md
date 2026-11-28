@@ -20,5 +20,5 @@ Atlas page: `features/html-generation.md` (business rules R1–R12). Atlas answe
 8. In-place editing: double-click on paragraphs and headings 2–4 edits text; on code, lists, quotes and tables edits Markdown (R9–R11). Saves are version-checked (R12); the scroll position is kept.
 9. Right-click opens the section editor on that section; on the lead, only the lead (after the `#` title, before the first `##`).
 10. Links: a target with a known HTML template opens in its HTML view, else in its reading view; both stay in the View and Back returns.
-11. **Download HTML**: one standalone `.html` file, template CSS inlined, images embedded. This is also the way to print (no printing in v1).
+11. **Download HTML**: one standalone `.html` file, template CSS inlined, images embedded. This is also the way to print (no printing in v1). The page and the file take the Project's table colours (`colorPalette`, documents-snippets.md rule 12), in their light form.
 12. Annotations are not shown in the HTML view (Q-060).

@@ -12,6 +12,7 @@ import type { HtmlTemplate } from "./htmlTemplates.ts";
 import { SHARED_CSS } from "./htmlTemplates/shared.ts";
 import { headingId } from "./links.ts";
 import { renderDocumentTree, type RenderLabels } from "./render.ts";
+import { tablePaletteCss, type TablePalette } from "./tablePalette.ts";
 
 export interface HtmlPage {
   /** Plain text: the Document's leading top-level heading (Tag markers left out), else model.title. */
@@ -42,7 +43,7 @@ export function htmlPage(
   path: string,
   template: HtmlTemplate,
   labels: Partial<RenderLabels>,
-  options: { softBreaks: boolean; standalone?: StandaloneAssets },
+  options: { softBreaks: boolean; standalone?: StandaloneAssets; tablePalette?: TablePalette },
 ): HtmlPage {
   const nodes = renderDocumentTree(model, path, labels, { softBreaks: options.softBreaks, sourceTargets: !options.standalone }).children.filter((node) => !isBlank(node));
   const first = nodes[0];
@@ -90,7 +91,8 @@ export function htmlPage(
       ]),
     ],
   };
-  return { title, language: model.language, css: `${template.css}\n${SHARED_CSS}`, html: stringify(page), images };
+  const palette = tablePaletteCss(options.tablePalette ?? {}, "page");
+  return { title, language: model.language, css: `${template.css}\n${SHARED_CSS}${palette ? `\n${palette}` : ""}`, html: stringify(page), images };
 }
 
 /** One standalone file: no script, no external stylesheet. */

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { parseDocument } from "../src/lib/document.ts";
 import { htmlTemplateOf, type HtmlTemplate } from "../src/lib/htmlTemplates.ts";
+import { tablePaletteCss, type TablePalette } from "../src/lib/tablePalette.ts";
 import { htmlPage, standaloneHtml, type HtmlPage } from "../src/lib/htmlPage.ts";
 
 const SHEET = htmlTemplateOf("interview-sheet")!;
@@ -11,9 +12,9 @@ const ARTICLE = htmlTemplateOf("article")!;
 
 type Standalone = { images: Record<string, string>; diagrams: string[] };
 
-function build(text: string, options: { template?: HtmlTemplate; standalone?: Standalone; softBreaks?: boolean; path?: string } = {}): HtmlPage {
+function build(text: string, options: { template?: HtmlTemplate; standalone?: Standalone; softBreaks?: boolean; path?: string; tablePalette?: TablePalette } = {}): HtmlPage {
   const path = options.path ?? "notes/page.md";
-  return htmlPage(parseDocument(text, path), path, options.template ?? SHEET, {}, { softBreaks: options.softBreaks ?? false, standalone: options.standalone });
+  return htmlPage(parseDocument(text, path), path, options.template ?? SHEET, {}, { softBreaks: options.softBreaks ?? false, standalone: options.standalone, tablePalette: options.tablePalette });
 }
 
 const sectionIds = (html: string) => [...html.matchAll(/<section class="ld-section" id="([^"]*)"/g)].map((match) => match[1]);
@@ -310,5 +311,25 @@ describe("links and images as written (editing)", () => {
   test("the standalone page does not", () => {
     const html = build(text, { standalone: { images: { "notes/images/a.png": "data:x" }, diagrams: [] } }).html;
     assert.doesNotMatch(html, /data-md/);
+  });
+});
+
+describe("the Project's table colours", () => {
+  const palette: TablePalette = { info: "#ff0000" };
+
+  test("the css ends with the palette's rules for the page", () => {
+    const page = build("# T\n", { tablePalette: palette });
+    assert.ok(page.css.endsWith(tablePaletteCss(palette, "page")));
+    assert.match(page.css, /table-color-info[^{]*\{[^}]*#ff0000/);
+  });
+
+  test("the standalone HTML carries them too", () => {
+    const html = standaloneHtml(build("# T\n", { tablePalette: palette, standalone: { images: {}, diagrams: [] } }));
+    assert.match(html, /table-color-info[^{]*\{[^}]*#ff0000/);
+  });
+
+  test("without a palette the css is the template's and the shared one, unchanged", () => {
+    assert.equal(build("# T\n", { tablePalette: {} }).css, build("# T\n").css);
+    assert.doesNotMatch(build("# T\n").css, /#ff0000/);
   });
 });
