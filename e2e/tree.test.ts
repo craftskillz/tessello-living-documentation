@@ -966,9 +966,10 @@ describe("the sidebar's width", () => {
     await separator(page).focus();
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowRight");
-    assert.equal(await sidebar(page), 288);
+    // The width follows a key at the next frame: it is waited for, not read at once.
+    await until(async () => (await sidebar(page)) === 288, "288 px after two →");
     await page.keyboard.press("ArrowLeft");
-    assert.equal(await sidebar(page), 272);
+    await until(async () => (await sidebar(page)) === 272, "272 px after ←");
     assert.equal(await separator(page).getAttribute("aria-valuenow"), "272");
     await until(async () => ((await host.storage.get("display")) as { sidebar: { width: number } } | null)?.sidebar.width === 272);
 
