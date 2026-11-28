@@ -31,14 +31,23 @@ publish bump:
     esac
     if [ "$(git branch --show-current)" != "main" ]; then echo "Publish from main." >&2; exit 1; fi
     if [ -n "$(git status --porcelain)" ]; then echo "Commit or stash your changes first." >&2; exit 1; fi
+    # Runs a check quietly; when it fails, shows what it wrote.
+    quiet() { local log; log=$(mktemp); if ! "$@" >"$log" 2>&1; then cat "$log" >&2; echo "✗ Failed: $*" >&2; exit 1; fi; rm -f "$log"; }
+    echo "→ Pulling main…"
     git pull --ff-only --quiet
     # Installs exactly the locked dependencies, then checks before anything is tagged, so that a broken version is never published.
+    echo "→ Installing the locked dependencies…"
     npm ci --silent
+    echo "→ Type checking…"
     npm run typecheck --silent
-    npm test --silent >/dev/null
-    npm run test:browser --silent >/dev/null
-    npx tessello validate dist >/dev/null
+    echo "→ Unit tests…"
+    quiet npm test --silent
+    echo "→ Build and browser tests (a few minutes)…"
+    quiet npm run test:browser --silent
+    echo "→ Validating the package…"
+    quiet npx tessello validate dist
     # package.json and package-lock.json through npm, then the Manifest, so that all three keep the same version.
+    echo "→ Raising the version, committing, tagging and pushing…"
     version=$(npm version "$bump" --no-git-tag-version | sed 's/^v//')
     # Only the value of "version" is replaced, so that the rest of the Manifest keeps its layout.
     node -e 'const fs = require("fs"); const [version] = process.argv.slice(1); fs.writeFileSync("manifest.json", fs.readFileSync("manifest.json", "utf8").replace(/("version"\s*:\s*)"[^"]*"/, `$1"${version}"`));' "$version"
