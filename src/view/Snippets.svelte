@@ -193,6 +193,14 @@
     table.rows.splice(row, 1);
     menu = null;
   }
+  /** Check boxes put a first column of boxes before the others (blank header, unchecked rows); without, it goes away. */
+  function setCheckboxes(table: TableData, on: boolean) {
+    if (on === table.checkboxes) return;
+    table.checkboxes = on;
+    if (on) table.rows.forEach((each, r) => each.unshift(r === 0 ? "" : "[ ]"));
+    else table.rows.forEach((each) => each.shift());
+  }
+  const isChecked = (cell: string) => /^\[[xX]\]$/.test(cell.trim());
   function deleteColumn(table: TableData, column: number) {
     table.rows.forEach((each) => each.splice(column, 1));
     menu = null;
@@ -327,6 +335,7 @@
             {#each TABLE_FILLS as fill (fill)}
               <label class="check"><input type="checkbox" checked={table.fill === fill} onchange={(event) => (table.fill = event.currentTarget.checked ? fill : "")} /> {t(`snFill_${fill}`)}</label>
             {/each}
+            <label class="check"><input type="checkbox" checked={table.checkboxes} onchange={(event) => setCheckboxes(table, event.currentTarget.checked)} /> {t("snCheckboxes")}</label>
           </div>
           <label class="field">
             {t("snTableColor")}
@@ -344,15 +353,32 @@
               class:table-border-bordered={table.border === "bordered"}
               class:table-border-soft-bordered={table.border === "soft-bordered"}
               class:table-rounded={table.rounded}
+              class:table-checkboxes={table.checkboxes}
               class={table.color ? `table-color-${table.color}` : ""}
             >
               {#each [{ tag: "thead", from: 0, to: 1 }, { tag: "tbody", from: 1, to: table.rows.length }] as part (part.tag)}
                 <svelte:element this={part.tag}>
                 {#each table.rows.slice(part.from, part.to) as row, i (i)}
                   {@const r = part.from + i}
-                  <tr>
+                  <tr class:ld-checked={table.checkboxes && r > 0 && isChecked(row[0] ?? "")}>
                     {#each row as _cell, c (c)}
-                      <svelte:element this={r === 0 ? "th" : "td"}>
+                      <svelte:element this={r === 0 ? "th" : "td"} class={table.checkboxes && c === 0 ? "ld-check-cell" : undefined}>
+                        {#if table.checkboxes && c === 0 && r === 0}
+                          <span aria-hidden="true"></span>
+                        {:else if table.checkboxes && c === 0}
+                          <input
+                            type="checkbox"
+                            data-cell="{r}-{c}"
+                            aria-label={t("snCheckRow", { row: r })}
+                            checked={isChecked(table.rows[r]![0]!)}
+                            onchange={(event) => (table.rows[r]![0] = event.currentTarget.checked ? "[x]" : "[ ]")}
+                            onkeydown={(event) => cellKey(event, table, r, c)}
+                            oncontextmenu={(event) => {
+                              event.preventDefault();
+                              menu = { x: event.clientX, y: event.clientY, row: r, column: c };
+                            }}
+                          />
+                        {:else}
                         <input
                           type="text"
                           data-cell="{r}-{c}"
@@ -364,6 +390,7 @@
                             menu = { x: event.clientX, y: event.clientY, row: r, column: c };
                           }}
                         />
+                        {/if}
                       </svelte:element>
                     {/each}
                   </tr>
@@ -376,7 +403,7 @@
           {#if menu}
             <div class="menu" role="menu" tabindex="-1" style="left:{menu.x}px;top:{menu.y}px" onpointerdown={(event) => event.stopPropagation()}>
               <button type="button" role="menuitem" disabled={table.rows.length <= 1} onclick={() => deleteRow(table, menu!.row)}>{t("snDeleteRow")}</button>
-              <button type="button" role="menuitem" disabled={table.rows[0]!.length <= 1} onclick={() => deleteColumn(table, menu!.column)}>{t("snDeleteColumn")}</button>
+              <button type="button" role="menuitem" disabled={table.rows[0]!.length <= (table.checkboxes ? 2 : 1) || (table.checkboxes && menu.column === 0)} onclick={() => deleteColumn(table, menu!.column)}>{t("snDeleteColumn")}</button>
             </div>
           {/if}
         {:else if data.kind === "kanban"}
@@ -852,7 +879,14 @@
     cursor: text;
   }
   /* The inputs take the look of the cell they sit in: the Document's styles decide the rest. */
-  .grid input {
+  .grid input[type="checkbox"] {
+    display: inline-block;
+    width: auto;
+    min-width: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .grid input:not([type="checkbox"]) {
     display: block;
     width: 100%;
     min-width: 6rem;

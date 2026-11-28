@@ -33,7 +33,7 @@
   import ProjectSwitcher from "./ProjectSwitcher.svelte";
   import { createLiveSearch, documentsIn, filterTree, searchProject, titleResults, type SearchResult } from "../lib/search.ts";
   import { renderDocument, renderDocumentTree, locateClick, kanbanBlockOf } from "../lib/render.ts";
-  import { insertMarker, removeMarker, usedMarkerNames } from "../lib/markerWrites.ts";
+  import { insertMarker, removeMarker, toggleCheck, usedMarkerNames } from "../lib/markerWrites.ts";
   import { type CardPlace, type ColumnEdit, type ColumnsFailure, createCard, InvalidColumns, loadBoard, moveCard, type Column, type Removal, saveColumns, TakenColumn } from "../lib/board.ts";
   import { columnFolder, type CardTexts } from "../lib/kanban.ts";
   import EditColumns from "./EditColumns.svelte";
@@ -815,12 +815,59 @@
 
   /** Links of the article carry data attributes, never an address: the View is an about:srcdoc page. */
   function activate(event: Event) {
+    const box = (event.target as Element).closest<HTMLInputElement>("input[data-table-check]");
+    if (box) return checkBox(event, box);
     const link = (event.target as Element).closest<HTMLElement>("[data-doc], [data-file], [data-anchor]");
     if (!link) return;
     const { doc, file, anchor } = link.dataset;
     if (doc) void follow(doc, anchor ?? null);
     else if (file) report(t("fileUnavailable", { path: file }));
     else scrollTo(anchor!);
+  }
+
+  /**
+   * A table's check box: shown ticked at once and written to the Document; a refused or failed write unticks it again.
+   * While a tick is being written the boxes do not change: the next one's range is only known on the saved text.
+   */
+  let tickSaving = false;
+  function checkBox(event: Event, box: HTMLInputElement) {
+    if (!blockActionsOn || tickSaving) return event.preventDefault();
+    const [from, to] = box.dataset.tableCheck!.split("-").map(Number);
+    const show = () => box.closest("tr")?.classList.toggle("ld-checked", box.checked);
+    show();
+    tickSaving = true;
+    keepInPlace(box.closest("table"));
+    void writeMarker(t("checkFailed"), (asked, file) =>
+      toggleCheck(asked, file, current!, { from: from!, to: to! }).catch((reason) => {
+        box.checked = !box.checked;
+        show();
+        throw reason;
+      }),
+    ).finally(() => (tickSaving = false));
+  }
+
+  /**
+   * Keeps `element` at its place on screen while the Document is drawn again after a write: Images read again and
+   * diagrams drawn again change the height above it. Stops after a while, or as soon as the User scrolls.
+   */
+  function keepInPlace(element: Element | null) {
+    const scroller = article?.closest("main");
+    if (!element || !article || !scroller) return;
+    const tables = () => [...article!.querySelectorAll(element.tagName)];
+    const index = tables().indexOf(element);
+    const top = element.getBoundingClientRect().top;
+    const adjust = () => {
+      const now = tables()[index];
+      if (now) scroller.scrollTop += now.getBoundingClientRect().top - top;
+    };
+    const observer = new ResizeObserver(adjust);
+    observer.observe(article);
+    const stop = () => {
+      observer.disconnect();
+      for (const type of ["wheel", "touchmove", "keydown", "pointerdown"]) scroller.removeEventListener(type, stop);
+    };
+    for (const type of ["wheel", "touchmove", "keydown", "pointerdown"]) scroller.addEventListener(type, stop, { passive: true });
+    setTimeout(stop, 3000);
   }
 
   function activateKey(event: KeyboardEvent) {
@@ -854,10 +901,16 @@
   });
 
   // Long code blocks fold after each render; the next render (or leaving) undoes this one.
+  // The code blocks unfolded in the open Document; another Document starts folded.
+  let unfolded = new Set<number>();
+  $effect(() => {
+    path;
+    unfolded = new Set();
+  });
   $effect(() => {
     html;
     if (!article) return;
-    return decorateCollapsible(article, { more: t("showMore"), less: t("showLess") });
+    return decorateCollapsible(article, { more: t("showMore"), less: t("showLess") }, unfolded);
   });
 
   // Diagrams are drawn after each render; they follow the theme of the Document (dark, unless the white background is on).

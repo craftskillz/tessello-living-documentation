@@ -594,6 +594,31 @@
 .document table:is(.table-border-bordered, .table-border-soft-bordered):not(.table-fill-full):not(.table-rounded) :is(th, td) {
   border: 1px solid var(--tbl-line);
 }
+/* Check boxes (table-checkboxes): a narrow first column; a checked row's other cells are hatched and faded, the box kept clear. */
+.document table.table-checkboxes tr > :first-child {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+.document table.table-checkboxes input[type="checkbox"] {
+  margin: 0;
+  vertical-align: middle;
+  accent-color: var(--accent, rgb(37 99 235));
+  cursor: pointer;
+}
+/* The hatches lie over the content, so that the row reads as crossed out; content and hatches show through at half strength. */
+.document table.table-checkboxes tr.ld-checked > :not(.ld-check-cell) {
+  position: relative;
+  opacity: 0.55;
+}
+.document table.table-checkboxes tr.ld-checked > :not(.ld-check-cell)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--doc-body) 45%, transparent) 0 1px, transparent 1px 6px);
+}
+
 .document table.table-border-borderless :is(th, td) {
   border-left: none;
   border-right: none;

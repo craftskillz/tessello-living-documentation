@@ -135,7 +135,8 @@ export type SnippetData =
   | { kind: "separator" }
   | { kind: "collapsible"; summary: string; body: string }
   | { kind: "unordered-list" | "ordered-list"; items: string }
-  | { kind: "table"; style: TableStyle; fill: TableFill; border: TableBorder; rounded: boolean; color: TableColor; rows: string[][] }
+  /** With `checkboxes`, the first column of `rows` holds the boxes: `[x]` or `[ ]` (or as written) in each body row. */
+  | { kind: "table"; style: TableStyle; fill: TableFill; border: TableBorder; rounded: boolean; color: TableColor; checkboxes: boolean; rows: string[][] }
   | { kind: "kanban"; columns: { label: string; color: KanbanColor }[] }
   | { kind: "tree"; items: { name: string; depth: number }[] }
   | { kind: "code-block"; language: string; code: string; width: Width; align: Align }
@@ -213,7 +214,7 @@ export function newSnippet(kind: SnippetKind, texts: SnippetTexts): SnippetData 
     case "collapsible": return { kind, summary: texts.collapsibleSummary, body: "" };
     case "unordered-list": return { kind, items: exampleUnordered(texts) };
     case "ordered-list": return { kind, items: exampleOrdered(texts) };
-    case "table": return { kind, style: "", fill: "", border: "", rounded: false, color: "", rows: [[`${texts.tableHeader} 1`, `${texts.tableHeader} 2`], ["", ""]] };
+    case "table": return { kind, style: "", fill: "", border: "", rounded: false, color: "", checkboxes: false, rows: [[`${texts.tableHeader} 1`, `${texts.tableHeader} 2`], ["", ""]] };
     case "kanban": return { kind, columns: texts.kanbanColumns.slice(0, KANBAN_MAX_COLUMNS).map((label, index) => ({ label, color: kanbanColor(undefined, index) })) };
     case "tree": return { kind, items: [{ name: texts.treeFolder, depth: 0 }, { name: texts.treeFile, depth: 1 }] };
     case "code-block": return { kind, language: "", code: "", width: "", align: "" };
@@ -271,10 +272,13 @@ function buildTable(data: Extract<SnippetData, { kind: "table" }>): string {
     data.border ? `<!-- table-border: ${data.border} -->` : "",
     data.rounded ? "<!-- table-rounded -->" : "",
     data.color ? `<!-- table-color: ${data.color} -->` : "",
+    data.checkboxes ? "<!-- table-checkboxes -->" : "",
   ].filter(Boolean);
   const columns = data.rows[0]?.length ?? 0;
   if (columns === 0) return directives.join("\n");
-  const rows = data.rows.map((row) => Array.from({ length: columns }, (_, c) => escapeCell(row[c] ?? "")));
+  // An empty box is written `[ ]`, so that the column reads as boxes in the Markdown too.
+  const box = (cell: string, r: number, c: number) => (data.checkboxes && r > 0 && c === 0 && cell.trim() === "" ? "[ ]" : cell);
+  const rows = data.rows.map((row, r) => Array.from({ length: columns }, (_, c) => escapeCell(box(row[c] ?? "", r, c))));
   const widths = Array.from({ length: columns }, (_, c) => Math.max(3, ...rows.map((row) => row[c]!.length)));
   const line = (row: string[]) => `| ${row.map((cell, c) => cell.padEnd(widths[c]!)).join(" | ")} |`;
   const separator = `| ${widths.map((each) => "-".repeat(each)).join(" | ")} |`;
@@ -464,7 +468,7 @@ export function buildSnippet(data: SnippetData, texts: SnippetTexts): string {
 
 // --- reading a snippet back into its form ---
 
-const TABLE_DIRECTIVE = /^<!--\s*table-(?:(?:style|fill|border|color):\s*[a-z][a-z0-9_-]*|rounded)\s*-->$/;
+const TABLE_DIRECTIVE = /^<!--\s*table-(?:(?:style|fill|border|color):\s*[a-z][a-z0-9_-]*|rounded|checkboxes)\s*-->$/;
 const isTableLine = (line: string) => /^\|.*\|$/.test(line.trim());
 const isSeparatorLine = (line: string) => {
   const cells = tableCells(line);
@@ -478,11 +482,13 @@ function parseTable(markdown: string): SnippetData {
   let border: TableBorder = "";
   let rounded = false;
   let color: TableColor = "";
+  let checkboxes = false;
   for (const line of markdown.split("\n")) {
-    const directive = /^<!--\s*table-(?:(style|fill|border|color):\s*([a-z][a-z0-9_-]*)|(rounded))\s*-->$/.exec(line.trim());
+    const directive = /^<!--\s*table-(?:(style|fill|border|color):\s*([a-z][a-z0-9_-]*)|(rounded|checkboxes))\s*-->$/.exec(line.trim());
     if (!directive) continue;
     const [, name, value, bare] = directive;
-    if (bare) rounded = true;
+    if (bare === "rounded") rounded = true;
+    if (bare === "checkboxes") checkboxes = true;
     if (name === "style" && isOneOf(TABLE_STYLES, value!)) style = value;
     if (name === "style" && isOneOf(TABLE_FILLS, value!)) fill = value; // legacy: table-style: striped | full
     if (name === "style" && value === "full") rounded = true; // the old Full had rounded corners
@@ -495,7 +501,7 @@ function parseTable(markdown: string): SnippetData {
   const rows = markdown.split("\n").filter(isTableLine).filter((line) => !isSeparatorLine(line)).map((line) => tableCells(line).map((cell) => cell.replace(/\\\|/g, "|")));
   const columns = Math.max(0, ...rows.map((row) => row.length));
   for (const row of rows) while (row.length < columns) row.push("");
-  return { kind: "table", style, fill, border, rounded, color, rows };
+  return { kind: "table", style, fill, border, rounded, color, checkboxes, rows };
 }
 
 function parseTree(markdown: string): SnippetData {

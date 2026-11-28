@@ -95,7 +95,8 @@
       const cell = (event.target as Element).closest("td, th");
       const table = cell?.closest("table");
       const text = base();
-      if (!cell || !table || !text || event.shiftKey) return;
+      // A table's check box is ticked by each click, never opened in the form.
+      if (!cell || !table || !text || event.shiftKey || (event.target as Element).closest("input[data-table-check]")) return;
       const block = snippetAt(text.text, rangesFrom(root, table));
       if (block?.kind !== "table") return;
       event.preventDefault();

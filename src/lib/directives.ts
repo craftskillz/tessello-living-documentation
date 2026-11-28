@@ -27,6 +27,8 @@ export interface TableAttrs {
   border: string | null;
   rounded: boolean;
   color: string | null;
+  /** The bare `table-checkboxes`: the first column holds a check box per row (`[ ]` or `[x]` in the Markdown). */
+  checkboxes: boolean;
 }
 
 const TABLE_DENSITIES = ["compact", "intermediate"];
@@ -35,12 +37,12 @@ const TABLE_BORDERS = ["bordered", "soft-bordered", "borderless"];
 const TABLE_COLORS = ["info", "success", "warning", "danger", "note"];
 
 /**
- * `table-style` (density), `table-fill`, `table-border`, the bare `table-rounded` and `table-color`; invalid values are
- * ignored, the last valid one wins per attribute. The original's `table-style` also carried the fill and the border:
+ * `table-style` (density), `table-fill`, `table-border`, the bare `table-rounded`, `table-color` and the bare
+ * `table-checkboxes`; invalid values are ignored, the last valid one wins per attribute. The original's `table-style` also carried the fill and the border:
  * `striped` and `full` (which was rounded) set the fill, `bordered`, `soft-bordered` and `borderless` the border.
  */
 export function tableAttrs(directives: Directive[]): TableAttrs {
-  const attrs: TableAttrs = { style: null, fill: null, border: null, rounded: false, color: null };
+  const attrs: TableAttrs = { style: null, fill: null, border: null, rounded: false, color: null, checkboxes: false };
   for (const { name, value } of directives) {
     const word = value === null ? null : value.trim();
     if (name === "table-style") {
@@ -54,6 +56,7 @@ export function tableAttrs(directives: Directive[]): TableAttrs {
     if (name === "table-border") attrs.border = oneOf(TABLE_BORDERS, word) ?? attrs.border;
     if (name === "table-rounded" && value === null) attrs.rounded = true;
     if (name === "table-color") attrs.color = oneOf(TABLE_COLORS, word) ?? attrs.color;
+    if (name === "table-checkboxes" && value === null) attrs.checkboxes = true;
   }
   return attrs;
 }

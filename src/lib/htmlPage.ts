@@ -64,6 +64,11 @@ export function htmlPage(
     } else sections.at(-1)!.node.children.push(node as ElementContent);
   }
 
+  // The page shows the table check boxes as they are: they are ticked in the reading, which writes the Document.
+  for (const box of findAll(content, (node) => node.properties.dataTableCheck !== undefined)) {
+    delete box.properties.dataTableCheck;
+    box.properties.disabled = true;
+  }
   const images = [...new Set(findAll(content, (node) => node.properties.dataImage !== undefined).map((node) => String(node.properties.dataImage)))];
   const headingAnchors = new Map(sections.map((section) => [headingId(section.text), section.anchor]));
   const standalone = options.standalone;

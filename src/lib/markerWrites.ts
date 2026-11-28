@@ -7,6 +7,7 @@ import { parseDocument } from "./document.ts";
 import { Conflict, type DocumentText, type Project, Refused, type TreeEntry } from "./project.ts";
 import { markersOf, renderDocumentTree } from "./render.ts";
 import { documentsIn } from "./search.ts";
+import { toggledCheck } from "./tableChecks.ts";
 
 /**
  * Applies `edit` to `base` and saves it at `base.version`. When the Document changed meanwhile, the edit is retried once
@@ -51,3 +52,7 @@ export async function usedMarkerNames(project: Project, tree: TreeEntry[], softB
   }
   return [...names];
 }
+
+/** Ticks or unticks the table check box whose source is `range` (render.ts gives it in `data-table-check`). */
+export const toggleCheck = (project: Project, path: string, base: DocumentText, range: TextRange) =>
+  writeMarkerEdit(project, path, base, { range, text: toggledCheck(base.text.slice(range.from, range.to)) }, range);

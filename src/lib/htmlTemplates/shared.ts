@@ -151,6 +151,14 @@ pre[class*="ld-code-align-"] { display: block; }
 pre.ld-code-align-left { margin-left: 0; margin-right: auto; }
 pre.ld-code-align-center { margin-left: auto; margin-right: auto; }
 pre.ld-code-align-right { margin-left: auto; margin-right: 0; }
+/* ── Tables: check boxes (table-checkboxes), a checked row hatched and faded ── */
+table.table-checkboxes tr > :first-child { width: 1%; white-space: nowrap; text-align: center; }
+table.table-checkboxes input[type="checkbox"] { margin: 0; vertical-align: middle; }
+table.table-checkboxes tr.ld-checked > :not(.ld-check-cell) { position: relative; opacity: .55; }
+table.table-checkboxes tr.ld-checked > :not(.ld-check-cell)::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: repeating-linear-gradient(-45deg, color-mix(in srgb, currentColor 45%, transparent) 0 1px, transparent 1px 6px);
+}
 /* ── Tables: style, border and color presets ── */
 .overflow-x-auto {
   overflow-x: auto;

@@ -18,6 +18,7 @@ import { calloutIcon, gridTemplate, parseColumnComment, type Directive, parseDir
 import { type KanbanBlock, parseKanbanBlock } from "./kanban.ts";
 import { isMarkerName, pillLabel, TAG_SOURCE } from "./tagMarkers.ts";
 import { headingId, resolveImage, resolveLink } from "./links.ts";
+import { checkOfCell } from "./tableChecks.ts";
 
 const BLOCKS = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "li", "pre", "table", "hr"]);
 const HEADINGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
@@ -224,7 +225,7 @@ function visit(nodes: ElementContent[], change: (element: Element) => ElementCon
   });
 }
 
-function annotate(element: Element, { path, bodyStart, rendered, sourceTargets }: Pass): ElementContent[] | null {
+function annotate(element: Element, { path, bodyStart, rendered, sourceTargets, text }: Pass): ElementContent[] | null {
   if (element.properties.dataCompare !== undefined) return [rendered[Number(element.properties.dataCompare)]!];
   const start = element.position?.start.offset;
   const end = element.position?.end.offset;
@@ -248,13 +249,42 @@ function annotate(element: Element, { path, bodyStart, rendered, sourceTargets }
   if ((BLOCKS.has(element.tagName) || isMermaid(element) || element.properties.dataKanban !== undefined) && start !== undefined && end !== undefined) {
     element.properties.dataSrc = `${bodyStart + start}-${bodyStart + end}`;
   }
-  if (element.tagName === "table") return [{ type: "element", tagName: "div", properties: { className: ["overflow-x-auto"] }, children: [element] }];
+  if (element.tagName === "table") {
+    if (element.properties.dataTableCheckboxes !== undefined) drawChecks(element, text, bodyStart);
+    return [{ type: "element", tagName: "div", properties: { className: ["overflow-x-auto"] }, children: [element] }];
+  }
   if (element.tagName === "td" || element.tagName === "th") {
     if (element.children.length === 0) element.children = [{ type: "text", value: "\u00a0" }];
   }
   if (element.tagName === "a") return linkOf(element, path, sourceTargets);
   if (element.tagName === "img") return imageOf(element, path, sourceTargets);
   return null;
+}
+
+/**
+ * A `table-checkboxes` table: the first cell of each body row holding `[ ]`, `[x]` or nothing becomes a check box whose
+ * `data-table-check` is the range a tick rewrites; a checked row gets `ld-checked`. Another first cell stays as written.
+ */
+function drawChecks(table: Element, text: string, bodyStart: number): void {
+  const children = (element: Element) => element.children.filter((each): each is Element => each.type === "element");
+  for (const row of children(table).filter((each) => each.tagName === "tbody").flatMap(children)) {
+    const cell = children(row)[0];
+    const start = cell?.position?.start.offset;
+    const end = cell?.position?.end.offset;
+    if (!cell || start === undefined || end === undefined) continue;
+    const check = checkOfCell(text.slice(start, end));
+    if (!check) continue;
+    cell.properties.className = ["ld-check-cell"];
+    cell.children = [
+      {
+        type: "element",
+        tagName: "input",
+        properties: { type: "checkbox", checked: check.checked, dataTableCheck: `${bodyStart + start + check.range.from}-${bodyStart + start + check.range.to}` },
+        children: [],
+      },
+    ];
+    if (check.checked) row.properties.className = ["ld-checked"];
+  }
 }
 
 const isMermaid = (element: Element): boolean => element.tagName === "div" && element.properties.dataMermaid !== undefined;
@@ -877,13 +907,14 @@ function decorate(node: Nodes, found: Directive[]): void {
     };
   }
   if (node.type === "table") {
-    const { style, fill, border, rounded, color } = tableAttrs(found);
+    const { style, fill, border, rounded, color, checkboxes } = tableAttrs(found);
     const classes = [
       style && `table-style-${style}`,
       fill && `table-fill-${fill}`,
       border && `table-border-${border}`,
       rounded && "table-rounded",
       color && `table-color-${color}`,
+      checkboxes && "table-checkboxes",
     ].filter((each): each is string => !!each);
     if (classes.length === 0) return;
     node.data = {
@@ -894,6 +925,7 @@ function decorate(node: Nodes, found: Directive[]): void {
         ...(border && { dataTableBorder: border }),
         ...(rounded && { dataTableRounded: "" }),
         ...(color && { dataTableColor: color }),
+        ...(checkboxes && { dataTableCheckboxes: "" }),
       },
     };
   }
