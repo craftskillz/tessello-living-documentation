@@ -2328,13 +2328,15 @@
         </div>
       </div>
       <p class="count muted" aria-live="polite">{tn("countDocuments", documentsIn(shownTree).length)}</p>
-      {#if searchResults && shownTree.length === 0}
-        <p class="muted">{t("noDocumentsFound")}</p>
-      {:else if tree.length === 0}
-        <p class="muted">{t("emptyProject")}</p>
-      {:else}
-        <Tree entries={shownTree} current={path} open={(target) => void openFresh(target)} onfile={(target) => void openOther(target)} {drag} label={treeLabel} searching={searchResults !== null} {excerpts} />
-      {/if}
+      <div class="nav-scroll">
+        {#if searchResults && shownTree.length === 0}
+          <p class="muted">{t("noDocumentsFound")}</p>
+        {:else if tree.length === 0}
+          <p class="muted">{t("emptyProject")}</p>
+        {:else}
+          <Tree entries={shownTree} current={path} open={(target) => void openFresh(target)} onfile={(target) => void openOther(target)} {drag} label={treeLabel} searching={searchResults !== null} {excerpts} />
+        {/if}
+      </div>
     </nav>
     <ResizeHandle
       label={t("resizeSidebar")}
@@ -2979,10 +2981,25 @@
     height: 100%;
     position: relative;
   }
+  /* The head of the sidebar (Project, search, tools, count) stays in place; only the Tree below it scrolls. The nav does
+     not clip, so the head's menus can open wider than the sidebar. */
   nav {
     border-right: 1px solid var(--line);
-    padding: 1rem;
+    padding: 1rem 0 0 1rem;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .nav-head,
+  .count {
+    flex: none;
+    margin-right: 1rem;
+  }
+  .nav-scroll {
+    flex: 1;
+    min-height: 0;
     overflow: auto;
+    padding: 0 1rem 1rem 0;
   }
   .other-projects {
     margin-top: 1.5rem;

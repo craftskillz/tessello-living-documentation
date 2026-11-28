@@ -791,7 +791,7 @@ describe("the Tree's look and labels", () => {
     const visible = async (path: string) =>
       page.evaluate((entry) => {
         const box = document.querySelector(`[data-entry="${entry}"] [role="link"], [data-entry="${entry}"] a`)!.getBoundingClientRect();
-        const view = document.querySelector("nav")!.getBoundingClientRect();
+        const view = document.querySelector("nav .nav-scroll")!.getBoundingClientRect();
         return box.top >= view.top - 1 && box.bottom <= view.bottom + 1;
       }, path);
     assert.equal(await visible("doc-59.md"), false);
@@ -810,6 +810,40 @@ describe("the Tree's look and labels", () => {
     await page.getByRole("heading", { level: 1, name: "Last" }).waitFor();
     await row(page, "deep/zz/last.md").waitFor({ state: "visible" });
     await until(() => visible("deep/zz/last.md"));
+  });
+
+  test("only the Tree scrolls: the Project, search and tools above it stay in place", async () => {
+    const files: Record<string, string> = {};
+    for (let index = 0; index < 80; index++) files[`doc-${String(index).padStart(2, "0")}.md`] = `# D${index}\n`;
+    const { page } = await withProject(files);
+    await page.getByRole("heading", { level: 1, name: "D0" }).waitFor();
+    const search = nav(page).getByRole("searchbox", { name: "Search documents…" });
+    const before = (await search.boundingBox())!.y;
+
+    await row(page, "doc-79.md").scrollIntoViewIfNeeded();
+    const scrolled = await page.evaluate(() => ({
+      nav: document.querySelector("nav")!.scrollTop,
+      tree: document.querySelector("nav .nav-scroll")!.scrollTop,
+    }));
+    assert.equal(scrolled.nav, 0);
+    assert.ok(scrolled.tree > 0, `tree scrollTop ${scrolled.tree}`);
+    assert.equal((await search.boundingBox())!.y, before);
+    assert.ok(await search.isVisible());
+  });
+
+  test("the Project menu opens wider than the sidebar, over the Document, uncut", async () => {
+    const { page } = await withProject({ "a.md": "# A\n" });
+    await page.getByRole("heading", { level: 1, name: "A" }).waitFor();
+    await nav(page).getByRole("button", { name: "docs" }).click();
+    const panel = nav(page).locator(".switcher .panel");
+    await panel.waitFor();
+    const { right, sidebar, top } = await page.evaluate(() => {
+      const box = document.querySelector("nav .switcher .panel")!.getBoundingClientRect();
+      return { right: box.right, top: box.top, sidebar: document.querySelector("nav")!.getBoundingClientRect().right };
+    });
+    assert.ok(right > sidebar, `panel ${right} within sidebar ${sidebar}`);
+    const onTop = await panel.evaluate((element, point) => element.contains(document.elementFromPoint(point.x, point.y)), { x: right - 8, y: top + 8 });
+    assert.ok(onTop, "the panel's right edge is covered");
   });
 
   test("the cog shows titles in the Tree, the file name as tooltip; kept after a reload", async () => {
