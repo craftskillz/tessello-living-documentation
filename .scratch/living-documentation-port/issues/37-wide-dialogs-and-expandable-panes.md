@@ -4,7 +4,7 @@
 
 **Blocked by:** none
 
-**Status:** built, awaiting the trial in the local Host
+**Status:** done (240bb6c, a02f4cb)
 
 - [x] Section dialog: 80% of the window's width
 - [x] Snippet dialog: 80% of the window's width on a snippet's form; the picker keeps its narrow width
@@ -12,7 +12,7 @@
 - [x] Wide content scrolls horizontally in an expanded pane; the expanded Markdown stops wrapping its lines (side by side it wraps), the expanded preview fits the width
 - [x] Every text in English and French
 - [x] Typecheck, unit and browser suites green
-- [ ] Tried in the local Host
+- [x] Tried in the local Host
 
 ## Settled
 
@@ -24,3 +24,4 @@
 - A table already scrolls horizontally in its own wrapper (`div.overflow-x-auto` from render.ts); other wide content scrolls the pane. Expanded, the Markdown editor stops wrapping its lines (CodeMirror's `lineWrapping` in a compartment, `wrap` prop of Editor.svelte), so a table's source reads on one line and scrolls horizontally; side by side it wraps again.
 - The snippet picker (the search list) keeps its 40rem: 80% applies once a snippet's form is open.
 - After the User's first look (2026-11-27): more room between the toolbar and the pane buttons; the expanded Markdown scrolls horizontally instead of wrapping. `@codemirror/state` is now a declared dependency (it was only transitive).
+- Tried in the local Host by the User (2026-11-28): approved as is.

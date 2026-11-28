@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human (built in 43ad5ed; awaiting the trial in the local Host)
+**Status:** done (43ad5ed)
 
 - [x] Title matches at once; full text after a short pause
 - [x] Matches title, Tags, description, Type and body only
@@ -12,7 +12,7 @@
 - [x] The View's address never changes (the e2e assertion is kept for every new journey)
 - [x] Every text in English and French; every failure shows a translated message
 - [x] Typecheck, unit and browser suites green; `tessello validate` passes on the built package
-- [ ] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
+- [x] Tried in the local Host (`npm run start:host` in the sibling `tessello` repository, the Module copied into a Modules folder); differences from the original noted in the ticket
 
 Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs and the `docs/spec/` page of this feature first. Tests at the five seams of the spec's Testing Decisions.
 
@@ -25,4 +25,4 @@ Spec: `.scratch/living-documentation-port/spec.md`. Read `GLOSSARY.md`, the ADRs
 - When the Tree reloads during a search (agent edits, Show hidden items, a rename…), the full text runs again at once, so results and count follow the Tree.
 - The title search matches the displayed title, whatever the Tree shows (file names or titles, label filter).
 - A Document gone since the Tree was read is skipped; any other failed read fails the whole full-text search: the title matches stay, with "The full-text search failed; only title matches are shown." That message is tested at unit level only (the Test Host cannot make one read fail).
-- Still to do: the trial in the local Host.
+- Tried in the local Host by the User (2026-11-28): approved as is.

@@ -4,13 +4,13 @@
 
 **Blocked by:** none
 
-**Status:** built, awaiting the trial in the local Host
+**Status:** done (617b0dc)
 
 - [x] `src/view/Editor.svelte`: a line decoration (`cm-whole-line`) on table rows (in a quote too) and fenced code lines, which keep `white-space: pre`; the content keeps the editor's width so the prose wraps to it
 - [x] The section dialog's expanded Markdown (ticket 37) still turns wrapping off altogether
 - [x] Reading rule 4 of `docs/spec/documents-reading-and-editing.md`
 - [x] Typecheck, unit and browser suites green
-- [ ] Tried in the local Host
+- [x] Tried in the local Host
 
 ## Settled
 
@@ -22,3 +22,4 @@
 - A table row side by side in the section dialog now stays whole too (ticket 37's browser test changed accordingly).
 - `@codemirror/view` and `@codemirror/language` are now declared dependencies (they were only transitive).
 - Scrolled far right, the active line's highlight stops at the editor's width: cosmetic, left as is.
+- Tried in the local Host by the User (2026-11-28): approved as is.

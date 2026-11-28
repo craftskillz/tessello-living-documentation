@@ -4,15 +4,16 @@
 
 **Blocked by:** none
 
-**Status:** built, awaiting the trial in the local Host
+**Status:** done (be35968, 5805843)
 
 - [x] `src/lib/render.ts`: before a Mermaid block, `mermaid-width` / `mermaid-align` act as `code-width` / `code-align` (last valid one wins)
 - [x] Reading view and HTML generation (their CSS already sized `.ld-mermaid` by the `ld-code-*` classes)
 - [x] Reading rule 7 of `docs/spec/documents-reading-and-editing.md`
 - [x] Typecheck, unit and browser suites green
-- [ ] Tried in the local Host
+- [x] Tried in the local Host
 - [x] The skill `living-documentation` drops its warning and documents `mermaid-width` / `mermaid-align` (skill repository, cddca03)
 
 ## Comments
 
 - The test that pinned the old behaviour ("mermaid directives are consumed and not output", from the original tool) is replaced by the new rule.
+- Tried in the local Host by the User (2026-11-28): approved as is.

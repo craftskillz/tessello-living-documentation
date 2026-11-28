@@ -14,7 +14,7 @@ Outside the Module (GitHub, IDE previews) the comments are invisible and the con
 
 **Blocked by:** none
 
-**Status:** built, awaiting the trial in the local Host
+**Status:** done (d580d50, d22d8f6, cd72018, 68a1412, bb46c81)
 
 - [x] `src/lib/directives.ts`: `card` (title, `style`, `width`, `align`) and `/card`; unknown values ignored, like every directive
 - [x] `src/lib/render.ts`: the Card as a container around its content (rendered like any other Markdown), its source range on the whole block
@@ -25,7 +25,7 @@ Outside the Module (GitHub, IDE previews) the comments are invisible and the con
 - [x] Format (ticket 36) leaves the comments as they are and formats the content
 - [x] Every text in English and French; spec in `docs/spec/documents-snippets.md` and reading rule 7
 - [x] Typecheck, unit and browser suites green
-- [ ] Tried in the local Host
+- [x] Tried in the local Host
 
 ## Settled
 
@@ -48,3 +48,4 @@ Outside the Module (GitHub, IDE previews) the comments are invisible and the con
 - Background colour, asked by the User (2026-11-27): `color:` after `style`, one of twelve backgrounds (`CARD_PALETTE` in snippets.ts, repeated in document.css and the HTML pages' CSS); the text, title and plain-frame inks come with it. Swatches in the form, Default first (the style's own).
 - Bristol, after the User's second look (2026-11-27): light squares (1.25rem, about 13% blue; on a coloured card, its ink at 12%) and a red rule under the title from edge to edge (its title's colour on a coloured card).
 - After a later look (2026-11-27): the holes are evenly spaced, one in every three places (● · · ● · · ●), a single mask layer.
+- Tried in the local Host by the User (2026-11-28): approved as is.
