@@ -263,6 +263,34 @@ function buildOrdered(items: string, texts: SnippetTexts): string {
   }).join("\n");
 }
 
+type TableData = Extract<SnippetData, { kind: "table" }>;
+
+/** Where row `row` of the Table form can go by `by` (−1 up, +1 down): the header row stays first and no row goes above it. Null when it cannot move. */
+export function movedRow(table: TableData, row: number, by: 1 | -1): number | null {
+  const to = row + by;
+  return row >= 1 && to >= 1 && to < table.rows.length ? to : null;
+}
+/** Where column `column` can go by `by` (−1 left, +1 right): with check boxes, the box column stays first. Null when it cannot move. */
+export function movedColumn(table: TableData, column: number, by: 1 | -1): number | null {
+  const first = table.checkboxes ? 1 : 0;
+  const to = column + by;
+  return column >= first && to >= first && to < (table.rows[0]?.length ?? 0) ? to : null;
+}
+/** Swaps row `row` with its neighbour in direction `by`; returns where it went, or null (nothing changed). */
+export function moveRow(table: TableData, row: number, by: 1 | -1): number | null {
+  const to = movedRow(table, row, by);
+  if (to === null) return null;
+  [table.rows[row], table.rows[to]] = [table.rows[to]!, table.rows[row]!];
+  return to;
+}
+/** Swaps column `column` with its neighbour in direction `by`, in every row; returns where it went, or null (nothing changed). */
+export function moveColumn(table: TableData, column: number, by: 1 | -1): number | null {
+  const to = movedColumn(table, column, by);
+  if (to === null) return null;
+  for (const row of table.rows) [row[column], row[to]] = [row[to] ?? "", row[column] ?? ""];
+  return to;
+}
+
 const escapeCell = (cell: string) => cell.replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
 
 function buildTable(data: Extract<SnippetData, { kind: "table" }>): string {

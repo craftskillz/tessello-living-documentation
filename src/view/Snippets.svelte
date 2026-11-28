@@ -4,7 +4,7 @@
   import { onMount, tick } from "svelte";
   import { searchEmojis, EMOJI_GROUPS } from "../lib/emojis.ts";
   import { t, type MessageKey } from "../lib/i18n.ts";
-  import { ALIGNS, buildSnippet, CARD_COLORS, CARD_PALETTE, CARD_STYLES, COLUMN_COUNTS, GAPS, KANBAN_COLORS, MAX_TREE_LEVEL, MERMAID_CHARTS, newSnippet, NOTE_POSITIONS, parseSnippet, QUOTE_TYPES, SEQUENCE_ARROWS, SNIPPET_CATEGORIES, showsPreview, SWATCHES, type Swatch, type SnippetData, type SnippetKind, TABLE_BORDERS, TABLE_COLORS, TABLE_FILLS, TABLE_STYLES, TEXT_ALIGNS, VERTICAL_ALIGNS, WIDTHS } from "../lib/snippets.ts";
+  import { ALIGNS, buildSnippet, CARD_COLORS, CARD_PALETTE, CARD_STYLES, COLUMN_COUNTS, GAPS, KANBAN_COLORS, MAX_TREE_LEVEL, MERMAID_CHARTS, moveColumn, movedColumn, movedRow, moveRow, newSnippet, NOTE_POSITIONS, parseSnippet, QUOTE_TYPES, SEQUENCE_ARROWS, SNIPPET_CATEGORIES, showsPreview, SWATCHES, type Swatch, type SnippetData, type SnippetKind, TABLE_BORDERS, TABLE_COLORS, TABLE_FILLS, TABLE_STYLES, TEXT_ALIGNS, VERTICAL_ALIGNS, WIDTHS } from "../lib/snippets.ts";
   import { snippetTexts, type Heading, type SnippetFailure } from "./snippetDialog.ts";
 
   let {
@@ -205,6 +205,18 @@
     table.rows.forEach((each) => each.splice(column, 1));
     menu = null;
   }
+  /** Moves the row or column of the menu's cell and keeps that cell focused where it went. */
+  function move(table: TableData, what: "row" | "column", by: 1 | -1) {
+    const { row, column } = menu!;
+    menu = null;
+    if (what === "row") {
+      const to = moveRow(table, row, by);
+      if (to !== null) void focusCellAt(to, column);
+    } else {
+      const to = moveColumn(table, column, by);
+      if (to !== null) void focusCellAt(row, to);
+    }
+  }
 
   // ── Tree ──
   type TreeData = Extract<SnippetData, { kind: "tree" }>;
@@ -402,6 +414,11 @@
           <p class="hint muted">{t("snTableHint")}</p>
           {#if menu}
             <div class="menu" role="menu" tabindex="-1" style="left:{menu.x}px;top:{menu.y}px" onpointerdown={(event) => event.stopPropagation()}>
+              <button type="button" role="menuitem" disabled={movedRow(table, menu.row, -1) === null} onclick={() => move(table, "row", -1)}>{t("snMoveRowUp")}</button>
+              <button type="button" role="menuitem" disabled={movedRow(table, menu.row, 1) === null} onclick={() => move(table, "row", 1)}>{t("snMoveRowDown")}</button>
+              <button type="button" role="menuitem" disabled={movedColumn(table, menu.column, -1) === null} onclick={() => move(table, "column", -1)}>{t("snMoveColumnLeft")}</button>
+              <button type="button" role="menuitem" disabled={movedColumn(table, menu.column, 1) === null} onclick={() => move(table, "column", 1)}>{t("snMoveColumnRight")}</button>
+              <hr />
               <button type="button" role="menuitem" disabled={table.rows.length <= 1} onclick={() => deleteRow(table, menu!.row)}>{t("snDeleteRow")}</button>
               <button type="button" role="menuitem" disabled={table.rows[0]!.length <= (table.checkboxes ? 2 : 1) || (table.checkboxes && menu.column === 0)} onclick={() => deleteColumn(table, menu!.column)}>{t("snDeleteColumn")}</button>
             </div>
@@ -923,6 +940,16 @@
   .menu button {
     border: 0;
     text-align: left;
+  }
+  .menu button:disabled {
+    color: var(--muted);
+    cursor: default;
+  }
+  .menu hr {
+    width: 100%;
+    margin: 0.25rem 0;
+    border: 0;
+    border-top: 1px solid var(--line);
   }
   .preview {
     margin: 0;

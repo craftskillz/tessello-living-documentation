@@ -21,6 +21,8 @@ import {
   EDITABLE_KINDS,
   TABLE_FILLS,
   TABLE_STYLES,
+  moveColumn,
+  moveRow,
   newSnippet,
   parseSnippet,
   showsPreview,
@@ -282,6 +284,35 @@ describe("table", () => {
 
   test("a table with only the new directives is still detected as a table", () => {
     assert.equal(detectSnippet("<!-- table-rounded -->\n<!-- table-fill: striped -->\n| a |\n| --- |\n| b |"), "table");
+  });
+
+  const grid = (checkboxes: boolean, rows: string[][]): Extract<SnippetData, { kind: "table" }> =>
+    ({ kind: "table", style: "", fill: "", border: "", rounded: false, color: "", checkboxes, rows });
+
+  test("a body row moves up or down by swapping with its neighbour; the header row stays first", () => {
+    const table = grid(false, [["H"], ["a"], ["b"], ["c"]]);
+    assert.equal(moveRow(table, 1, 1), 2);
+    assert.deepEqual(table.rows, [["H"], ["b"], ["a"], ["c"]]);
+    assert.equal(moveRow(table, 3, -1), 2);
+    assert.deepEqual(table.rows, [["H"], ["b"], ["c"], ["a"]]);
+    assert.equal(moveRow(table, 1, -1), null, "no row goes above the header");
+    assert.equal(moveRow(table, 0, 1), null, "the header does not move");
+    assert.equal(moveRow(table, 3, 1), null, "the last row does not go further");
+    assert.deepEqual(table.rows, [["H"], ["b"], ["c"], ["a"]]);
+  });
+
+  test("a column moves left or right in every row; with check boxes the box column stays first", () => {
+    const table = grid(false, [["A", "B", "C"], ["1", "2", "3"]]);
+    assert.equal(moveColumn(table, 0, 1), 1);
+    assert.deepEqual(table.rows, [["B", "A", "C"], ["2", "1", "3"]]);
+    assert.equal(moveColumn(table, 0, -1), null);
+    assert.equal(moveColumn(table, 2, 1), null);
+    const checked = grid(true, [["", "A", "B"], ["[x]", "1", "2"]]);
+    assert.equal(moveColumn(checked, 1, -1), null, "nothing goes before the boxes");
+    assert.equal(moveColumn(checked, 0, 1), null, "the boxes do not move");
+    assert.equal(moveColumn(checked, 2, -1), 1);
+    assert.deepEqual(checked.rows, [["", "B", "A"], ["[x]", "2", "1"]]);
+    assert.equal(build(checked), "<!-- table-checkboxes -->\n|     | B   | A   |\n| --- | --- | --- |\n| [x] | 2   | 1   |");
   });
 
 });

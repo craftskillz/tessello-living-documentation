@@ -310,6 +310,29 @@ describe("block actions in the reading view", () => {
     assert.equal(page.url(), address);
   });
 
+  test("the cell menu of the Table form moves a row up or down and a column left or right; the header row stays first", async () => {
+    const { page, host, disk } = await withProject({ "a.md": "| A | B |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |\n" });
+    const address = page.url();
+    await page.getByRole("cell", { name: "3", exact: true }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit table" }).click();
+    const dialog = edit(page);
+    const menuOn = async (name: string) => {
+      await dialog.getByRole("textbox", { name }).click({ button: "right" });
+      return dialog.getByRole("menu");
+    };
+    let menu = await menuOn("Row 2, column 1");
+    assert.equal(await menu.getByRole("menuitem", { name: "Move row up" }).isDisabled(), true, "nothing goes above the header");
+    await menu.getByRole("menuitem", { name: "Move row down" }).click();
+    await until(() => dialog.getByRole("textbox", { name: "Row 3, column 1" }).evaluate((each) => each === document.activeElement), "the moved cell focused");
+    menu = await menuOn("Row 1, column 2");
+    assert.equal(await menu.getByRole("menuitem", { name: "Move row down" }).isDisabled(), true, "the header stays first");
+    assert.equal(await menu.getByRole("menuitem", { name: "Move column right" }).isDisabled(), true);
+    await menu.getByRole("menuitem", { name: "Move column left" }).click();
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await until(() => host.folders.read(disk, "a.md") === "| B   | A   |\n| --- | --- |\n| 4   | 3   |\n| 2   | 1   |\n", "the moves on disk");
+    assert.equal(page.url(), address);
+  });
+
   test("a table inside a quote edits as a table and stays in the quote; a double-click on a cell focuses it", async () => {
     const { page, host, disk } = await withProject({ "a.md": "# A\n\n> | a | b |\n> | - | - |\n> | 1 | 2 |\n" });
     const address = page.url();
